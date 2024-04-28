@@ -44,11 +44,11 @@
   (string= "xoxc" (substring token 0 4)))
 
 (defun slack-parse ()
-  (json-parse-buffer :object-type 'plist :array-type 'list :false-object :json-false ))
+  (json-parse-buffer :object-type 'plist :array-type 'list :false-object :json-false :null-object nil))
 
 (defun slack-request-parse-payload (payload)
   (condition-case err-var
-      (json-parse-string payload :object-type 'plist :array-type 'list :false-object :json-false )
+      (json-parse-string payload :object-type 'plist :array-type 'list :false-object :json-false :null-object nil)
     (error (message "[Slack] Error on parse JSON: %S, ERR: %S"
                     payload
                     err-var)
