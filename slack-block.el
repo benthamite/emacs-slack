@@ -23,6 +23,8 @@
 ;;
 
 ;;; Code:
+
+(eval-when-compile (require 'subr-x))
 (require 'eieio)
 (require 'lui)
 (require 'slack-util)
@@ -64,6 +66,8 @@
       (slack-create-context-layout-block payload))
      ((string= "rich_text" type)
       (slack-create-rich-text-block payload))
+     ((string= "call" type)
+      (slack-create-call-layout-block payload))
      (t (make-instance 'slack-layout-block
                        :type type
                        :payload payload))
@@ -103,6 +107,26 @@
                  :block_id (plist-get payload :block_id)
                  :elements (mapcar #'slack-create-rich-text-block-element
                                    (plist-get payload :elements))))
+
+(defclass slack-call-layout-block ()
+  ((type :initarg :type :type string)
+   (block-id :initarg :block_id :type string)
+   (join-url :initarg :join_url :type string)))
+
+(cl-defmethod slack-block-to-string ((this slack-call-layout-block) &optional option)
+  (concat "Join URL: " (oref this join-url)))
+
+(defun slack-create-call-layout-block (payload)
+  (make-instance
+   'slack-call-layout-block
+   :type (plist-get payload :type)
+   ;; Possibly only works for Zoom extension. Don't know about other
+   ;; "call" blocks.
+   :join_url (thread-first
+               payload
+               (plist-get :call)
+               (plist-get :v1)
+               (plist-get :join_url))))
 
 (defclass slack-rich-text-block-element ()
   ((type :initarg :type :type string)
