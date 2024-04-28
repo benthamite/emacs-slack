@@ -188,23 +188,23 @@
       (with-slots (url type params data parser sync files headers timeout without-auth) req
         (oset req response
               (request
-               url
-               :type type
-               :sync sync
-               :params params
-               :data data
-               :files files
-               :headers (append
-                         (if without-auth nil
-                           (list (cons "Authorization"
-                                       (format "Bearer %s" (slack-team-token team)))))
-                         (when (slack-need-cookie-p (slack-team-token team))
-                           (list (cons "Cookie" (format "d=%s; " (slack-team-cookie team)))))
-                         headers)
-               :parser parser
-               :success #'-on-success
-               :error #'-on-error
-               :timeout timeout))))))
+                url
+                :type type
+                :sync sync
+                :params params
+                :data data
+                :files files
+                :headers (append
+                          (if without-auth nil
+                            (list (cons "Authorization"
+                                        (format "Bearer %s" (slack-team-token team)))))
+                          (when (slack-need-cookie-p (slack-team-token team))
+                            (list (cons "Cookie" (format "d=%s; " (slack-team-cookie team)))))
+                          headers)
+                :parser parser
+                :success #'-on-success
+                :error #'-on-error
+                :timeout timeout))))))
 
 
 (cl-defmacro slack-request-handle-error ((data req-name &optional handler) &body body)
@@ -367,16 +367,16 @@
              (use-https-p (and url-obj
                                (string= "https" (url-type url-obj)))))
         (request
-         url
-         :success #'on-success
-         :error #'on-error
-         :parser #'parser
-         :sync sync
-         :headers (when (and token use-https-p need-token-p)
-                    (append
-                     (list (cons "Authorization" (format "Bearer %s" token)))
-                     (when (slack-need-cookie-p token)
-                       (list (cons "Cookie" (format "d=%s; " cookie)))))))))))
+          url
+          :success #'on-success
+          :error #'on-error
+          :parser #'parser
+          :sync sync
+          :headers (when (and token use-https-p need-token-p)
+                     (append
+                      (list (cons "Authorization" (format "Bearer %s" token)))
+                      (when (slack-need-cookie-p token)
+                        (list (cons "Cookie" (format "d=%s; " cookie)))))))))))
 
 (cl-defun slack-curl-downloader (url name &key (success nil) (error nil) (token nil) (cookie nil))
   (cl-labels

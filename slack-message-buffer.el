@@ -57,8 +57,8 @@
 
 (defface slack-new-message-marker-face
   '((t (:foreground "#d33682"
-                    :weight bold
-                    :height 0.8)))
+        :weight bold
+        :height 0.8)))
   "Face used to New Message Marker."
   :group 'slack)
 

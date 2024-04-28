@@ -169,8 +169,8 @@
 
 (defface slack-user-profile-header-face
   '((t (:foreground "#FFA000"
-                    :weight bold
-                    :height 1.5)))
+        :weight bold
+        :height 1.5)))
   "Face used to user profile header."
   :group 'slack)
 
@@ -273,13 +273,13 @@
                 (when (functionp after-success)
                   (funcall after-success))))
              (request (user-ids)
-                      (slack-request
-                       (slack-request-create
-                        slack-user-info-url
-                        team
-                        :params (list (cons "users"
-                                            (mapconcat #'identity user-ids ",")))
-                        :success #'on-success))))
+               (slack-request
+                (slack-request-create
+                 slack-user-info-url
+                 team
+                 :params (list (cons "users"
+                                     (mapconcat #'identity user-ids ",")))
+                 :success #'on-success))))
           (request (pop queue)))))))
 
 (cl-defun slack-user-info-request (user-id team &key after-success)
@@ -429,14 +429,14 @@
                  (slack-log "Slack User List Updated"
                             team :level 'info))))))
          (request (&optional next-cursor)
-                  (slack-request
-                   (slack-request-create
-                    slack-user-list-url
-                    team
-                    :params (list (cons "limit" "1000")
-                                  (and next-cursor
-                                       (cons "cursor" next-cursor)))
-                    :success #'on-list-update))))
+           (slack-request
+            (slack-request-create
+             slack-user-list-url
+             team
+             :params (list (cons "limit" "1000")
+                           (and next-cursor
+                                (cons "cursor" next-cursor)))
+             :success #'on-list-update))))
       (request))))
 
 (cl-defun slack-user-prefs-request (team &key after-success)

@@ -546,7 +546,7 @@
 
         (let ((blocks (list (cons "blocks" (list (list (cons "type" "rich_text")
                                                        (cons "elements" elements)))))))
-        ;; (message "elements: %s, blocks: %s" elements blocks)
+          ;; (message "elements: %s, blocks: %s" elements blocks)
           ;; (let ((buf (get-buffer-create "emacs-slack blocks")))
           ;;   (with-current-buffer buf
           ;;     (delete-region (point-min) (point-max))

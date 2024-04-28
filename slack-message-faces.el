@@ -37,9 +37,9 @@
 
 (defface slack-message-output-header
   '((t (:foreground "#FFA000"
-                    :weight bold
-                    :height 1.0
-                    :underline t)))
+        :weight bold
+        :height 1.0
+        :underline t)))
   "Face used to text message."
   :group 'slack)
 

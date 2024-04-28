@@ -268,44 +268,44 @@
                           "Slack"
                           :actions
                           ((:name "Follow message"
-                                  :handler ,#'handle-follow-message
-                                  :display-p ,#'display-follow-p)
+                            :handler ,#'handle-follow-message
+                            :display-p ,#'display-follow-p)
                            (:name "Unfollow message"
-                                  :handler ,#'handle-unfollow-message
-                                  :display-p ,#'display-unfollow-p)
+                            :handler ,#'handle-unfollow-message
+                            :display-p ,#'display-unfollow-p)
                            (:name "Star message"
-                                  :handler ,#'handle-star-message
-                                  :display-p ,#'display-star-p)
+                            :handler ,#'handle-star-message
+                            :display-p ,#'display-star-p)
                            (:name "Unstar message"
-                                  :handler ,#'handle-unstar-message
-                                  :display-p ,#'display-unstar-p)
+                            :handler ,#'handle-unstar-message
+                            :display-p ,#'display-unstar-p)
                            (:name "Add reaction to message"
-                                  :handler ,#'handle-add-reaction)
+                            :handler ,#'handle-add-reaction)
                            (:name "Remove reaction from message"
-                                  :handler ,#'handle-remove-reaction)
+                            :handler ,#'handle-remove-reaction)
                            (:name "Edit message"
-                                  :handler ,#'handle-edit)
+                            :handler ,#'handle-edit)
                            (:name "Share message"
-                                  :handler ,#'handle-share)
+                            :handler ,#'handle-share)
                            (:name "Copy link"
-                                  :handler ,#'handle-copy-link)
+                            :handler ,#'handle-copy-link)
                            (:name "Mark unread"
-                                  :display-p ,#'message-buffer-p
-                                  :handler ,#'handle-mark-unread)
+                            :display-p ,#'message-buffer-p
+                            :handler ,#'handle-mark-unread)
                            (:name "Remind me about this"
-                                  :handler ,#'handle-remind)
+                            :handler ,#'handle-remind)
                            (:name ,(format "Pin to %s%s"
                                            (if (slack-im-p room) "@" "#")
                                            (slack-room-name room team))
-                                  :display-p ,#'display-pin-p
-                                  :handler ,#'handle-pin)
+                            :display-p ,#'display-pin-p
+                            :handler ,#'handle-pin)
                            (:name ,(format "Un-pin from %s%s"
                                            (if (slack-im-p room) "@" "#")
                                            (slack-room-name room team))
-                                  :display-p ,#'display-un-pin-p
-                                  :handler ,#'handle-un-pin)
+                            :display-p ,#'display-un-pin-p
+                            :handler ,#'handle-un-pin)
                            (:name "Delete message"
-                                  :handler ,#'handle-delete-message)))))
+                            :handler ,#'handle-delete-message)))))
           (cl-labels
               ((on-success (subscriptions)
                            (if (cl-find ts subscriptions :test #'string=)

@@ -59,7 +59,7 @@
 
 (cl-defmethod slack-im-user-dnd-status ((room slack-im) team)
   (or (slack-user-dnd-status-to-string (slack-user-find room
-                                                    team)
+                                                        team)
                                        team)
       " "))
 

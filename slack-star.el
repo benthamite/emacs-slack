@@ -225,8 +225,8 @@
   (slack-if-let* ((item (cl-find-if #'(lambda (e) (string= (oref e date-create) ts))
                                     (oref this items))))
       (slack-star-api-request slack-message-stars-remove-url
-                                      (slack-message-star-api-params item)
-                                      team)))
+                              (slack-message-star-api-params item)
+                              team)))
 
 
 (provide 'slack-star)

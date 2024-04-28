@@ -565,7 +565,7 @@ TEAM is one of `slack-teams'"
                  team :level 'trace)
       (setq waiting-send
             (cl-remove-if #'(lambda (e) (eq (plist-get e :id)
-                                            (plist-get payload :reply_to)))
+                                       (plist-get payload :reply_to)))
                           waiting-send))
       (slack-log (format "waiting-send: %s" (length waiting-send))
                  team :level 'trace))))

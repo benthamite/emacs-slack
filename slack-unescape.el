@@ -119,18 +119,18 @@ see \"Formatting dates\" section in https://api.slack.com/docs/message-formattin
                           (if (string= "channel|channel" match)
                               "@channel"
                             (slack-if-let*
-                              ((command (cl-find match commands :test #'string=)))
-                              (format "@%s" command)
-                            (cl-destructuring-bind (variable label)
-                                (split-by-| match)
-                              (or (and label (format "<%s>"
-                                                     (mapconcat #'char-to-string
-                                                                (reverse label)
-                                                                "")))
-                                  (format "<%s>"
-                                          (mapconcat #'char-to-string
-                                                     (reverse variable)
-                                                     ""))))))
+                                ((command (cl-find match commands :test #'string=)))
+                                (format "@%s" command)
+                              (cl-destructuring-bind (variable label)
+                                  (split-by-| match)
+                                (or (and label (format "<%s>"
+                                                       (mapconcat #'char-to-string
+                                                                  (reverse label)
+                                                                  "")))
+                                    (format "<%s>"
+                                            (mapconcat #'char-to-string
+                                                       (reverse variable)
+                                                       ""))))))
                           )
                         'slack-defer-face
                         'slack-message-mention-keyword-face))))

@@ -224,7 +224,7 @@ ones and overrule settings in the other lists."
   (let ((messages args))
     (mapconcat #'identity
                (cl-remove-if #'(lambda (e) (or (null e)
-                                               (< (length e) 1)))
+                                          (< (length e) 1)))
                              messages)
                "\n")))
 

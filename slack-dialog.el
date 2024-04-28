@@ -186,7 +186,7 @@
   (cl-call-next-method))
 
 (cl-defmethod slack-dialog-select-element-get-suggestions ((this slack-dialog-select-element)
-                                                        dialog-id team after-success)
+                                                           dialog-id team after-success)
   (let* ((url "https://slack.com/api/dialog.selectSuggestion")
          (min-query-length (oref this min-query-length))
          (prompt (format "Type hints to see options (minimum: %s) : " min-query-length))
@@ -272,8 +272,8 @@
      )))
 
 (cl-defmethod slack-dialog--submit ((_this slack-dialog)
-                                 dialog-id team submission
-                                 &optional after-success)
+                                    dialog-id team submission
+                                    &optional after-success)
   (let ((url "https://slack.com/api/dialog.submit")
         (params (list (cons "submission" (json-encode-alist submission))
                       (cons "dialog_id" dialog-id))))
