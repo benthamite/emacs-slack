@@ -85,8 +85,9 @@
   (interactive)
   (let ((buffer (slack-buffer-buffer slack-current-buffer)))
     (with-current-buffer buffer
-      (erase-buffer)
-      (if (> (count-windows) 1) (delete-window)))))
+      (kill-buffer)
+      (unless (and (equal slack-buffer-function #'switch-to-buffer) (> (count-windows) 1))
+        (delete-window)))))
 
 (defun slack-message-send-from-buffer ()
   (interactive)
