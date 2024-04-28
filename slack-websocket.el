@@ -845,6 +845,7 @@ TEAM is one of `slack-teams'"
                              (list :id (oref this message-id)
                                    :type type
                                    :ids ids))))
+
 (defun slack-authorize (team &optional error-callback success-callback)
   (let ((authorize-request (oref team authorize-request)))
     (if (and authorize-request (not (request-response-done-p authorize-request)))
@@ -878,7 +879,8 @@ TEAM is one of `slack-teams'"
                                         (slack-conversations-list-update team)
                                         ;; (slack-user-list-update team)
                                         (slack-dnd-status-team-info team)
-                                        (slack-download-emoji team #'on-emoji-download)
+                                        (when slack-buffer-emojify
+                                          (slack-download-emoji team #'on-emoji-download))
                                         (slack-command-list-update team)
                                         (slack-usergroup-list-update team)
                                         (slack-update-modeline)))
