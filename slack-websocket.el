@@ -922,6 +922,9 @@ TEAM is one of `slack-teams'"
                (ims nil))
            (cl-loop for c in (plist-get data :channels)
                     do (cond
+                        ((and
+                          slack-exclude-archived-channels
+                          (eq t (plist-get c :is_archived))))
                         ((eq t (plist-get c :is_channel))
                          (push (slack-room-create c 'slack-channel)
                                channels))
