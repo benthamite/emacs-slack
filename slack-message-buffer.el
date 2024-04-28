@@ -26,6 +26,7 @@
 
 (require 'cl-lib)
 (require 'eieio)
+(require 'seq)
 (require 'slack-room)
 (require 'slack-util)
 (require 'slack-room-buffer)
@@ -668,7 +669,11 @@
                 (cl-loop for team in (list team)
                          append (cl-remove-if
                                  #'(lambda (room)
-                                     (not (slack-room-has-unread-p room team)))
+                                     (or
+                                      (not (slack-room-has-unread-p room team))
+                                      (seq-contains-p
+                                       (plist-get (oref team user-prefs) :muted_channels)
+                                       (oref room id))))
                                  (append (slack-team-ims team)
                                          (slack-team-groups team)
                                          (slack-team-channels team))))

@@ -24,12 +24,14 @@
 
 ;;; Code:
 
+(eval-when-compile (require 'subr-x))
 (require 'eieio)
 (require 'slack-util)
 (require 'slack-request)
 (require 'slack-emoji)
 (require 'slack-dnd-status)
 (require 'slack-bot)
+(require 'map)
 
 (defvar slack-completing-read-function)
 
@@ -39,6 +41,7 @@
 (defconst slack-user-info-url "https://slack.com/api/users.info")
 (defconst slack-user-list-url "https://slack.com/api/users.list")
 (defconst slack-user-profile-set-url "https://slack.com/api/users.profile.set")
+(defconst slack-user-prefs-get-url "https://slack.com/api/users.prefs.get")
 (defvar slack-current-user-id nil)
 
 (defcustom slack-dnd-sign "Z"
@@ -435,6 +438,29 @@
                                        (cons "cursor" next-cursor)))
                     :success #'on-list-update))))
       (request))))
+
+(cl-defun slack-user-prefs-request (team &key after-success)
+  "Get preferences for the current user.
+See the following documentation for more information:
+https://github.com/ErikKalkoken/slackApiDoc/blob/master/users.prefs.get.md"
+  (let ((team (or team (slack-team-select))))
+    (slack-request
+     (slack-request-create
+      slack-user-prefs-get-url
+      team
+      :type "GET"
+      :success (cl-function
+                (lambda (&key data &allow-other-keys)
+                  (funcall
+                   after-success
+                   (let* ((prefs (plist-get data :prefs))
+                          ;; Parse muted_channels
+                          (muted-channels (thread-first
+                                            prefs
+                                            (plist-get :muted_channels)
+                                            (or "")
+                                            (string-split "," t))))
+                     (map-insert prefs :muted_channels muted-channels)))))))))
 
 (provide 'slack-user)
 ;;; slack-user.el ends here

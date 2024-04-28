@@ -41,6 +41,7 @@
 (require 'slack-message-sender)
 (require 'slack-message-editor)
 (require 'slack-message-reaction)
+(require 'slack-user)
 (require 'slack-user-message)
 (require 'slack-bot-message)
 (require 'slack-search)
@@ -212,7 +213,11 @@ Available options (property name, type, default value)
                                 (slack-team-connect team))))
                         (puthash (oref team token) team slack-teams-by-token)
                         (if (plist-get plist :default)
-                            (setq slack-current-team team))))
+                            (setq slack-current-team team))
+                        (slack-user-prefs-request
+                         team
+                         :after-success
+                         (lambda (prefs) (setf (oref team user-prefs) prefs)))))
 
     (if (has-token-p plist)
         (let ((team (slack-create-team plist)))

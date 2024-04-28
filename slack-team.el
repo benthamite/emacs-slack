@@ -110,6 +110,7 @@ use `slack-change-current-team' to change `slack-current-team'"
    (dnd-status :initform (make-hash-table :test 'equal))
    (presence :initform (make-hash-table :test 'equal))
    (disable-block-format :initform nil :initarg :disable-block-format :type boolean)
+   (user-prefs :initform nil)
    ))
 
 (defun slack-create-team (plist)
