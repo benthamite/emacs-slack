@@ -54,6 +54,7 @@
 
 (defconst slack-api-test-url "https://slack.com/api/api.test")
 (defconst slack-rtm-connect-url "https://slack.com/api/rtm.connect")
+(defconst slack-api-client-userboot-url "https://slack.com/api/client.userBoot")
 
 (defun slack-ws-on-timeout (team-id)
   (let* ((team (slack-team-find team-id))
@@ -907,6 +908,30 @@ TEAM is one of `slack-teams'"
 (defun slack-conversations-list-update (&optional team after-success)
   (interactive)
   (let ((team (or team (slack-team-select))))
+    (slack-request
+     (slack-request-create
+      slack-api-client-userboot-url
+      team
+      :success
+      (cl-function
+       (lambda (&key data &allow-other-keys)
+         (let ((channels nil)
+               (groups nil)
+               (ims nil))
+           (cl-loop for c in (plist-get data :channels)
+                    do (cond
+                        ((eq t (plist-get c :is_channel))
+                         (push (slack-room-create c 'slack-channel)
+                               channels))
+                        ((eq t (plist-get c :is_im))
+                         (push (slack-room-create c 'slack-im)
+                               ims))
+                        ((eq t (plist-get c :is_group))
+                         (push (slack-room-create c 'slack-group)
+                               groups))))
+           (slack-team-set-channels team channels)
+           (slack-team-set-groups team groups)
+           (slack-team-set-ims team ims))))))
     (cl-labels
         ((success (channels groups ims)
                   (slack-team-set-channels team channels)
@@ -926,7 +951,18 @@ TEAM is one of `slack-teams'"
                              team :level 'info)
                   (slack-log "Slack Im List Updated"
                              team :level 'info)))
-      (slack-conversations-list team #'success))))
+      (slack-conversations-list
+       team #'success
+       ;; Do not update public_channel. userBoot fetches all joined
+       ;; public channels already.
+
+       ;; TODO: Maybe bind this behavior to a variable.  If non-nil,
+       ;; do not use userBoot and simply get all public channels. Or
+       ;; maybe have multiple values that controls how channels are
+       ;; fetched.
+       '("private_channel"
+         "mpim"
+         "im")))))
 
 (defun slack-im-list-update (&optional team after-success)
   (interactive)
