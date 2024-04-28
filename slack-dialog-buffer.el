@@ -102,7 +102,7 @@
   (let ((team (slack-buffer-team this)))
     (with-slots (dialog-id dialog) this
       (with-slots (title) dialog
-        (format "*Slack Dialog - %s [%s] : %s*"
+        (format "*slack-dialog: %s [%s] : %s*"
                 title
                 dialog-id
                 (slack-team-name team))))))

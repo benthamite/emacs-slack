@@ -52,7 +52,7 @@
   (let ((ts (oref this ts))
         (team (slack-buffer-team this))
         (room (slack-buffer-room this)))
-    (format "*Slack - %s : %s  Share Message - %s"
+    (format "*slack: %s : %s  Share Message - %s"
             (slack-team-name team)
             (slack-room-name room team)
             ts)))

@@ -37,7 +37,7 @@
 
 (cl-defmethod slack-buffer-name ((this slack-stars-buffer))
   (let ((team (slack-buffer-team this)))
-    (format "*Slack - %s : Stars*" (oref team name))))
+    (format "*slack: %s : Stars*" (oref team name))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-stars-buffer)) &rest _args)
   'slack-stars-buffer)

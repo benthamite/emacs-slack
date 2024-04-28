@@ -48,7 +48,7 @@
 (cl-defmethod slack-buffer-name ((this slack-user-profile-buffer))
   (let ((user-id (oref this user-id))
         (team (slack-buffer-team this)))
-    (format "*Slack - %s : Profile - %s*"
+    (format "*slack: %s : Profile - %s*"
             (slack-team-name team)
             (slack-user-name user-id team))))
 

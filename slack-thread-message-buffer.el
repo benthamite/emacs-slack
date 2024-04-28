@@ -57,8 +57,7 @@
   (with-slots (thread-ts) this
     (let ((team (slack-buffer-team this))
           (room (slack-buffer-room this)))
-      (format "*Slack - %s : %s Thread - %s"
-              (oref team name)
+      (format "*slack-thread: %s - %s"
               (slack-room-name room team)
               thread-ts))))
 

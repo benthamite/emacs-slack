@@ -43,7 +43,7 @@
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
                   (room-name (slack-room-name room team)))
-      (format "*Slack Room Info - %s : %s"
+      (format "*slack-room-info: %s : %s"
               (slack-team-name team)
               room-name)))
 

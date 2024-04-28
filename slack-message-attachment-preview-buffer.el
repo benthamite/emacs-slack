@@ -112,7 +112,7 @@
 (cl-defmethod slack-buffer-name ((this slack-message-attachment-preview-buffer))
   (let ((team (slack-buffer-team this))
         (room (slack-buffer-room this)))
-    (format "*Slack - %s : %s Compose Message Attachment"
+    (format "*slack: %s : %s Compose Message Attachment"
             (slack-team-name team)
             (slack-room-name room team))))
 

@@ -69,7 +69,7 @@
     (with-slots (dialog dialog-id) dialog-buffer
       (with-slots (name) element
         (with-slots (title) dialog
-          (format "* Slack Dialog Edit Element - %s [%s] edit %s : %s"
+          (format "*slack-dialog-edit-element: %s [%s] edit %s : %s"
                   title dialog-id name (slack-team-name (slack-buffer-team this))))))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-dialog-edit-element-buffer)) dialog-buffer element)

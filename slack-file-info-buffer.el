@@ -62,7 +62,7 @@
 (cl-defmethod slack-buffer-name ((this slack-file-info-buffer))
   (let ((file (oref this file))
         (team (slack-buffer-team this)))
-    (format "*Slack - %s File: %s"
+    (format "*slack: %s File: %s"
             (oref team name)
             (or (slack-file-title file)
                 (oref file id)))))

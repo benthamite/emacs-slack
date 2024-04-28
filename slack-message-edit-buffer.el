@@ -48,7 +48,7 @@
 (cl-defmethod slack-buffer-name ((this slack-message-edit-buffer))
   (let ((team (slack-buffer-team this))
         (ts (oref this ts)))
-    (format "*Slack - %s : %s Edit Message %s"
+    (format "*slack: %s : %s Edit Message %s"
             (oref team name)
             (slack-room-name (slack-buffer-room this) team)
             ts)))

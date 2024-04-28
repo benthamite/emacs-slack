@@ -93,7 +93,7 @@ One of 'info, 'debug"
       (setq buffer-read-only t))))
 
 (defun slack-log-buffer-name (team)
-  (format "*Slack Log - %s*" (slack-team-name team)))
+  (format "*slack-log: %s*" (slack-team-name team)))
 
 (defun slack-log-open-buffer ()
   (interactive)
@@ -101,7 +101,7 @@ One of 'info, 'debug"
     (funcall slack-buffer-function (get-buffer-create (slack-log-buffer-name team)))))
 
 (defun slack-event-log-buffer-name (team)
-  (format "*Slack Event Log - %s*" (slack-team-name team)))
+  (format "*slack-event-log: %s*" (slack-team-name team)))
 
 (defun slack-log-websocket-payload (payload team &optional out)
   (let* ((bufname (slack-event-log-buffer-name team))

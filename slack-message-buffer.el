@@ -96,8 +96,7 @@
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
                   (room-name (slack-room-name room team)))
-      (format  "*Slack - %s : %s"
-               (oref team name)
+      (format  "*slack: %s*"
                room-name)))
 
 (cl-defmethod slack-buffer-last-read ((this slack-message-buffer))
