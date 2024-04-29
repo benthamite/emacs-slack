@@ -97,6 +97,9 @@
       (and name
            (memq (intern name) subscribed-channels)))))
 
+(cl-defmethod slack-room-muted-p ((_room slack-group) _team)
+  nil)
+
 (defun slack-group-list-update (&optional team after-success)
   (interactive)
   (let ((team (or team (slack-team-select))))

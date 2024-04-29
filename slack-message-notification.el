@@ -31,6 +31,7 @@
 (require 'slack-im)
 (require 'alert)
 (require 'slack-group)
+(require 'slack-channel)
 
 (defvar alert-default-style)
 
@@ -88,6 +89,7 @@
 
 (defun slack-message-notify-p (message room team)
   (and (not (slack-message-minep message team))
+       (not (slack-room-muted-p room team))
        (or (slack-im-p room)
            (and (slack-group-p room) (slack-mpim-p room))
            (slack-room-subscribedp room team)

@@ -41,6 +41,7 @@
 (require 'slack-mrkdwn)
 (require 'slack-modeline)
 (require 'slack-message-notification)
+(require 'slack-channel)
 
 (defvar slack-completing-read-function)
 (defvar slack-channel-button-keymap
@@ -671,9 +672,7 @@
                                  #'(lambda (room)
                                      (or
                                       (not (slack-room-has-unread-p room team))
-                                      (seq-contains-p
-                                       (plist-get (oref team user-prefs) :muted_channels)
-                                       (oref room id))))
+                                      (slack-room-muted-p room team)))
                                  (append (slack-team-ims team)
                                          (slack-team-groups team)
                                          (slack-team-channels team))))

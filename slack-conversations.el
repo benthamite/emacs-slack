@@ -289,14 +289,14 @@
         (channels nil)
         (groups nil)
         (ims nil)
-        (types (or types (list "public_channel"
-                               "private_channel"
+        (types (or types (list "private_channel"
                                "mpim"
                                "im")))
         (loop-count 0))
     (cl-labels
         ((on-success
           (&key data &allow-other-keys)
+          (message "Fetching finished!")
           (slack-request-handle-error
            (data "slack-conversations-list")
            (cl-loop for c in (plist-get data :channels)
