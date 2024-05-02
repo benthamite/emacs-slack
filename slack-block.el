@@ -197,6 +197,7 @@ You need to install `language-detection' for this to work."
                     'face 'slack-mrkdwn-code-block-face)
       (pcase-let ((`(,lang . ,hl-text) (slack-block-fontify-text-natively text)))
         (concat
+         "\n"
          (propertize
           (format "┌─ %s" lang)
           'face 'font-lock-comment-face)
@@ -217,7 +218,8 @@ You need to install `language-detection' for this to work."
          "\n"
          (propertize
           "└─"
-          'face 'font-lock-comment-face))))))
+          'face 'font-lock-comment-face)
+         "\n")))))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-preformatted) &optional option)
   (let ((text (mapconcat #'(lambda (element) (slack-block-to-mrkdwn element option))

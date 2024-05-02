@@ -296,7 +296,6 @@
     (cl-labels
         ((on-success
           (&key data &allow-other-keys)
-          (message "Fetching finished!")
           (slack-request-handle-error
            (data "slack-conversations-list")
            (cl-loop for c in (plist-get data :channels)
@@ -316,7 +315,7 @@
                 (has-cursor (< 0 (length next-cursor)))
                 ;; Do not fetch after page 100. We are going to get
                 ;; rate limited here, according to my experience.
-                (not-too-much (< loop-count 100)))
+                (not-too-much (< loop-count 80)))
                (progn
                  (setq cursor next-cursor)
                  (setq loop-count (1+ loop-count))
