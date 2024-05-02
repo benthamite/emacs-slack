@@ -906,8 +906,13 @@ TEAM is one of `slack-teams'"
                          :no-retry t))))
           (oset team authorize-request request))))))
 
-(defalias 'slack-room-list-update 'slack-conversations-list-update)
-(defun slack-conversations-list-update (&optional team after-success)
+(defun slack-conversations-list-update-quick (&optional team)
+  "Like slack-conversations-list-update but uses userboot endpoint.
+This way instead of getting all channels in the workspace, you
+only get the ones you are a member of, which reduces the amount
+of requests that are being made to Slack and therefore lowers the
+risk of getting rate-limited. Especially good for workspaces with
+lots of public channels."
   (interactive)
   (let ((team (or team (slack-team-select))))
     (slack-request
@@ -936,7 +941,14 @@ TEAM is one of `slack-teams'"
                                groups))))
            (slack-team-set-channels team channels)
            (slack-team-set-groups team groups)
-           (slack-team-set-ims team ims))))))
+           (slack-team-set-ims team ims))))))))
+
+(defalias 'slack-room-list-update 'slack-conversations-list-update)
+(defun slack-conversations-list-update (&optional team after-success)
+  (interactive)
+  (message ">> slack-conversations-list-update running!")
+  (let ((team (or team (slack-team-select))))
+    (slack-conversations-list-update-quick team)
     (cl-labels
         ((success (channels groups ims)
                   (slack-team-set-channels team channels)
@@ -958,7 +970,8 @@ TEAM is one of `slack-teams'"
                              team :level 'info)))
       (slack-conversations-list
        team #'success
-       ;; Do not update public_channel. userBoot fetches all joined
+       ;; Do not update public_channel.
+       ;; `slack-conversations-list-update-quick' fetches all joined
        ;; public channels already.
 
        ;; TODO: Maybe bind this behavior to a variable.  If non-nil,
