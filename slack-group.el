@@ -29,9 +29,6 @@
 (require 'slack-request)
 (require 'slack-conversations)
 
-(defconst slack-group-update-mark-url "https://slack.com/api/groups.mark")
-(defconst slack-mpim-open-url "https://slack.com/api/mpim.open")
-
 (defvar slack-buffer-function)
 (defvar slack-completing-read-function)
 
