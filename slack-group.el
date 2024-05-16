@@ -94,8 +94,10 @@
       (and name
            (memq (intern name) subscribed-channels)))))
 
-(cl-defmethod slack-room-muted-p ((_room slack-group) _team)
-  nil)
+(cl-defmethod slack-room-muted-p ((this slack-group) team)
+  (seq-contains-p
+   (plist-get (oref team user-prefs) :muted_channels)
+   (oref this id)))
 
 (defun slack-group-list-update (&optional team after-success)
   (interactive)
