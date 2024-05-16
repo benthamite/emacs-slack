@@ -1288,7 +1288,7 @@ You need to install `language-detection' for this to work."
     (make-instance 'slack-option-message-composition-object
                    :text (slack-create-text-message-composition-object
                           (plist-get payload :text))
-                   :value (plist-get payload :value))))
+                   :value (or (plist-get payload :value) ""))))
 
 (cl-defmethod slack-block-to-string ((this slack-option-message-composition-object))
   (with-slots (text) this
