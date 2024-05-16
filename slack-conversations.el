@@ -532,7 +532,10 @@
                  (let* ((key (cl-case (eieio-object-class-name room)
                                (slack-channel :channel)
                                (slack-im :im)
-                               (slack-group :group)))
+                               (slack-group
+                                (if (plist-get data :group)
+                                    :group ;; Not quite sure this group property even exists anymore.
+                                  :channel))))
                         (new-room (slack-room-create
                                    (plist-get data key)
                                    (eieio-object-class-name room)))
