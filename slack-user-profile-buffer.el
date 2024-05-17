@@ -96,12 +96,13 @@
                                                "Presence"))
          (status (slack-user-property-to-str (slack-user--status user) "Status"))
          (timezone (slack-user-property-to-str (slack-user-timezone user) "Timezone"))
+         (title (slack-user-property-to-str (plist-get profile :title) "Title"))
          (email (slack-user-property-to-str (plist-get profile :email) "Email"))
          (phone (slack-user-property-to-str (plist-get profile :phone) "Phone"))
          (skype (slack-user-property-to-str (plist-get profile :skype) "Skype"))
          (body (mapconcat #'identity
                           (cl-remove-if #'null
-                                        (list presence status timezone email phone skype))
+                                        (list presence status title timezone email phone skype))
                           "\n")))
     (format "%s%s\n%s"
             header
