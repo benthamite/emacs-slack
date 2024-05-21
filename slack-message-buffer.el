@@ -631,6 +631,8 @@
   (slack-if-let* ((buf slack-current-buffer))
       (slack-buffer-display-pins-list buf)))
 
+(defalias 'slack-display-user-profile-info #'slack-room-user-select)
+
 (defun slack-room-user-select ()
   (interactive)
   (slack-if-let* ((buf slack-current-buffer))
