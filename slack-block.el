@@ -830,17 +830,17 @@ You need to install `language-detection' for this to work."
                             map)))))
 
 (defface slack-button-block-element-face
-  '((t (:box (:line-width 1 :style released-button :foreground "#2aa198"))))
+  '((t (:box (:line-width 1 :style released-button :color "#2aa198"))))
   "Used to button block element"
   :group 'slack)
 
 (defface slack-button-danger-block-element-face
-  '((t (:inherit slack-button-block-element-face :foreground "#dc322f")))
+  '((t (:inherit slack-button-block-element-face :color "#dc322f")))
   "Used to danger button block element"
   :group 'slack)
 
 (defface slack-button-primary-block-element-face
-  '((t (:inherit slack-button-block-element-face :foreground "#859900")))
+  '((t (:inherit slack-button-block-element-face :color "#859900")))
   "Used to primary button block element"
   :group 'slack)
 
@@ -869,7 +869,7 @@ You need to install `language-detection' for this to work."
       (slack-block-select-from-option-group group)))
 
 (defface slack-select-block-element-face
-  '((t (:box (:line-width 1 :style released-button :forground "#2aa198"))))
+  '((t (:box (:line-width 1 :style released-button :color "#2aa198"))))
   "Used to select block element"
   :group 'slack)
 
@@ -1148,7 +1148,7 @@ You need to install `language-detection' for this to work."
                            (plist-get payload :confirm))))
 
 (defface slack-overflow-block-element-face
-  '((t (:box (:line-width 1 :style released-button :forground "#2aa198"))))
+  '((t (:box (:line-width 1 :style released-button :color "#2aa198"))))
   "Used to overflow block element"
   :group 'slack)
 
@@ -1211,7 +1211,7 @@ You need to install `language-detection' for this to work."
                             map)))))
 
 (defface slack-date-picker-block-element-face
-  '((t (:box (:line-width 1 :style released-button :forground "#2aa198"))))
+  '((t (:box (:line-width 1 :style released-button :color "#2aa198"))))
   "Used to date picker block element"
   :group 'slack)
 
