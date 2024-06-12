@@ -1365,9 +1365,10 @@ You need to install `language-detection' for this to work."
                   ((fboundp other) other))))
       (with-temp-buffer
         (insert text)
-        (delay-mode-hooks (funcall (or mode #'prog-mode)))
-        (font-lock-default-function mode)
-        (font-lock-default-fontify-region (point-min) (point-max) nil)
+        (ignore-errors
+          (delay-mode-hooks mode)
+          (font-lock-default-function mode)
+          (font-lock-default-fontify-region (point-min) (point-max) nil))
         (cons (or lang "prog") (buffer-string))))))
 
 (provide 'slack-block)
