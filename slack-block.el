@@ -1362,14 +1362,13 @@ You need to install `language-detection' for this to work."
            (mode (cond
                   ;; ((fboundp ts) ts)
                   ((fboundp normal) normal)
-                  ((fboundp other) other))))
+                  ((fboundp other) other)
+                  (t 'prog-mode))))
       (with-temp-buffer
         (insert text)
-        (ignore-errors
-          (delay-mode-hooks mode)
-          (font-lock-default-function mode)
-          (font-lock-default-fontify-region (point-min) (point-max) nil))
-        (cons (or lang "prog") (buffer-string))))))
+        (delay-mode-hooks (funcall mode))
+        (font-lock-ensure)
+        (cons (or lang "src") (buffer-string))))))
 
 (provide 'slack-block)
 ;;; slack-block.el ends here
