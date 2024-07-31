@@ -214,11 +214,7 @@ Available options (property name, type, default value)
                         (puthash (oref team token) team slack-teams-by-token)
                         (if (plist-get plist :default)
                             (setq slack-current-team team))
-                        (slack-user-prefs-request
-                         team
-                         :after-success
-                         (lambda (prefs) (setf (oref team user-prefs) prefs)))))
-
+                        (slack-user-prefs-update team)))
     (if (has-token-p plist)
         (let ((team (slack-create-team plist)))
           (register team))

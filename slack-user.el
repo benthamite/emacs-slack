@@ -439,10 +439,11 @@
              :success #'on-list-update))))
       (request))))
 
-(cl-defun slack-user-prefs-request (team &key after-success)
+(cl-defun slack-user-prefs-update (&optional team)
   "Get preferences for the current user.
 See the following documentation for more information:
 https://github.com/ErikKalkoken/slackApiDoc/blob/master/users.prefs.get.md"
+  (interactive)
   (let ((team (or team (slack-team-select))))
     (slack-request
      (slack-request-create
@@ -451,16 +452,15 @@ https://github.com/ErikKalkoken/slackApiDoc/blob/master/users.prefs.get.md"
       :type "GET"
       :success (cl-function
                 (lambda (&key data &allow-other-keys)
-                  (funcall
-                   after-success
-                   (let* ((prefs (plist-get data :prefs))
-                          ;; Parse muted_channels
-                          (muted-channels (thread-first
-                                            prefs
-                                            (plist-get :muted_channels)
-                                            (or "")
-                                            (string-split "," t))))
-                     (map-insert prefs :muted_channels muted-channels)))))))))
+                  (setf (oref team user-prefs)
+                        (let* ((prefs (plist-get data :prefs))
+                               ;; Parse muted_channels
+                               (muted-channels (thread-first
+                                                 prefs
+                                                 (plist-get :muted_channels)
+                                                 (or "")
+                                                 (string-split "," t))))
+                          (map-insert prefs :muted_channels muted-channels)))))))))
 
 (provide 'slack-user)
 ;;; slack-user.el ends here
