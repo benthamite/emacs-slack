@@ -962,6 +962,7 @@ lots of public channels."
                   (slack-team-send-presence-sub team)
                   (when (functionp after-success)
                     (funcall after-success team))
+                  (message ">> Slack is ready!")
                   (slack-log "Slack Channel List Updated"
                              team :level 'info)
                   (slack-log "Slack Group List Updated"
