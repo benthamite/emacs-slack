@@ -237,5 +237,14 @@
   (list (cons "thread_ts" (oref this thread-ts))
         (cons "channels" (oref (slack-buffer-room this) id))))
 
+(defun slack-thread-message-buffer-jump-to-channel-buffer ()
+  "Display the channel of current thread."
+  (interactive)
+  (unless (eq major-mode #'slack-thread-message-buffer-mode)
+    (user-error "Not in a thread"))
+  (slack-if-let-room-and-team (room team)
+      (slack-room-display room team)
+    (user-error "Can't determine the room")))
+
 (provide 'slack-thread-message-buffer)
 ;;; slack-thread-message-buffer.el ends here
