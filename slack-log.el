@@ -69,11 +69,11 @@ One of 'info, 'debug"
 (defun slack-message-logger (message level team)
   "Display MESSAGE with LEVEL using `message'."
   (when (slack-log--should-log? level)
-    (message (format "%s [%s] [%s] %s"
-                     (format-time-string slack-log-time-format)
-                     level
-                     (slack-team-name team)
-                     message))))
+    (message "%s [%s] [%s] %s"
+             (format-time-string slack-log-time-format)
+             level
+             (slack-team-name team)
+             message)))
 
 (cl-defun slack-log (msg team &key
                          (logger #'slack-message-logger)
@@ -87,13 +87,13 @@ One of 'info, 'debug"
                        level
                        msg
                        (slack-team-name team)))
-          (buf (get-buffer-create (slack-log-buffer-name team)))))
-    (with-current-buffer buf
-      (let ((inhibit-read-only t))
-        (save-excursion
-          (goto-char (point-max))
-          (insert log)
-          (insert "\n"))))))
+          (buf (get-buffer-create (slack-log-buffer-name team))))
+      (with-current-buffer buf
+        (let ((inhibit-read-only t))
+          (save-excursion
+            (goto-char (point-max))
+            (insert log)
+            (insert "\n")))))))
 
 (defun slack-log-buffer-name (team)
   (format "*slack-log: %s*" (slack-team-name team)))
