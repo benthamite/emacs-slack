@@ -337,25 +337,29 @@
              :success #'on-success))))
       (request))))
 
-(defun slack-conversations-info (room team &optional after-success)
+(defun slack-conversations-info (channel-id team &optional after-success)
   (slack-request
-   (slack-conversations-info-request room team after-success)))
+   (slack-conversations-info-request channel-id team after-success)))
 
-(defun slack-conversations-info-request (room team &optional after-success)
+(defun slack-conversations-info-request (channel-id team &optional after-success)
   (cl-labels
       ((success (&key data &allow-other-keys)
                 (slack-request-handle-error
                  (data "slack-conversations-info")
-                 (let ((new-room (slack-room-create
-                                  (plist-get data :channel)
-                                  (eieio-object-class-name room))))
+                 (let* ((c (plist-get data :channel))
+                        (new-room (slack-room-create
+                                   c
+                                   (cond
+                                    ((eq t (plist-get c :is_channel)) 'slack-channel)
+                                    ((eq t (plist-get c :is_im)) 'slack-im)
+                                    ((eq t (plist-get c :is_group)) 'slack-group)))))
                    (slack-team-set-room team new-room))
                  (when (functionp after-success)
                    (funcall after-success)))))
     (slack-request-create
      slack-conversations-info-url
      team
-     :params (list (cons "channel" (oref room id)))
+     :params (list (cons "channel" channel-id))
      :success #'success)))
 
 (cl-defun slack-conversations-replies (room ts team &key after-success (cursor nil) (oldest nil))
