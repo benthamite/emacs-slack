@@ -40,6 +40,27 @@ You need to install `language-detection' for this to work."
   :type 'boolean
   :group 'slack)
 
+(defface slack-block-highlight-source-overlay-face
+  '((((class grayscale) (background light))
+     :foreground "DimGray" :weight bold)
+    (((class grayscale) (background dark))
+     :foreground "LightGray" :weight bold)
+    (((class color) (min-colors 88) (background light))
+     :foreground "Firebrick")
+    (((class color) (min-colors 88) (background dark))
+     :foreground "chocolate1")
+    (((class color) (min-colors 16) (background light))
+     :foreground "red")
+    (((class color) (min-colors 16) (background dark))
+     :foreground "red1")
+    (((class color) (min-colors 8) (background light))
+     :foreground "red")
+    (((class color) (min-colors 8) (background dark))
+     :foreground "yellow")
+    (t :weight bold))
+  "If non-nil, highlight source blocks in messages.
+You need to install `language-detection' for this to work.")
+
 (defvar slack-completing-read-function)
 (defvar slack-channel-button-keymap)
 (defvar slack-current-buffer)
@@ -200,7 +221,7 @@ You need to install `language-detection' for this to work."
          "\n"
          (propertize
           (format "┌─ %s" lang)
-          'face 'font-lock-comment-face)
+          'face 'slack-block-highlight-source-overlay-face)
          "\n"
          (mapconcat
           'identity
@@ -212,13 +233,13 @@ You need to install `language-detection' for this to work."
                                     (let ((ov (make-overlay beg beg)))
                                       (overlay-put
                                        ov 'before-string
-                                       (propertize "│" 'face 'font-lock-comment-face))))))
-           (string-split hl-text "\n"))
+                                       (propertize "│" 'face 'slack-block-highlight-source-overlay-face))))))
+           (string-split (string-trim hl-text) "\n"))
           "\n")
          "\n"
          (propertize
           "└─"
-          'face 'font-lock-comment-face)
+          'face 'slack-block-highlight-source-overlay-face)
          "\n")))))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-preformatted) &optional option)
