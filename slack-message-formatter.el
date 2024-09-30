@@ -165,7 +165,9 @@
 (cl-defmethod slack-message-to-string ((this slack-file) ts team)
   (if (slack-file-hidden-by-limit-p this)
       (slack-file-hidden-by-limit-message this)
-    (let ((body (slack-file-summary this ts team))
+    (let ((body (or (ignore-errors
+                      (slack-file-summary this ts team))
+                    "<slack-file-summary error>"))
           (thumb (slack-image-string (slack-file-thumb-image-spec this))))
       (slack-format-message body thumb))))
 
