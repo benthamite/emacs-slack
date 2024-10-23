@@ -29,6 +29,12 @@
 
 ;;; Code:
 
+(defcustom slack-extra-subscribed-channels nil
+  "A list of channel names you want to be subscribed.
+These are added to the check on team's :subscribed-channels"
+  :type 'list
+  :group 'slack)
+
 (defcustom slack-update-quick nil
   "Set to t if you hit rate limiting on connection.
 
