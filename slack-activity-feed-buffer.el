@@ -32,6 +32,7 @@
 (require 'slack-message-buffer)
 (require 'slack-team)
 (require 'dash)
+(require 's)
 
 (defvar slack-activity-feed-url "https://slack.com/api/activity.feed")
 
@@ -71,8 +72,9 @@ Run an action on the data returned with AFTER-SUCCESS."
           ))
 
 (cl-defmethod slack-buffer-name ((this slack-activity-feed-buffer))
-  (format "*slack: %s Activity Feed*"
+  (format "*slack: %s Activity Feed %s*"
           (slack-team-name (slack-buffer-team this))
+          (format-time-string "%s") ;; unix seconds to make unique so that it is never reused
           ))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-activity-feed-buffer)))
@@ -99,6 +101,7 @@ Run an action on the data returned with AFTER-SUCCESS."
    (author-id :initarg :author-id :type (or null string))))
 
 (cl-defmethod slack-activity-message-to-string ((this activity-message) team)
+  "Format an activity-message as a string for presentation."
   (with-slots (channel ts is-broadcast thread-ts author-id) this
     (let* ((room (slack-room-find channel team))
            (header (propertize (format "%s%s"
@@ -111,33 +114,35 @@ Run an action on the data returned with AFTER-SUCCESS."
                           (when-let ((author (slack-user-name author-id team))) (format " from %s" author))
                           "\n"
                           (or
-                           (ignore-errors (when thread-ts
-                                            (let* ((message (slack-room-find-message room ts))
-                                                   (on-success (lambda (messages _next-cursor)
-                                                                 (add-to-list 'x (car messages))
-                                                                 (setq message (car messages)))))
-                                              ;; (message "hey11-- %s " (list (oref room id) thread-ts ts))
-                                              (unless message
-                                                (if (and
-                                                     nil ;; TODO somehow not all threads are found
-                                                     (message "hey-- %s " (list ts thread-ts (and (stringp thread-ts) (not (string-equal ts thread-ts)))))
-                                                     (stringp thread-ts)
-                                                     (not (string-equal ts thread-ts)))
-                                                    (slack-conversations-replies room thread-ts team
-                                                                                 ;; :latest thread-ts
-                                                                                 :inclusive "true"
-                                                                                 :limit "1"
-                                                                                 :after-success on-success)
-                                                  (slack-conversations-history room team
-                                                                               :latest ts
-                                                                               :inclusive "true"
-                                                                               :limit "1"
-                                                                               :after-success on-success)))
-                                              (while (null message)
-                                                (accept-process-output nil 0.1))
-                                              (slack-message-body message team)
-                                              )
-                                            ))
+                           (with-demoted-errors "slack-activity-message-to-string: Loading messages failed with: %S"
+                             (when (or ts thread-ts)
+                               (let* ((message (slack-room-find-message room ts))
+                                      (on-success-history (lambda (messages _next-cursor)
+                                                            (setq message (car messages))))
+                                      (on-success-replies (lambda (messages _next-cursor _more-messages)
+                                                            (setq message (car messages))))
+                                      (thread-ts-in-halves (s-split "\\." thread-ts))
+                                      (thread-ts-first-half (nth 0 thread-ts-in-halves))
+                                      (thread-ts-second-half (nth 1 thread-ts-in-halves)))
+                                 ;; TODO this block is time consuming! We could retrieve these messages in parallel using the same waiting mechanism (accept-process-output,) but waiting on the list of messages. Needs to be done in caller, possibly passing the messages as an optional context parameter.
+                                 (unless message
+                                   (if (and
+                                        thread-ts-second-half
+                                        (not (string-equal thread-ts-first-half thread-ts-second-half)))
+                                       (slack-conversations-replies room thread-ts team
+                                                                    ;; :latest thread-ts
+                                                                    :inclusive "true"
+                                                                    :limit "1"
+                                                                    :after-success on-success-replies)
+                                     (slack-conversations-history room team
+                                                                  :latest ts
+                                                                  :inclusive "true"
+                                                                  :limit "1"
+                                                                  :after-success on-success-history)))
+                                 (while (null message)
+                                   (accept-process-output nil 0.1))
+                                 (slack-message-body message team)
+                                 )))
                            "TODO")
                           )
                   'ts ts
@@ -151,9 +156,9 @@ Run an action on the data returned with AFTER-SUCCESS."
 
 (cl-defmethod slack-activity-reaction-to-string ((this activity-reaction) team)
   (with-slots (user name) this
-    (format "  %s reacted with %s"
+    (format "  %s reacted with :%s:"
             (slack-user-name user team)
-            name ;; TODO emojify?
+            name
             )))
 
 (defclass activity-item ()
@@ -289,6 +294,7 @@ Run an action on the data returned with AFTER-SUCCESS."
       (slack-activity-feed-request team #'after-success))))
 
 (defun slack-activity-feed-open-message ()
+  "Open message at point of activity-feed."
   (interactive)
   (if-let* ((ts (get-text-property (point) 'ts))
             (team-id (get-text-property (point) 'team-id))
