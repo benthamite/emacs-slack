@@ -28,9 +28,12 @@
 (require 'slack-util)
 (require 'slack-buffer)
 (require 'slack-search)
+(require 'slack-room)
+(require 'slack-message-buffer)
+(require 'slack-team)
 (require 'dash)
 
-(defvar slack-activity-feed-url "https://writerai.slack.com/api/activity.feed")
+(defvar slack-activity-feed-url "https://slack.com/api/activity.feed")
 
 (defun slack-activity-feed-request (team &optional after-success)
   "Request activity feed for CHANNEL-ID of TEAM.
@@ -47,7 +50,7 @@ Run an action on the data returned with AFTER-SUCCESS."
       team
       :type "POST"
       :success #'on-success
-      :data "------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"token\"\r\n\r\nxoxc-2358869315-6312498156256-7833098378918-69a9dee30890ebe8d70215fd39b1758dce82a34c203d2ccc95c75010b0c5d147\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"limit\"\r\n\r\n20\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"types\"\r\n\r\nthread_reply,message_reaction,internal_channel_invite,list_record_edited,bot_dm_bundle,at_user,at_user_group,at_channel,at_everyone,keyword,list_record_assigned,list_user_mentioned,external_channel_invite,shared_workspace_invite,external_dm_invite\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"mode\"\r\n\r\nchrono_reads_and_unreads\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"_x_reason\"\r\n\r\nfetchActivityFeed\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"_x_mode\"\r\n\r\nonline\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"_x_sonic\"\r\n\r\ntrue\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"_x_app_name\"\r\n\r\nclient\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie--\r\n"
+      :data (concat "------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"token\"\r\n\r\n" (oref team :token) "\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"limit\"\r\n\r\n20\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"types\"\r\n\r\nthread_reply,message_reaction,internal_channel_invite,list_record_edited,bot_dm_bundle,at_user,at_user_group,at_channel,at_everyone,keyword,list_record_assigned,list_user_mentioned,external_channel_invite,shared_workspace_invite,external_dm_invite\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"mode\"\r\n\r\nchrono_reads_and_unreads\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"_x_reason\"\r\n\r\nfetchActivityFeed\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"_x_mode\"\r\n\r\nonline\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"_x_sonic\"\r\n\r\ntrue\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"_x_app_name\"\r\n\r\nclient\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie--\r\n")
       :headers (list
                 (cons "content-type"
                       "multipart/form-data; boundary=----WebKitFormBoundaryh7x3DqJqAIvkEcie"))))))
@@ -107,38 +110,40 @@ Run an action on the data returned with AFTER-SUCCESS."
       (propertize (concat header
                           (when-let ((author (slack-user-name author-id team))) (format " from %s" author))
                           "\n"
-                          (or (ignore-errors (when thread-ts
-                                               (let* ((message (slack-room-find-message room ts))
-                                                      (on-success (lambda (messages _next-cursor)
-                                                                    (add-to-list 'x (car messages))
-                                                                    (setq message (car messages)))))
-                                                 ;; (message "hey11-- %s " (list (oref room id) thread-ts ts))
-                                                 (unless message
-                                                   (if (and
-                                                        nil ;; TODO somehow not all threads are found
-                                                        (message "hey-- %s " (list ts thread-ts (and (stringp thread-ts) (not (string-equal ts thread-ts)))))
-                                                        (stringp thread-ts)
-                                                        (not (string-equal ts thread-ts)))
-                                                       (slack-conversations-replies room thread-ts team
-                                                                                    ;; :latest thread-ts
-                                                                                    :inclusive "true"
-                                                                                    :limit "1"
-                                                                                    :after-success on-success)
-                                                     (slack-conversations-history room team
-                                                                                  :latest ts
-                                                                                  :inclusive "true"
-                                                                                  :limit "1"
-                                                                                  :after-success on-success)))
-                                                 (while (null message)
-                                                   (accept-process-output nil 0.1))
-                                                 (slack-message-body message team)
-                                                 )
-                                               ))
-                              "TODO")
+                          (or
+                           (ignore-errors (when thread-ts
+                                            (let* ((message (slack-room-find-message room ts))
+                                                   (on-success (lambda (messages _next-cursor)
+                                                                 (add-to-list 'x (car messages))
+                                                                 (setq message (car messages)))))
+                                              ;; (message "hey11-- %s " (list (oref room id) thread-ts ts))
+                                              (unless message
+                                                (if (and
+                                                     nil ;; TODO somehow not all threads are found
+                                                     (message "hey-- %s " (list ts thread-ts (and (stringp thread-ts) (not (string-equal ts thread-ts)))))
+                                                     (stringp thread-ts)
+                                                     (not (string-equal ts thread-ts)))
+                                                    (slack-conversations-replies room thread-ts team
+                                                                                 ;; :latest thread-ts
+                                                                                 :inclusive "true"
+                                                                                 :limit "1"
+                                                                                 :after-success on-success)
+                                                  (slack-conversations-history room team
+                                                                               :latest ts
+                                                                               :inclusive "true"
+                                                                               :limit "1"
+                                                                               :after-success on-success)))
+                                              (while (null message)
+                                                (accept-process-output nil 0.1))
+                                              (slack-message-body message team)
+                                              )
+                                            ))
+                           "TODO")
                           )
                   'ts ts
-                  ;; 'permalink (ignore-errors (oref this permalink)) ;; TODO likely possible to achieve)
-                  ))))
+                  'team-id (oref team id)
+                  'room-id (oref room id)
+                  'thread-ts thread-ts))))
 
 (defclass activity-reaction ()
   ((user :initarg :user :type string)
@@ -282,6 +287,21 @@ Run an action on the data returned with AFTER-SUCCESS."
                            team)))
              (slack-buffer-display buffer))))
       (slack-activity-feed-request team #'after-success))))
+
+(defun slack-activity-feed-open-message ()
+  (interactive)
+  (if-let* ((ts (get-text-property (point) 'ts))
+            (team-id (get-text-property (point) 'team-id))
+            (room-id (get-text-property (point) 'room-id))
+            (thread-ts (get-text-property (point) 'thread-ts))
+            (team (slack-team-find team-id)))
+      (slack-open-message
+       team
+       (slack-room-find room-id team)
+       ;; found out that when a ts is nil, it comes "nil"
+       (--find (s-matches-p "[0-9]" it) (list thread-ts ts)))
+    (error "Not possible to jump to message")))
+(define-key slack-activity-feed-buffer-mode-map (kbd "RET") 'slack-activity-feed-open-message)
 
 (provide 'slack-activity-feed-buffer)
 ;;; slack-activity-feed-buffer.el ends here

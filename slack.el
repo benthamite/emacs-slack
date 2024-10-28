@@ -350,14 +350,13 @@ Available options (property name, type, default value)
                      (s-split "?" it)
                      car
                      (concat (substring it 0 (- (length it) 6)) "." (substring it (- (length it) 6) (length it))))))
-      (if-let* ((go-to-link-position `(lambda ()
-                                        (slack-buffer-goto ,ts)))
-                (thread-message
-                 (and
-                  (string-match "thread_ts=\\([0-9]*\\.[0-9]*\\)" ts-s)
-                  (slack-room-find-message room (match-string 1 ts-s)))))
-          (slack-thread-show-messages thread-message room team go-to-link-position)
-        (slack-room-display room team go-to-link-position))
+      (slack-open-message team room (or
+                                     ;; thread ts
+                                     (and
+                                      (string-match "thread_ts=\\([0-9]*\\.[0-9]*\\)" ts-s)
+                                      (match-string 1 ts-s))
+                                     ;; message ts
+                                     ts))
     (error (format "Not an url: %s" url))
     ))
 

@@ -645,15 +645,17 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
       ((open (buf)
          (slack-buffer-display buf)))
     (let ((buf (slack-buffer-find 'slack-message-buffer team room)))
-      (if buf (open buf)
+      (if buf (progn
+                (open buf)
+                (when (functionp success-callback) (funcall success-callback)))
         (message "No Message in %s, fetching from server..." (slack-room-name room team))
         (slack-room-clear-messages room)
         (slack-conversations-history
          room team
-         :after-success #'(lambda (messages cursor)
-                            (slack-room-set-messages room messages team)
-                            (slack-buffer-display (slack-create-message-buffer room cursor team))
-                            (when (functionp success-callback) (funcall success-callback))))))))
+         :after-success (lambda (messages cursor)
+                          (slack-room-set-messages room messages team)
+                          (slack-buffer-display (slack-create-message-buffer room cursor team))
+                          (when (functionp success-callback) (funcall success-callback))))))))
 
 (cl-defmethod slack-room-update-buffer ((this slack-room) team message replace)
   (slack-if-let* ((buffer (slack-buffer-find 'slack-message-buffer team this)))
@@ -952,5 +954,16 @@ A way to use that is to select the right point of the buffer."
 (advice-add 'select-window :around 'slack-advice-select-window)
 (advice-add 'delete-window :before 'slack-advice-delete-window)
 
+(defun slack-open-message (team room ts)
+  "Open message or thread buffer from TEAM, ROOM and TS.
+Thread depends on if the TS is a thread one.
+We attempt to find a thread first and if not we default to a normal message."
+  (if-let ((go-to-link-position `(lambda ()
+                                   (slack-buffer-goto ,ts)))
+           (thread-message (and (not (slack-im-p room)) (ignore-errors (slack-room-find-message room ts)))))
+      (slack-thread-show-messages thread-message room team go-to-link-position)
+    (slack-room-display room team go-to-link-position)))
+
 (provide 'slack-message-buffer)
+
 ;;; slack-message-buffer.el ends here
