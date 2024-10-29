@@ -254,13 +254,31 @@
     (slack-ws-open ws team
                    :ws-url (oref ws reconnect-url))))
 
+(defvar slack--lock-user-list-update nil
+  "Lock expensive user list request to run less often.
+This is just a mitigation because sometimes it will run at the
+same time as other updates and rate limit the token.")
+(defun slack--lock-user-list-update-release ()
+  "Release `slack--lock-user-list-update'."
+  (setq slack--lock-user-list-update nil))
+
+(defun slack--update-user-list-with-lock (team)
+  "Call slack-user-list-update for TEAM locking the operation via
+ `slack--lock-user-list-update' to avoid multiple calls that rate
+ limit the token and make emacs-slack unusable."
+  (unless slack--lock-user-list-update
+    (slack-user-list-update team)
+    (setq slack--lock-user-list-update t)
+    (run-with-timer 45 nil #'slack--lock-user-list-update-release)))
+
 (defun slack-ws-on-reconnect-open (team-id)
   "Refresh data after websocket reconnection for TEAM-ID.
 This also closes unnecessary buffers and refresh message buffer contents."
   (let* ((team (slack-team-find team-id)))
     (slack-conversations-list-update team)
     ;; attempt at updating the user list in a delayed manner so to not hit user limit
-    (run-with-idle-timer 3 nil #'slack-user-list-update team)
+    (run-with-timer 3 nil #'slack--update-user-list-with-lock
+                    team)
 
     (slack-dnd-status-team-info team)
     (when (hash-table-p (oref team slack-message-buffer))

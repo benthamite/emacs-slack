@@ -412,22 +412,22 @@
   (let ((team (or team (slack-team-select))))
     (cl-labels
         ((on-list-update
-          (&key data &allow-other-keys)
-          (slack-request-handle-error
-           (data "slack-im-list-update")
-           (let* ((members (plist-get data :members))
-                  (response_metadata (plist-get data
-                                                :response_metadata))
-                  (next-cursor (and response_metadata
-                                    (plist-get response_metadata
-                                               :next_cursor))))
-             (slack-team-set-users team members)
+           (&key data &allow-other-keys)
+           (slack-request-handle-error
+            (data "slack-user-list-update")
+            (let* ((members (plist-get data :members))
+                   (response_metadata (plist-get data
+                                                 :response_metadata))
+                   (next-cursor (and response_metadata
+                                     (plist-get response_metadata
+                                                :next_cursor))))
+              (slack-team-set-users team members)
 
-             (if (and next-cursor (< 0 (length next-cursor)))
-                 (request next-cursor)
-               (progn
-                 (slack-log "Slack User List Updated"
-                            team :level 'info))))))
+              (if (and next-cursor (< 0 (length next-cursor)))
+                  (request next-cursor)
+                (progn
+                  (slack-log "Slack User List Updated"
+                             team :level 'info))))))
          (request (&optional next-cursor)
            (slack-request
             (slack-request-create
