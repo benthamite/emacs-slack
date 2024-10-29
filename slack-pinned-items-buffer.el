@@ -89,6 +89,14 @@
                                          items)))
         (slack-buffer-replace this message))))
 
+(defun slack-pinned-items-open-message ()
+  "Open url in pinned items page."
+  (interactive)
+  (if-let ((url (get-text-property (point) 'permalink)))
+      (slack-open-url url)
+    (error "Not possible to jump to message because permalink is not defined")))
+
+(define-key slack-pinned-items-buffer-mode-map (kbd "RET") 'slack-pinned-items-open-message)
 
 (provide 'slack-pinned-items-buffer)
 ;;; slack-pinned-items-buffer.el ends here

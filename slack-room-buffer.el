@@ -360,6 +360,47 @@ Optionally pass SUCCESS-CALLBACK to perform an action on the permalink obtained.
   (interactive)
   (slack-buffer-copy-link slack-current-buffer (slack-get-ts) success-callback))
 
+(defun slack-open-url (url)
+  "Open a slack URL (permalink) in emacs-slack."
+  (interactive
+   (list (cond ((url-p (car kill-ring)) (car kill-ring))
+               ((thing-at-point 'url) (thing-at-point 'url))
+               (t (read-string "Enter slack url:")))))
+  (if-let* ((info (slack-permalink-to-info url))
+            (team-domain (plist-get info :team-domain))
+            (team (slack-team-find-by-domain team-domain))
+            (room-id (plist-get info :room-id))
+            (room (or
+                   (--> team
+                        slack-team-ims
+                        (--find (equal room-id (oref it id)) it))
+                   (--> team
+                        slack-team-channels
+                        (--find (equal room-id (oref it id)) it))
+                   ))
+            (ts (plist-get info :ts))
+            (thread-ts (plist-get info :thread-ts)))
+      (slack-open-message
+       team
+       room
+       ts
+       thread-ts)
+    (error (format "Not an url: %s" url))
+    ))
+
+(defalias 'slack-open-link 'slack-open-url  "Open a Slack permalink in emacs-slack.")
+
+(defun slack-jump-to-browser ()
+  "Attempt to jump from message at point to web slack app."
+  (interactive)
+  (slack-message-copy-link
+   (lambda (link) (browse-url (string-replace "archives" "messages" link)))))
+
+(defun slack-jump-to-app ()
+  "Attempt to jump from message at point to slack app."
+  (interactive)
+  (slack-message-copy-link #'browse-url))
+
 (defun slack-message-test-notification ()
   "Debug notification.
 Execute this function when cursor is on some message."

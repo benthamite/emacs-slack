@@ -42,6 +42,7 @@
 (require 'slack-modeline)
 (require 'slack-message-notification)
 (require 'slack-channel)
+(require 'slack-defcustoms)
 
 (defvar slack-completing-read-function)
 (defvar slack-channel-button-keymap
@@ -954,15 +955,66 @@ A way to use that is to select the right point of the buffer."
 (advice-add 'select-window :around 'slack-advice-select-window)
 (advice-add 'delete-window :before 'slack-advice-delete-window)
 
-(defun slack-open-message (team room ts)
-  "Open message or thread buffer from TEAM, ROOM and TS.
-Thread depends on if the TS is a thread one.
-We attempt to find a thread first and if not we default to a normal message."
+(defun slack-open-message (team room ts thread-ts)
+  "Open message or thread buffer from TEAM, ROOM, TS and THREAD-TS (the latter can be nil)."
   (if-let ((go-to-link-position `(lambda ()
-                                   (slack-buffer-goto ,ts)))
-           (thread-message (and (not (slack-im-p room)) (ignore-errors (slack-room-find-message room ts)))))
+                                   (slack-buffer-goto ,(or thread-ts ts))
+                                   (when (and
+                                          (not (equal ,ts (slack-get-ts)))
+                                          (not (equal ,thread-ts (slack-get-ts)))
+                                          slack-open-message-with-browser
+                                          )
+                                     (message "slack-open-message: message not available in emacs-slack buffer, browsing permalink...")
+                                     (browse-url
+                                      (slack-info-to-permalink
+                                       (list
+                                        :team-domain ,(oref team name)
+                                        :room-id ,(oref room id)
+                                        :ts ,ts
+                                        :thread-ts ,thread-ts))))))
+           (thread-message (and (not (slack-im-p room)) (ignore-errors (slack-room-find-message room thread-ts)))))
       (slack-thread-show-messages thread-message room team go-to-link-position)
     (slack-room-display room team go-to-link-position)))
+
+(defun slack-quote-and-reply (quote)
+  "Prefix QUOTE to reply if region active on a slack message."
+  (interactive
+   (list
+    (if (and (slack-get-ts) (region-active-p))
+        (substring-no-properties (funcall region-extract-function))
+      (error "Need region active on Slack message for this to work"))))
+  (goto-char (point-max))
+  (insert (concat
+           (string-join
+            (seq-map
+             (lambda (it) (concat "> " it) )
+             (string-split quote "\n"))
+            "\n")
+           "\n"))
+  (goto-char (point-max)))
+
+(defun slack-quote-and-reply-with-link (quote)
+  "Prefix QUOTE and its link to reply if region active on a slack message."
+  (interactive
+   (list
+    (if (region-active-p)
+        (substring-no-properties (funcall region-extract-function))
+      "")))
+  (slack-message-copy-link
+   (lambda (link)
+     (goto-char (point-max))
+     (insert (concat
+              "from: "
+              link
+              "\n"
+              (string-join
+               (seq-map
+                (lambda (it) (concat "> " it) )
+                (string-split quote "\n"))
+               "\n")
+              "\n"
+              ))
+     (goto-char (point-max)))))
 
 (provide 'slack-message-buffer)
 

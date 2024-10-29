@@ -275,90 +275,6 @@ Available options (property name, type, default value)
     (if team
         (slack-team-connect team))))
 
-(defun slack-jump-to-browser ()
-  "Attempt to jump from message at point to web slack app."
-  (interactive)
-  (slack-message-copy-link
-   (lambda (link) (browse-url (string-replace "archives" "messages" link)))))
-
-(defun slack-jump-to-app ()
-  "Attempt to jump from message at point to slack app."
-  (interactive)
-  (slack-message-copy-link #'browse-url))
-
-(defun slack-quote-and-reply (quote)
-  "Prefix QUOTE to reply if region active on a slack message."
-  (interactive
-   (list
-    (if (and (slack-get-ts) (region-active-p))
-        (substring-no-properties (funcall region-extract-function))
-      (error "Need region active on Slack message for this to work"))))
-  (goto-char (point-max))
-  (insert (concat
-           (string-join
-            (seq-map
-             (lambda (it) (concat "> " it) )
-             (string-split quote "\n"))
-            "\n")
-           "\n"))
-  (goto-char (point-max)))
-
-(defun slack-quote-and-reply-with-link (quote)
-  "Prefix QUOTE and its link to reply if region active on a slack message."
-  (interactive
-   (list
-    (if (region-active-p)
-        (substring-no-properties (funcall region-extract-function))
-      "")))
-  (slack-message-copy-link
-   (lambda (link)
-     (goto-char (point-max))
-     (insert (concat
-              "from: "
-              link
-              "\n"
-              (string-join
-               (seq-map
-                (lambda (it) (concat "> " it) )
-                (string-split quote "\n"))
-               "\n")
-              "\n"
-              ))
-     (goto-char (point-max)))))
-
-(defun slack-open-url (url)
-  "Open a slack URL in emacs-slack."
-  (interactive
-   (list (cond ((url-p (car kill-ring)) (car kill-ring))
-               ((thing-at-point 'url) (thing-at-point 'url))
-               (t (read-string "Enter slack url:")))))
-  (if-let* ((_ (string-match "https://\\(.*\\).slack.com/archives/\\(.*\\)/p\\(.*\\)" url))
-            (team-domain (match-string 1 url))
-            (team (slack-team-find-by-domain team-domain))
-            (room-id (match-string 2 url))
-            (room (or
-                   (--> team
-                        slack-team-ims
-                        (--find (equal room-id (oref it id)) it))
-                   (--> team
-                        slack-team-channels
-                        (--find (equal room-id (oref it id)) it))
-                   ))
-            (ts-s (match-string 3 url))
-            (ts (--> ts-s
-                     (s-split "?" it)
-                     car
-                     (concat (substring it 0 (- (length it) 6)) "." (substring it (- (length it) 6) (length it))))))
-      (slack-open-message team room (or
-                                     ;; thread ts
-                                     (and
-                                      (string-match "thread_ts=\\([0-9]*\\.[0-9]*\\)" ts-s)
-                                      (match-string 1 ts-s))
-                                     ;; message ts
-                                     ts))
-    (error (format "Not an url: %s" url))
-    ))
-
 (defun slack-kill-all-buffers ()
   "Kill all slack buffers."
   (interactive)
@@ -401,15 +317,6 @@ Available options (property name, type, default value)
                          (insert (format "- [[%s][%s]]\n" (plist-get it :link) (plist-get it :title)))))))))))
       (slack-bookmarks-request channel-id team on-success)
     (error "slack: Cannot show slack bookmarks here")))
-
-(defun slack-search-result-open-message ()
-  "Open url in search result page."
-  (interactive)
-  (if-let ((url (get-text-property (point) 'permalink)))
-      (slack-open-url url)
-    (error "Not possible to jump to message because permalink is not defined")))
-
-(define-key slack-search-result-buffer-mode-map (kbd "RET") 'slack-search-result-open-message)
 
 (provide 'slack)
 ;;; slack.el ends here

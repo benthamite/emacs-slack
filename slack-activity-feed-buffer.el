@@ -128,7 +128,7 @@ Run an action on the data returned with AFTER-SUCCESS."
                                  (unless message
                                    (if (and
                                         thread-ts-second-half
-                                        (not (string-equal thread-ts-first-half thread-ts-second-half)))
+                                        (not (string-equal ts thread-ts)))
                                        (slack-conversations-replies room thread-ts team
                                                                     ;; :latest thread-ts
                                                                     :inclusive "true"
@@ -304,8 +304,9 @@ Run an action on the data returned with AFTER-SUCCESS."
       (slack-open-message
        team
        (slack-room-find room-id team)
+       (--find (s-matches-p "[0-9]" it) (list ts))
        ;; found out that when a ts is nil, it comes "nil"
-       (--find (s-matches-p "[0-9]" it) (list thread-ts ts)))
+       (--find (s-matches-p "[0-9]" it) (list thread-ts)))
     (error "Not possible to jump to message")))
 (define-key slack-activity-feed-buffer-mode-map (kbd "RET") 'slack-activity-feed-open-message)
 

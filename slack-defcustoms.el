@@ -50,5 +50,14 @@ expect to exist."
   :type 'boolean
   :group 'slack)
 
+(defcustom slack-open-message-with-browser t
+  "Opens message permalink in browser if it cannot be opened in a message buffer.
+
+So far (2024-10-29), emacs-slack doesn't support jumping on an old message for a channel:
+it just loads the latest messages in a channel.
+Ideally we want to have that, but for now we let the user jump to Slack app or web app to check the contents."
+  :type 'boolean
+  :group 'slack)
+
 (provide 'slack-defcustoms)
 ;;; slack-defcustoms.el ends here

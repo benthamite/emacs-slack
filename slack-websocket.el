@@ -275,31 +275,32 @@ This also closes unnecessary buffers and refresh message buffer contents."
                     slack-message-edit-buffer
                     slack-message-share-buffer
                     slack-room-message-compose-buffer
-                    slack-search-result-buffer-mode))))
+                    slack-search-result-buffer-mode
+                    slack-pinned-items-buffer-mode))))
 
 (defun slack-ws--reconnect (team-id &optional force)
   (let* ((team (slack-team-find team-id))
          (ws (oref team ws)))
     (cl-labels
         ((on-authorize-error (&key error-thrown symbol-status &allow-other-keys)
-                             (slack-log (format "Reconnect Failed: %s, %s"
-                                                error-thrown
-                                                symbol-status)
-                                        team)
-                             (slack-ws-reconnect ws team))
+           (slack-log (format "Reconnect Failed: %s, %s"
+                              error-thrown
+                              symbol-status)
+                      team)
+           (slack-ws-reconnect ws team))
          (on-authorize-success (data)
-                               (let ((team-data (plist-get data :team))
-                                     (self-data (plist-get data :self)))
-                                 (slack-team-set-ws-url team (plist-get data :url))
-                                 (oset team domain (plist-get team-data :domain))
-                                 (oset team id (plist-get team-data :id))
-                                 (oset team name (plist-get team-data :name))
-                                 (oset team self self-data)
-                                 (oset team self-id (plist-get self-data :id))
-                                 (oset team self-name (plist-get self-data :name))
-                                 (slack-ws-open ws team
-                                                :on-open #'(lambda ()
-                                                             (slack-ws-on-reconnect-open team-id))))))
+           (let ((team-data (plist-get data :team))
+                 (self-data (plist-get data :self)))
+             (slack-team-set-ws-url team (plist-get data :url))
+             (oset team domain (plist-get team-data :domain))
+             (oset team id (plist-get team-data :id))
+             (oset team name (plist-get team-data :name))
+             (oset team self self-data)
+             (oset team self-id (plist-get self-data :id))
+             (oset team self-name (plist-get self-data :name))
+             (slack-ws-open ws team
+                            :on-open #'(lambda ()
+                                         (slack-ws-on-reconnect-open team-id))))))
       (if (and (not force) (slack-ws-reconnect-count-exceed-p ws))
           (slack-ws-abort-reconnect team-id)
         (progn

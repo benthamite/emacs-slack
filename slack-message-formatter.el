@@ -101,17 +101,19 @@
                                (slack-message-reactions m)
                                " "))
          (thread (slack-thread-to-string m team)))
-    (slack-format-message (propertize header
-                                      'slack-message-header t)
-                          (if (oref m deleted-at)
-                              (slack-message-put-deleted-property body)
-                            body)
-                          files
-                          attachment
-                          (if (slack-string-blankp reactions) reactions
-                            (concat "\n" reactions))
-                          (if (slack-string-blankp thread) thread
-                            (concat "\n" thread)))))
+    (propertize
+     (slack-format-message (propertize header
+                                       'slack-message-header t)
+                           (if (oref m deleted-at)
+                               (slack-message-put-deleted-property body)
+                             body)
+                           files
+                           attachment
+                           (if (slack-string-blankp reactions) reactions
+                             (concat "\n" reactions))
+                           (if (slack-string-blankp thread) thread
+                             (concat "\n" thread)))
+     'permalink (oref m permalink))))
 
 (cl-defmethod slack-file-deleted-p ((file slack-file))
   (let ((mode (oref file mode)))
