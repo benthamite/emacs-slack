@@ -689,6 +689,7 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
     (slack-room-display room team)))
 
 (defun slack-select-rooms ()
+  "Select a room to display."
   (interactive)
   (let* ((team (slack-team-select))
          (room (slack-room-select
@@ -700,12 +701,14 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
     (slack-room-display room team)))
 
 (defun slack-message-redisplay ()
+  "Refresh message at point."
   (interactive)
   (slack-if-let* ((ts (slack-get-ts))
                   (buf slack-current-buffer))
       (slack-buffer--replace buf ts)))
 
 (defun slack-message-inspect ()
+  "Print stats of message at point."
   (interactive)
   (slack-if-let* ((ts (slack-get-ts))
                   (buffer slack-current-buffer)
