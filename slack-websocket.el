@@ -100,13 +100,20 @@
                  :level 'debug)
       (oset ws conn
             (condition-case error-var
-                (websocket-open (or ws-url (oref ws url))
+                (websocket-open (concat
+                                 "wss://wss-primary.slack.com/?token="
+                                 (slack-team-token team)
+                                 "&sync_desync=1&slack_client=desktop&start_args=%3Fagent%3Dclient%26org_wide_aware%3Dtrue%26agent_version%3D1730299661%26eac_cache_ts%3Dtrue%26cache_ts%3D0%26name_tagging%3Dtrue%26only_self_subteams%3Dtrue%26connect_only%3Dtrue%26ms_latest%3Dtrue&no_query_on_subscribe=1&flannel=3&lazy_channels=1&gateway_server="
+                                 (slack-team-id team)
+                                 "-4&batch_presence_aware=1")
                                 :on-message #'on-message
                                 :on-open #'handle-on-open
                                 :on-close #'on-close
                                 :on-error #'on-error
                                 :nowait websocket-nowait-p
-                                :custom-header-alist (list (cons "Cookie" (format "d=%s" (slack-team-cookie team)))))
+                                ;; these are not necessary as slack-start sets them already
+                                ;; :custom-header-alist (list (cons "Cookie" (format "d=%s" (slack-team-cookie team))))
+                                )
               (error
                (slack-log (format "An Error occured while opening websocket connection: %s"
                                   error-var)
@@ -519,7 +526,7 @@ TEAM is one of `slack-teams'"
         (oset message pinned-to (cl-remove-if #'(lambda (e) (string= channel-id e))
                                               (oref message pinned-to))))))
 
-(cl-defmethod slack-ws-handle-reconnect-url ((ws slack-team-ws) payload)
+(cl-defmethod slack-ws-handle-reconnect-url ((ws slack-team-ws) payload team)
   (oset ws reconnect-url (plist-get payload :url)))
 
 (defun slack-ws-handle-user-typing (payload team)
@@ -925,7 +932,7 @@ TEAM is one of `slack-teams'"
                         (slack-request-create
                          slack-rtm-connect-url
                          team
-                         :params (list (cons "mpim_aware" "1")
+                         :params (list (cons "batch_presence_aware" "1")
                                        (cons "presence_sub" "true"))
                          :success #'on-success
                          :error #'on-error

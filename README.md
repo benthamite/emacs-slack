@@ -91,6 +91,9 @@ If your token expires, you can use `slack-refresh-token` for a way to refresh in
 
 ## How to get token and cookie
 
+Use the interactive command `slack-refresh-token` because more cookies are required for this fork.
+
+Follow the old instructions for history purposes.
 1. Using Chrome, open and sign into the slack customization page,
    e.g. https://my.slack.com/customize
 2. Right click anywhere on the page and choose "inspect" from the

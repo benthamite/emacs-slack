@@ -27,6 +27,7 @@
 (require 'slack-util)
 (require 'slack-team-ws)
 (require 'dash)
+(require 's)
 
 (declare-function emojify-create-emojify-emojis "emojify")
 
@@ -253,6 +254,24 @@ use `slack-change-current-team' to change `slack-current-team'"
 
 (cl-defmethod slack-team-cookie ((this slack-team))
   (oref this cookie))
+
+(cl-defmethod slack-team-d-cookie ((this slack-team))
+  "Like `slack-team-cookie' but it only returns the value of the cookie for THIS.
+This seems necessary for allowing api call to still carry d-s.
+TODO I should experiment to see if api calls require cookies."
+  (nth 0 (s-split ";" (oref this cookie))))
+
+(cl-defmethod slack-team-d-s-cookie ((this slack-team))
+  "Get d-s cookie useful to authenticate to websocket."
+  (s-trim (s-replace ";" "" (nth 0 (s-split "lc=" (nth 1 (s-split "d-s=" (oref this cookie))))))))
+
+(cl-defmethod slack-team-lc-cookie ((this slack-team))
+  "Get lc cookie useful to authenticate to websocket."
+  (or
+   (ignore-errors
+     (s-trim (s-replace ";" "" (nth 1 (s-split "lc=" (nth 1 (s-split "d-s=" (oref this cookie))))))))
+   ;; assuming we can default to d-s if not present because I am not sure if it is always needed
+   (slack-team-d-s-cookie this)))
 
 (cl-defmethod slack-team-missing-user-ids ((this slack-team) user-ids)
   (let ((exists-user-ids (hash-table-keys (oref this users))))

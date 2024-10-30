@@ -167,22 +167,37 @@ If your token starts with xoxc then keep following the other steps below, otherw
 Now switch to the Applications tab in the Chrome developer tools (or Storage tab in Firefox developer tools).
 Expand Cookies in the left-hand sidebar.
 Click the cookie entry named d and copy its value. Note, use the default encoded version, so don't click the Show URL decoded checkbox.
-ALSO take the d-s cookie and store as 'xoxd-xxxxxxxx; d-s=xxxxxx'.
+ALSO take the d-s and lc cookie and store as 'xoxd-xxxxxxxx; d-s=xxxxxx; lc=xxxxx'.
 Now you're done and can close the window.
 
 For further explanation, see the documentation for the emojme project: (github.com/jackellenberger/emojme)
 
 Note that it is only possible to obtain the cookie manually, not through client-side javascript, due to it being set as HttpOnly and Secure. See OWASP HttpOnly.
+
+Evaluate these to update your current team:
+
+(oset slack-current-team token \"\")
+(oset slack-current-team cookie \"\")
+
+Then use `slack-start' to make the changes effective.
 "
+
   "Instruction to refresh slack tokens."
   :type 'string
   :group 'slack)
+
+(defcustom slack-edit-refresh-token-instructions #'identity
+  "A function to edit `slack-refresh-token-instructions' before they are displayed.
+You can add it to append custom instructions that depend on context.")
 
 ;;;###autoload
 (defun slack-start (&optional team)
   (interactive)
   (cl-labels ((start
                 (team)
+                (url-cookie-store "d" (slack-team-d-cookie team) nil ".slack.com" "/" t)
+                (url-cookie-store "d-s" (slack-team-d-s-cookie team) nil ".slack.com" "/" t)
+                (url-cookie-store "lc" (slack-team-lc-cookie team) nil ".slack.com" "/" t)
                 (slack-team-kill-buffers team)
                 (slack-if-let* ((ws (and (slot-boundp team 'ws)
                                          (oref team ws))))
@@ -291,7 +306,8 @@ Available options (property name, type, default value)
   (kill-new "window.prompt(\"your api token is: \", TS.boot_data.api_token)")
   (browse-url "https://my.slack.com/customize")
   (switch-to-buffer-other-window (get-buffer-create "instructions"))
-  (insert slack-refresh-token-instructions))
+  (insert (funcall slack-edit-refresh-token-instructions slack-refresh-token-instructions))
+  (slack-stop))
 
 (defun slack-show-channel-bookmarks (channel-id team)
   "Show an org mode buffer with the bookmarks of CHANNEL-ID for TEAM."
