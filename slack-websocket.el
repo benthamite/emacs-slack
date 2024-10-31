@@ -68,44 +68,50 @@
       (slack-ws-reconnect ws team))))
 
 (cl-defmethod slack-ws-open ((ws slack-team-ws) team &key (on-open nil) (ws-url nil))
-  (let ((websocket-nowait-p (oref ws websocket-nowait)))
+  "Attempt to open Slack websocket for interactive experience.
+The websocket makes sure your status is communicated, your
+message buffer reacts to new messages and emacs-slack is aware of
+what is happening in your team."
+  (let ((websocket-nowait-p (oref ws websocket-nowait))
+        (ws-url (concat
+                 "wss://wss-primary.slack.com/?token="
+                 (slack-team-token team)
+                 "&sync_desync=1&slack_client=desktop&start_args=%3Fagent%3Dclient%26org_wide_aware%3Dtrue%26agent_version%3D1730299661%26eac_cache_ts%3Dtrue%26cache_ts%3D0%26name_tagging%3Dtrue%26only_self_subteams%3Dtrue%26connect_only%3Dtrue%26ms_latest%3Dtrue&no_query_on_subscribe=1&flannel=3&lazy_channels=1&gateway_server="
+                 (slack-team-id team)
+                 "-4&batch_presence_aware=1")))
     (unless websocket-nowait-p
       (slack-ws-set-connect-timeout-timer ws
                                           #'slack-ws-on-timeout
                                           (slack-team-id team)))
     (cl-labels
         ((on-message (_websocket frame)
-                     (slack-ws-on-message ws frame team))
+           (slack-ws-on-message ws frame team))
          (handle-on-open (_websocket)
-                         (oset ws reconnect-count 0)
-                         (oset ws connected t)
-                         (slack-log "WebSocket on-open"
-                                    team :level 'debug)
-                         (when (functionp on-open)
-                           (funcall on-open)))
+           (oset ws reconnect-count 0)
+           (oset ws connected t)
+           (slack-log "WebSocket on-open"
+                      team :level 'debug)
+           (when (functionp on-open)
+             (funcall on-open)))
          (on-close (websocket)
-                   (oset ws connected nil)
-                   (slack-log (format "Websocket on-close: STATE: %s"
-                                      (websocket-ready-state websocket))
-                              team :level 'debug))
+           (oset ws connected nil)
+           (slack-log (format "Websocket on-close: STATE: %s"
+                              (websocket-ready-state websocket))
+                      team :level 'debug))
          (on-error (_websocket type err)
-                   (slack-log (format "Error on `websocket-open'. TYPE: %s, ERR: %s"
-                                      type err)
-                              team
-                              :level 'error)))
-      (slack-log (format "Opening websocket connection. NOWAIT: %s, URL: %s"
+           (slack-log (format "Error on `websocket-open'. TYPE: %s, ERR: %s"
+                              type err)
+                      team
+                      :level 'error)))
+      (slack-log (format "Opening websocket connection. NOWAIT: %s, URL: %s \n(not using anymore ws object url: %s)"
                          (oref ws websocket-nowait)
+                         ws-url
                          (oref ws url))
                  team
                  :level 'debug)
       (oset ws conn
             (condition-case error-var
-                (websocket-open (concat
-                                 "wss://wss-primary.slack.com/?token="
-                                 (slack-team-token team)
-                                 "&sync_desync=1&slack_client=desktop&start_args=%3Fagent%3Dclient%26org_wide_aware%3Dtrue%26agent_version%3D1730299661%26eac_cache_ts%3Dtrue%26cache_ts%3D0%26name_tagging%3Dtrue%26only_self_subteams%3Dtrue%26connect_only%3Dtrue%26ms_latest%3Dtrue&no_query_on_subscribe=1&flannel=3&lazy_channels=1&gateway_server="
-                                 (slack-team-id team)
-                                 "-4&batch_presence_aware=1")
+                (websocket-open ws-url
                                 :on-message #'on-message
                                 :on-open #'handle-on-open
                                 :on-close #'on-close
@@ -125,7 +131,7 @@
                                               #'slack-ws-on-timeout
                                               (slack-team-id team)))
       (slack-log (format "Called `websocket-open' URL: %s"
-                         (oref ws url))
+                         ws-url)
                  team :level 'debug))))
 
 (defun slack-ws-close ()
