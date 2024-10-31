@@ -336,17 +336,32 @@
                                    :name (match-string 1))))))
 
 (defun slack-mark-links ()
+  "Add slack text property to markdown links."
   (goto-char (point-min))
-  (let ((regex (regexp-opt thing-at-point-uri-schemes)))
-    (while (re-search-forward regex (point-max) t)
-      (unless (slack-mark-inside-code-p (match-beginning 0))
-        (let ((bounds (bounds-of-thing-at-point 'url)))
-          (when bounds
-            (slack-put-block-props (car bounds)
-                                   (cdr bounds)
-                                   (list :type 'link
-                                         :url (buffer-substring-no-properties (car bounds)
-                                                                              (cdr bounds))))))))))
+  (let ((regex-url-scheme (regexp-opt thing-at-point-uri-schemes))
+        (regex-markdown-url slack-mrkdwn-regex-link-inline))
+    (save-excursion
+      (while (re-search-forward (rx (or (regex regex-markdown-url) (regex regex-url-scheme))) (point-max) t)
+        (unless (slack-mark-inside-code-p (match-beginning 0))
+          (if (match-beginning 6)
+              ;; markdown urls with text
+              (let ((bounds (cons (match-beginning 0) (match-end 0))))
+                (when bounds
+                  (slack-put-block-props (car bounds)
+                                         (cdr bounds)
+                                         (list :type 'link
+                                               :text (buffer-substring-no-properties (match-beginning 3)
+                                                                                     (match-end 3))
+                                               :url (buffer-substring-no-properties (match-beginning 6)
+                                                                                    (match-end 6))))))
+            ;; plain urls
+            (let ((bounds (bounds-of-thing-at-point 'url)))
+              (when bounds
+                (slack-put-block-props (car bounds)
+                                       (cdr bounds)
+                                       (list :type 'link
+                                             :url (buffer-substring-no-properties (car bounds)
+                                                                                  (cdr bounds))))))))))))
 
 (defun slack-mark-inhibit-mention-p (point)
   (or (slack-mark-inside-code-p point)
@@ -379,169 +394,173 @@
     (slack-mark-blockquote)
     (slack-mark-list)
     (cl-labels ((with-ranges (ranges cb &optional before-mark)
-                             (let ((str (mapconcat #'(lambda (range)
-                                                       (buffer-substring-no-properties
-                                                        (car range)
-                                                        (cdr range)))
-                                                   (reverse ranges)
-                                                   "\n")))
-                               (with-temp-buffer
-                                 (insert str)
-                                 (when before-mark
-                                   (funcall before-mark))
-                                 (slack-mark-rich-text-elements)
-                                 (funcall cb))))
+                  (let ((str (mapconcat #'(lambda (range)
+                                            (buffer-substring-no-properties
+                                             (car range)
+                                             (cdr range)))
+                                        (reverse ranges)
+                                        "\n")))
+                    (with-temp-buffer
+                      (insert str)
+                      (when before-mark
+                        (funcall before-mark))
+                      (slack-mark-rich-text-elements)
+                      (funcall cb))))
                 (create-elements-from-ranges (ranges &optional before-mark)
-                                             (when (< 0 (length ranges))
-                                               (with-ranges ranges
-                                                            #'(lambda () (create-elements (point-min)
-                                                                                          (point-max)))
-                                                            before-mark)))
+                  (when (< 0 (length ranges))
+                    (with-ranges ranges
+                                 #'(lambda () (create-elements (point-min)
+                                                               (point-max)))
+                                 before-mark)))
                 (create-section-elements-from-ranges (ranges)
-                                                     (when (< 0 (length ranges))
-                                                       (with-ranges ranges
-                                                                    #'(lambda ()
-                                                                        (create-section-elements (point-min)
-                                                                                                 (point-max))))))
+                  (when (< 0 (length ranges))
+                    (with-ranges ranges
+                                 #'(lambda ()
+                                     (create-section-elements (point-min)
+                                                              (point-max))))))
                 (create-section-elements (start end)
-                                         (let* ((cur-point start)
-                                                (elements nil)
-                                                (section-elements nil)
-                                                (preformatted-ranges nil)
-                                                (blockquote-ranges nil)
-                                                (list-style nil)
-                                                (list-indent nil)
-                                                (list-ranges nil))
-                                           (cl-labels ((commit-block (type block-elements &rest props)
-                                                                     (when (< 0 (length block-elements))
-                                                                       (let ((e (list (cons "type" type)
-                                                                                      (cons "elements" block-elements))))
-                                                                         (dolist (prop props)
-                                                                           (push prop e))
-                                                                         (push e elements))))
-                                                       (commit-section-block ()
-                                                                             (when (commit-block "rich_text_section"
-                                                                                                 (reverse section-elements))
-                                                                               (setq section-elements nil)))
-                                                       (commit-preformatted-block ()
-                                                                                  (when (commit-block "rich_text_preformatted"
-                                                                                                      (create-elements-from-ranges
-                                                                                                       preformatted-ranges
-                                                                                                       #'(lambda ()
-                                                                                                           (slack-put-section-block-props (point-min) (point-max)
-                                                                                                                                          (list :section-type 'code-block)))))
-                                                                                    (setq preformatted-ranges nil)))
-                                                       (commit-blockquote-block ()
+                  (let* ((cur-point start)
+                         (elements nil)
+                         (section-elements nil)
+                         (preformatted-ranges nil)
+                         (blockquote-ranges nil)
+                         (list-style nil)
+                         (list-indent nil)
+                         (list-ranges nil))
+                    (cl-labels ((commit-block (type block-elements &rest props)
+                                  (when (< 0 (length block-elements))
+                                    (let ((e (list (cons "type" type)
+                                                   (cons "elements" block-elements))))
+                                      (dolist (prop props)
+                                        (push prop e))
+                                      (push e elements))))
+                                (commit-section-block ()
+                                  (when (commit-block "rich_text_section"
+                                                      (reverse section-elements))
+                                    (setq section-elements nil)))
+                                (commit-preformatted-block ()
+                                  (when (commit-block "rich_text_preformatted"
+                                                      (create-elements-from-ranges
+                                                       preformatted-ranges
+                                                       #'(lambda ()
+                                                           (slack-put-section-block-props (point-min) (point-max)
+                                                                                          (list :section-type 'code-block)))))
+                                    (setq preformatted-ranges nil)))
+                                (commit-blockquote-block ()
 
-                                                                                (when (commit-block "rich_text_quote"
-                                                                                                    (create-elements-from-ranges
-                                                                                                     blockquote-ranges))
-                                                                                  (setq blockquote-ranges nil)))
-                                                       (commit-list-block ()
-                                                                          (when (commit-block "rich_text_list"
-                                                                                              (cl-mapcan #'(lambda (range)
-                                                                                                             (create-section-elements-from-ranges
-                                                                                                              (list range)))
-                                                                                                         (reverse list-ranges))
-                                                                                              (cons "style" list-style)
-                                                                                              (cons "indent" list-indent))
-                                                                            (setq list-ranges nil)
-                                                                            (setq list-style nil)
-                                                                            (setq list-indent nil))))
-                                             (while (and cur-point (< cur-point end))
-                                               (let* ((block-props (get-text-property cur-point 'slack-section-block-props))
-                                                      (section-type (and block-props (plist-get block-props :section-type)))
-                                                      (end (or (next-single-property-change cur-point 'slack-section-block-props)
-                                                               end)))
-                                                 (cl-case section-type
-                                                   (code-block (progn
-                                                                 (commit-section-block)
-                                                                 (commit-blockquote-block)
-                                                                 (commit-list-block)
-                                                                 (push (cons (plist-get block-props :element-beg)
-                                                                             (plist-get block-props :element-end))
-                                                                       preformatted-ranges)))
-                                                   (blockquote (progn
-                                                                 (commit-section-block)
-                                                                 (commit-preformatted-block)
-                                                                 (commit-list-block)
-                                                                 (push (cons (plist-get block-props :element-beg)
-                                                                             (plist-get block-props :element-end))
-                                                                       blockquote-ranges)
-                                                                 ;; Skip newline
-                                                                 (setq end (1+ end))
-                                                                 ))
-                                                   (list (progn
-                                                           (commit-section-block)
-                                                           (commit-preformatted-block)
-                                                           (commit-blockquote-block)
-                                                           (push (cons (plist-get block-props :element-beg)
-                                                                       (plist-get block-props :element-end))
-                                                                 list-ranges)
-                                                           (setq list-style (plist-get block-props :style))
-                                                           (setq list-indent (plist-get block-props :indent)))
-                                                         ;; Skip newline
-                                                         (setq end (1+ end)))
-                                                   (t (progn
-                                                        (commit-preformatted-block)
-                                                        (commit-blockquote-block)
-                                                        (commit-list-block)
-                                                        (dolist (e (create-elements cur-point end))
-                                                          (push e section-elements)))))
-                                                 (setq cur-point end)))
-                                             (commit-section-block)
-                                             (commit-preformatted-block)
-                                             (commit-blockquote-block)
-                                             (commit-list-block))
-                                           (reverse elements)))
+                                  (when (commit-block "rich_text_quote"
+                                                      (create-elements-from-ranges
+                                                       blockquote-ranges))
+                                    (setq blockquote-ranges nil)))
+                                (commit-list-block ()
+                                  (when (commit-block "rich_text_list"
+                                                      (cl-mapcan #'(lambda (range)
+                                                                     (create-section-elements-from-ranges
+                                                                      (list range)))
+                                                                 (reverse list-ranges))
+                                                      (cons "style" list-style)
+                                                      (cons "indent" list-indent))
+                                    (setq list-ranges nil)
+                                    (setq list-style nil)
+                                    (setq list-indent nil))))
+                      (while (and cur-point (< cur-point end))
+                        (let* ((block-props (get-text-property cur-point 'slack-section-block-props))
+                               (section-type (and block-props (plist-get block-props :section-type)))
+                               (end (or (next-single-property-change cur-point 'slack-section-block-props)
+                                        end)))
+                          (cl-case section-type
+                            (code-block (progn
+                                          (commit-section-block)
+                                          (commit-blockquote-block)
+                                          (commit-list-block)
+                                          (push (cons (plist-get block-props :element-beg)
+                                                      (plist-get block-props :element-end))
+                                                preformatted-ranges)))
+                            (blockquote (progn
+                                          (commit-section-block)
+                                          (commit-preformatted-block)
+                                          (commit-list-block)
+                                          (push (cons (plist-get block-props :element-beg)
+                                                      (plist-get block-props :element-end))
+                                                blockquote-ranges)
+                                          ;; Skip newline
+                                          (setq end (1+ end))
+                                          ))
+                            (list (progn
+                                    (commit-section-block)
+                                    (commit-preformatted-block)
+                                    (commit-blockquote-block)
+                                    (push (cons (plist-get block-props :element-beg)
+                                                (plist-get block-props :element-end))
+                                          list-ranges)
+                                    (setq list-style (plist-get block-props :style))
+                                    (setq list-indent (plist-get block-props :indent)))
+                                  ;; Skip newline
+                                  (setq end (1+ end)))
+                            (t (progn
+                                 (commit-preformatted-block)
+                                 (commit-blockquote-block)
+                                 (commit-list-block)
+                                 (dolist (e (create-elements cur-point end))
+                                   (push e section-elements)))))
+                          (setq cur-point end)))
+                      (commit-section-block)
+                      (commit-preformatted-block)
+                      (commit-blockquote-block)
+                      (commit-list-block))
+                    (reverse elements)))
                 (create-elements (start end)
-                                 (save-excursion
-                                   (save-restriction
-                                     (narrow-to-region start end)
-                                     (let* ((cur-point (point-min))
-                                            (elements nil))
-                                       (cl-labels ((create-text-element (text &optional style)
-                                                                        (cl-remove-if #'null
-                                                                                      (list (cons "type" "text")
-                                                                                            (cons "text" text)
-                                                                                            (when style
-                                                                                              (cons "style" style))))))
-                                         (while (and cur-point (< cur-point (point-max)))
-                                           (let* ((block-props (get-text-property cur-point 'slack-block-props))
-                                                  (block-type (and block-props (plist-get block-props :type)))
-                                                  (block-text (and block-props (plist-get block-props :text)))
-                                                  (next-change-point (or (next-single-property-change cur-point 'slack-block-props)
-                                                                         (point-max)))
-                                                  (element (progn
-                                                             (cl-case block-type
-                                                               (bold (create-text-element block-text (list (cons "bold" t))))
-                                                               (italic (create-text-element block-text (list (cons "italic" t))))
-                                                               (strike (create-text-element block-text (list (cons "strike" t))))
-                                                               (code (create-text-element block-text (list (cons "code" t))))
-                                                               (text (create-text-element block-text))
-                                                               (user (list (cons "type" "user")
-                                                                           (cons "user_id" (plist-get block-props :user-id))))
-                                                               (usergroup (list (cons "type" "usergroup")
-                                                                                (cons "usergroup_id" (plist-get block-props :usergroup-id))))
-                                                               (channel (list (cons "type" "channel")
-                                                                              (cons "channel_id" (plist-get block-props :channel-id))))
-                                                               (broadcast (list (cons "type" "broadcast")
-                                                                                (cons "range" (plist-get block-props :range))))
-                                                               (emoji (list (cons "type" "emoji")
-                                                                            (cons "name" (plist-get block-props :name))))
-                                                               (link (list (cons "type" "link")
-                                                                           (cons "url" (plist-get block-props :url))))
-                                                               (t (create-text-element
-                                                                   (buffer-substring-no-properties cur-point
-                                                                                                   next-change-point)))))))
-                                             ;; (message "props: %s, element: %s" block-props element)
-                                             (when element
-                                               (push element elements))
-                                             (let* ((n (min (or next-change-point end))))
-                                               ;; (message "cur: %s, end: %s, %s" cur-point n (buffer-substring-no-properties cur-point n))
-                                               (setq cur-point n)))))
+                  (save-excursion
+                    (save-restriction
+                      (narrow-to-region start end)
+                      (let* ((cur-point (point-min))
+                             (elements nil))
+                        (cl-labels ((create-text-element (text &optional style)
+                                      (cl-remove-if #'null
+                                                    (list (cons "type" "text")
+                                                          (cons "text" text)
+                                                          (when style
+                                                            (cons "style" style))))))
+                          (while (and cur-point (< cur-point (point-max)))
+                            (let* ((block-props (get-text-property cur-point 'slack-block-props))
+                                   (block-type (and block-props (plist-get block-props :type)))
+                                   (block-text (and block-props (plist-get block-props :text)))
+                                   (next-change-point (or (next-single-property-change cur-point 'slack-block-props)
+                                                          (point-max)))
+                                   (element (progn
+                                              (cl-case block-type
+                                                (bold (create-text-element block-text (list (cons "bold" t))))
+                                                (italic (create-text-element block-text (list (cons "italic" t))))
+                                                (strike (create-text-element block-text (list (cons "strike" t))))
+                                                (code (create-text-element block-text (list (cons "code" t))))
+                                                (text (create-text-element block-text))
+                                                (user (list (cons "type" "user")
+                                                            (cons "user_id" (plist-get block-props :user-id))))
+                                                (usergroup (list (cons "type" "usergroup")
+                                                                 (cons "usergroup_id" (plist-get block-props :usergroup-id))))
+                                                (channel (list (cons "type" "channel")
+                                                               (cons "channel_id" (plist-get block-props :channel-id))))
+                                                (broadcast (list (cons "type" "broadcast")
+                                                                 (cons "range" (plist-get block-props :range))))
+                                                (emoji (list (cons "type" "emoji")
+                                                             (cons "name" (plist-get block-props :name))))
+                                                (link (append
+                                                       (list (cons "type" "link")
+                                                             (cons "url" (plist-get block-props :url)))
+                                                       ;; if we have text, let's hide the url
+                                                       (when (plist-get block-props :text)
+                                                         (list (cons "text" (plist-get block-props :text))))))
+                                                (t (create-text-element
+                                                    (buffer-substring-no-properties cur-point
+                                                                                    next-change-point)))))))
+                              ;; (message "props: %s, element: %s" block-props element)
+                              (when element
+                                (push element elements))
+                              (let* ((n (min (or next-change-point end))))
+                                ;; (message "cur: %s, end: %s, %s" cur-point n (buffer-substring-no-properties cur-point n))
+                                (setq cur-point n)))))
 
-                                       (reverse elements))))))
+                        (reverse elements))))))
       (let ((elements (create-section-elements (point-min) (point-max))))
 
         (let ((blocks (list (cons "blocks" (list (list (cons "type" "rich_text")
@@ -580,18 +599,18 @@
 
 (cl-defun slack-files-upload-complete (team files message-payload &key (on-success nil) (on-error nil))
   (cl-labels ((on-complete (&key data &allow-other-keys)
-                           (slack-request-handle-error
-                            (data "slack-files-upload-complete"
-                                  #'(lambda (err)
-                                      (slack-log (format "Failed to files upload complete. FILES: %s, ERROR: %s"
-                                                         (mapcar #'(lambda (file) (oref file filename))
-                                                                 files)
-                                                         err)
-                                                 team)
-                                      (when (functionp on-error)
-                                        (funcall on-error))))
-                            (when (functionp on-success)
-                              (funcall on-success)))))
+                (slack-request-handle-error
+                 (data "slack-files-upload-complete"
+                       #'(lambda (err)
+                           (slack-log (format "Failed to files upload complete. FILES: %s, ERROR: %s"
+                                              (mapcar #'(lambda (file) (oref file filename))
+                                                      files)
+                                              err)
+                                      team)
+                           (when (functionp on-error)
+                             (funcall on-error))))
+                 (when (functionp on-success)
+                   (funcall on-success)))))
     (slack-request
      (slack-request-create
       slack-file-upload-complete-url
