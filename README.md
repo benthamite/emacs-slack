@@ -1,7 +1,5 @@
 <p>
   <a href="https://melpa.org/#/slack"><img alt="MELPA" src="https://melpa.org/packages/slack-badge.svg"/></a>
-  <a href="https://travis-ci.com/yuya373/emacs-slack"><img src="https://travis-ci.com/yuya373/emacs-slack.svg?branch=master" alt="Build Status"></a>
-  <a href="https://patreon.com/yuya373"><img src="https://img.shields.io/badge/patreon-Become a patron-052D49.svg?logo=patreon&labelColor=E85B46&logoColor=white" alt="Become a patron" /></a>
 </p>
 <p align="center"><img src="https://raw.githubusercontent.com/yuya373/emacs-slack/assets/assets/slack-logo.svg?sanitize=true" width=300 height=126/></p>
 <p align="center"><b>Emacs Slack</b></p>
@@ -35,52 +33,51 @@ You can see some gifs on the [wiki](https://github.com/yuya373/emacs-slack/wiki/
 If your token expires, you can use `slack-refresh-token` for a way to refresh interactively.
 
 ```elisp
-;; I'm using use-package and el-get and evil
+(unless (package-installed-p 'vc-use-package)
+    (package-vc-install "https://github.com/slotThe/vc-use-package"))
+  (require 'vc-use-package)
 
-(el-get-bundle slack)
-(el-get-bundle yuya373/helm-slack) ;; optional
-(use-package helm-slack :after (slack)) ;; optional
-(use-package slack
-  :commands (slack-start)
-  :init
-  (setq slack-buffer-emojify t) ;; if you want to enable emoji, default nil
-  (setq slack-prefer-current-team t)
+(use-package emacs-slack
+  :vc (:repo ag91/emacs-slack :fetcher github)
+  :bind (("C-c S K" . slack-stop)
+         ("C-c S c" . slack-select-rooms)
+         ("C-c S u" . slack-select-unread-rooms)
+         ("C-c S U" . slack-user-select)
+         ("C-c S s" . slack-search-from-messages)
+         ("C-c S d" . my/org-agenda-mark-all-slack-headings-done)
+         ("C-c S J" . slack-jump-to-browser)
+         ("C-c S j" . slack-jump-to-app)
+         ("C-c S e" . slack-insert-emoji)
+         ("C-c S E" . slack-message-edit)
+         ("C-c S r" . slack-message-add-reaction)
+         ("C-c S t" . slack-thread-show-or-create)
+         ("C-c S g" . slack-message-redisplay)
+         ("C-c S G" . slack-conversations-list-update-quick)
+         ("C-c S q" . slack-quote-and-reply)
+         ("C-c S Q" . slack-quote-and-reply-with-link)
+         (:map slack-mode-map
+               (("@" . slack-message-embed-mention)
+                ("#" . slack-message-embed-channel)))
+         (:map slack-thread-message-buffer-mode-map
+               (("C-c '" . slack-message-write-another-buffer)
+                ("@" . slack-message-embed-mention)
+                ("#" . slack-message-embed-channel)))
+         (:map slack-message-buffer-mode-map
+               (("C-c '" . slack-message-write-another-buffer)))
+         (:map slack-message-compose-buffer-mode-map
+               (("C-c '" . slack-message-send-from-buffer)))
+         )
+  :custom
+  (slack-extra-subscribed-channels (mapcar 'intern (list "some-channel")))
   :config
   (slack-register-team
-   :name "emacs-slack"
-   :default t
-   :token "xoxs-sssssssssss-88888888888-hhhhhhhhhhh-jjjjjjjjjj"
-   :subscribed-channels '(test-rename rrrrr)
-   :full-and-display-names t)
-
-  (slack-register-team
-   :name "test"
-   :token "xoxs-yyyyyyyyyy-zzzzzzzzzzz-hhhhhhhhhhh-llllllllll"
-   :subscribed-channels '(hoge fuga))
-
-  (evil-define-key 'normal slack-info-mode-map
-    ",u" 'slack-room-update-messages)
-  (evil-define-key 'normal slack-mode-map
-    ",c" 'slack-buffer-kill
-    ",ra" 'slack-message-add-reaction
-    ",rr" 'slack-message-remove-reaction
-    ",rs" 'slack-message-show-reaction-users
-    ",pl" 'slack-room-pins-list
-    ",pa" 'slack-message-pins-add
-    ",pr" 'slack-message-pins-remove
-    ",mm" 'slack-message-write-another-buffer
-    ",me" 'slack-message-edit
-    ",md" 'slack-message-delete
-    ",u" 'slack-room-update-messages
-    ",2" 'slack-message-embed-mention
-    ",3" 'slack-message-embed-channel
-    "\C-n" 'slack-buffer-goto-next-message
-    "\C-p" 'slack-buffer-goto-prev-message)
-   (evil-define-key 'normal slack-edit-message-mode-map
-    ",k" 'slack-message-cancel-edit
-    ",s" 'slack-message-send-from-buffer
-    ",2" 'slack-message-embed-mention
-    ",3" 'slack-message-embed-channel))
+     :name "clojurians"
+     :token "xoxc-sssssssssss-88888888888-hhhhhhhhhhh-jjjjjjjjjj"
+     :cookie "xoxd-sssssssssss-88888888888-hhhhhhhhhhh-jjjjjjjjjj; d-s=888888888888; lc=888888888888"
+     :full-and-display-names t
+     :default t
+     :subscribed-channels nil ;; using slack-extra-subscribed-channels because I can change it dynamically
+     ))
 
 (use-package alert
   :commands (alert)
@@ -91,22 +88,8 @@ If your token expires, you can use `slack-refresh-token` for a way to refresh in
 
 ## How to get token and cookie
 
-Use the interactive command `slack-refresh-token` because more cookies are required for this fork.
-
-Follow the old instructions for history purposes.
-1. Using Chrome, open and sign into the slack customization page,
-   e.g. https://my.slack.com/customize
-2. Right click anywhere on the page and choose "inspect" from the
-   context menu. This will open the Chrome developer tools.
-3. Find the console (it's one of the tabs in the developer tools window)
-4. At the prompt ("> ") type the following:
-   `window.prompt("your api token is: ", TS.boot_data.api_token)`
-5. Copy the displayed token elsewhere.
-6. If your token starts with `xoxc` then keep following the other steps below, otherwise you are done and can close the window.
-7. Now switch to the Applications tab in the Chrome developer tools (or Storage tab in Firefox developer tools).
-8. Expand Cookies in the left-hand sidebar.
-9. Click the cookie entry named `d` and copy its value. Note, use the default encoded version, so *don't click* the Show URL decoded checkbox.
-10. Now you're done and can close the window.
+Use the interactive command `slack-refresh-token` because it has the
+most complete instructions to get token and cookies required for emacs-slack to work.
 
 For further explanation, see the documentation for the emojme project:
 [(github.com/jackellenberger/emojme)](https://github.com/jackellenberger/emojme#slack-for-web)
