@@ -72,8 +72,6 @@
   "https://slack.com/api/conversations.history")
 (defconst slack-conversations-open-url
   "https://slack.com/api/conversations.open")
-(defconst slack-conversations-view-url
-  "https://slack.com/api/conversations.view")
 (defconst slack-conversations-mark-url
   "https://slack.com/api/conversations.mark")
 
@@ -521,57 +519,6 @@
                         (cons "users" users)
                       (cons "channel" channel)))
       :success (slack-conversations-success-handler team)))))
-
-(cl-defun slack-conversations-view (room team &key
-                                         (after-success nil)
-                                         (cursor nil)
-                                         (latest nil)
-                                         (oldest nil)
-                                         (inclusive nil)
-                                         (count "100"))
-  (cl-labels
-      ((success (&key data &allow-other-keys)
-                (slack-request-handle-error
-                 (data "slack-conversations-view")
-                 (let* ((key (cl-case (eieio-object-class-name room)
-                               (slack-channel :channel)
-                               (slack-im :im)
-                               (slack-group
-                                (if (plist-get data :group)
-                                    :group ;; Not quite sure this group property even exists anymore.
-                                  :channel))))
-                        (new-room (slack-room-create
-                                   (plist-get data key)
-                                   (eieio-object-class-name room)))
-                        (bots (plist-get data :bots))
-                        (users (plist-get data :users))
-                        (history (plist-get data :history))
-                        (messages (cl-loop for e in (plist-get history :messages)
-                                           collect (slack-message-create e
-                                                                         team
-                                                                         room)))
-                        (meta (plist-get data :response_metadata))
-                        (next-cursor (or (and meta (plist-get meta :next_cursor))
-                                         "")))
-                   (slack-team-set-room team new-room)
-                   (slack-team-set-users team users)
-                   (slack-team-set-bots team bots)
-                   (when (functionp after-success)
-                     (funcall after-success messages next-cursor))))))
-    (slack-request
-     (slack-request-create
-      slack-conversations-view-url
-      team
-      :type "POST"
-      :params (list (cons "name" (oref room id))
-                    (cons "include_pin_count" "true")
-                    (cons "include_full_users" "true")
-                    (cons "count" count)
-                    (and cursor (cons "cursor" cursor))
-                    (and latest (cons "latest" latest))
-                    (and oldest (cons "oldest" oldest))
-                    (and inclusive (cons "inclusive" inclusive)))
-      :success #'success))))
 
 (defun slack-conversations-mark (room team ts &optional after-success)
   (cl-labels ((on-success (&rest _ignore)

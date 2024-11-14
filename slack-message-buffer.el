@@ -244,10 +244,10 @@
 
     (cl-labels
         ((paginate (cursor)
-                   (slack-conversations-view room team
-                                             :oldest latest
-                                             :cursor cursor
-                                             :after-success #'after-success))
+                   (slack-conversations-history room team
+                                                :oldest latest
+                                                :cursor cursor
+                                                :after-success #'after-success))
          (after-success (messages next-cursor)
                         (slack-room-set-messages room messages team)
                         (if (and next-cursor (< 0 (length next-cursor)))
@@ -261,9 +261,9 @@
                              (slack-buffer-insert-messages this messages nil t)
                              (slack-buffer-goto (slack-buffer-last-read this))
                              (slack-buffer-update-marker-overlay this)))))
-      (slack-conversations-view room team
-                                :oldest latest
-                                :after-success #'after-success))))
+      (slack-conversations-history room team
+                                   :oldest latest
+                                   :after-success #'after-success))))
 
 (cl-defmethod slack-buffer-load-more ((this slack-message-buffer))
   (let ((oldest (oref this oldest))
@@ -646,7 +646,7 @@
       (if buf (open buf)
         (message "No Message in %s, fetching from server..." (slack-room-name room team))
         (slack-room-clear-messages room)
-        (slack-conversations-view
+        (slack-conversations-history
          room team
          :after-success #'(lambda (messages cursor)
                             (slack-room-set-messages room messages team)
@@ -656,7 +656,7 @@
   (slack-if-let* ((buffer (slack-buffer-find 'slack-message-buffer team this)))
       (slack-buffer-update buffer message :replace replace)
     (and slack-buffer-create-on-notify
-         (slack-conversations-view
+         (slack-conversations-history
           this team
           :after-success #'(lambda (messages cursor)
                              (slack-room-set-messages this messages team)
