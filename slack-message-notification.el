@@ -83,7 +83,7 @@
                                    usergroup
                                    (plist-get (oref team self) :id))
                                   (string-match
-                                   (concat "@" (oref usergroup handle))
+                                   (slack-format-usergroup usergroup)
                                    body)))
                          (oref team usergroups))))))
 

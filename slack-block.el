@@ -556,7 +556,7 @@ You need to install `language-detection' for this to work.")
       (error "`slack-rich-text-usergroup-element' need team as option"))
 
     (let ((usergroup (slack-usergroup-find id team)))
-      (propertize (format "@%s" (oref usergroup handle))
+      (propertize (slack-format-usergroup usergroup)
                   'face 'slack-message-mention-keyword-face))))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-usergroup-element) &optional option)
@@ -568,7 +568,7 @@ You need to install `language-detection' for this to work.")
 
     (let ((usergroup (slack-usergroup-find id team)))
       (slack-propertize-mention-text 'slack-message-mention-keyword-face
-                                     (format "@%s" (oref usergroup handle))
+                                     (slack-format-usergroup usergroup)
                                      (format "<!subteam^%s>" id)))))
 
 (defun slack-create-rich-text-usergroup-element (payload)

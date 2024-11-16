@@ -228,5 +228,12 @@ ones and overrule settings in the other lists."
                              messages)
                "\n")))
 
+(defun slack-format-usergroup (usergroup)
+  (concat
+   "@"
+   (or (ignore-errors
+         (oref usergroup handle))
+       "<???>")))
+
 (provide 'slack-util)
 ;;; slack-util.el ends here
