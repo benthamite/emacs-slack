@@ -194,13 +194,29 @@
                 :params params
                 :data data
                 :files files
-                :headers (append
-                          (if without-auth nil
-                            (list (cons "Authorization"
-                                        (format "Bearer %s" (slack-team-token team)))))
-                          (when (slack-need-cookie-p (slack-team-token team))
-                            (list (cons "Cookie" (format "d=%s; " (slack-team-cookie team)))))
-                          headers)
+                :headers
+                (append
+                 (if without-auth nil
+                   (list (cons "Authorization"
+                               (format "Bearer %s"
+                                       (if-let ((etoken (slack-team-enterprise-token team)))
+                                           (if (member
+                                                url
+                                                ;; These are the endpoints that require user tokens,
+                                                ;; instead of enterprise tokens.  The list may not be complete,
+                                                ;; I am adding them as I find them.
+                                                (list
+                                                 slack-rtm-connect-url
+                                                 slack-commands-list-url
+                                                 slack-conversations-list-url
+                                                 slack-file-upload-url
+                                                 slack-get-permalink-url))
+                                               (slack-team-token team)
+                                             etoken)
+                                         (slack-team-token team))))))
+                 (when (slack-need-cookie-p (slack-team-token team))
+                   (list (cons "Cookie" (format "d=%s; " (slack-team-cookie team)))))
+                 headers)
                 :parser parser
                 :success #'-on-success
                 :error #'-on-error

@@ -32,6 +32,8 @@
 (require 'slack-message-event)
 (require 'slack-unescape)
 
+(defconst slack-commands-list-url "https://slack.com/api/commands.list")
+
 (defclass slack-command ()
   ((name :initarg :name :type string)
    (type :initarg :type :type string)
@@ -100,7 +102,7 @@
              (slack-log "Slack Command List Updated" team :level 'info)))))
       (slack-request
        (slack-request-create
-        "https://slack.com/api/commands.list"
+        slack-commands-list-url
         team
         :type "POST"
         :success #'on-success)))))
