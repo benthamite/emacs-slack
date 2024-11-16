@@ -163,6 +163,7 @@ Find the console (it's one of the tabs in the developer tools window)
 At the prompt (\"> \") type the following: window.prompt(\"your api token is: \", TS.boot_data.api_token)
 Copy the displayed token elsewhere.
 If your token starts with xoxc then keep following the other steps below, otherwise you are done and can close the window.
+You can also set the enterprise token by running: window.prompt(\"your enterprise api token is: \", TS.boot_data.enterprise_api_token)
 --- YOU ARE HERE ---
 Now switch to the Applications tab in the Chrome developer tools (or Storage tab in Firefox developer tools).
 Expand Cookies in the left-hand sidebar.
