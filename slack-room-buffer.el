@@ -390,6 +390,15 @@ Optionally pass SUCCESS-CALLBACK to perform an action on the permalink obtained.
 
 (defalias 'slack-open-link 'slack-open-url  "Open a Slack permalink in emacs-slack.")
 
+(defun slack-insert-link (title url)
+  "Insert link TITLE and URL in markdown fomat."
+  (interactive
+   (list
+    (read-string "Title:")
+    (cond ((url-p (car kill-ring)) (car kill-ring))
+          (t (read-string "URL:")))))
+  (insert (format "[%s](%s)" title url)))
+
 (defun slack-jump-to-browser ()
   "Attempt to jump from message at point to web slack app."
   (interactive)
