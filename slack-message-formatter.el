@@ -120,16 +120,18 @@
     (string= mode "tombstone")))
 
 (cl-defmethod slack-file-summary ((file slack-file) _ts team)
-  (with-slots (mode permalink) file
-    (if (slack-file-deleted-p file)
-        "This file was deleted."
-      (let ((type (slack-file-type file))
-            (title (slack-file-title file)))
-        (format "uploaded this %s: %s <%s|open in browser>"
-                type
-                (slack-file-link-info (oref file id)
-                                      (slack-unescape title team))
-                permalink)))))
+  (if (slot-boundp file 'permalink)
+      (with-slots (mode permalink) file
+        (if (slack-file-deleted-p file)
+            "This file was deleted."
+          (let ((type (slack-file-type file))
+                (title (slack-file-title file)))
+            (format "uploaded this %s: %s <%s|open in browser>"
+                    type
+                    (slack-file-link-info (oref file id)
+                                          (slack-unescape title team))
+                    permalink))))
+    (message "No permalink: %S" file)))
 
 (defvar slack-expand-email-keymap
   (let ((map (make-sparse-keymap)))
