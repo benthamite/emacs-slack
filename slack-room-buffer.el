@@ -394,9 +394,14 @@ Optionally pass SUCCESS-CALLBACK to perform an action on the permalink obtained.
   "Insert link TITLE and URL in markdown fomat."
   (interactive
    (list
-    (read-string "Title:")
-    (cond ((url-p (car kill-ring)) (car kill-ring))
+    (or (when (region-active-p)
+          (substring-no-properties (funcall region-extract-function)))
+        (read-string "Title:"))
+    (cond (
+           ;; TODO there must be a nicer way to check url, url-p was wrong because it just checks if it is an url-object
+           (with-temp-buffer (insert (car kill-ring)) (goto-char (point-min)) (thing-at-point-url-at-point)) (car kill-ring))
           (t (read-string "URL:")))))
+  (when (region-active-p) (delete-region (region-beginning) (region-end)))
   (insert (format "[%s](%s)" title url)))
 
 (defun slack-jump-to-browser ()
