@@ -9,7 +9,7 @@
 
 ## Preview
 
-You can see some gifs on the [wiki](https://github.com/yuya373/emacs-slack/wiki/ScreenShots).
+You can see some gifs on the [wiki](https://github.com/emacs-slack/emacs-slack/wiki/ScreenShots).
 
 ## Dependencies
 
@@ -44,7 +44,6 @@ If your token expires, you can use `slack-refresh-token` for a way to refresh in
          ("C-c S u" . slack-select-unread-rooms)
          ("C-c S U" . slack-user-select)
          ("C-c S s" . slack-search-from-messages)
-         ("C-c S d" . my/org-agenda-mark-all-slack-headings-done)
          ("C-c S J" . slack-jump-to-browser)
          ("C-c S j" . slack-jump-to-app)
          ("C-c S e" . slack-insert-emoji)

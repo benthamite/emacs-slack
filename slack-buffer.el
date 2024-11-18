@@ -57,7 +57,7 @@
     map))
 
 ;; to have working link buttons
-;; https://github.com/yuya373/emacs-slack/issues/547#issuecomment-1542119271
+;; https://github.com/emacs-slack/emacs-slack/issues/547#issuecomment-1542119271
 (advice-add 'lui-buttonize-urls :before-until (lambda () (derived-mode-p 'slack-mode)))
 
 (define-derived-mode slack-mode lui-mode "Slack"

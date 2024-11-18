@@ -2,8 +2,11 @@
 
 ;; Copyright (C) 2015  yuya.minami
 
-;; URL: https://github.com/yuya373/emacs-slack
+;; URL: https://github.com/emacs-slack/emacs-slack
 ;; Author: yuya.minami <yuya.minami@yuyaminami-no-MacBook-Pro.local>
+;; Maintainers:
+;; - Name: Andrea
+;;   Email: andrea-dev@hotmail.com
 ;; Keywords: tools
 ;; Version: 0.0.2
 ;; Package-Requires: ((websocket "1.12") (request "0.3.2") (circe "2.11") (alert "1.2") (emojify "1.2.1") (emacs "25.1") (dash "2.19.1") (s "1.13.1"))
@@ -301,7 +304,7 @@ Available options (property name, type, default value)
 (defun slack-refresh-token ()
   "Refresh slack tokens helper."
   (interactive)
-  ;; https://github.com/yuya373/emacs-slack/issues/566#issuecomment-1208866953
+  ;; https://github.com/emacs-slack/emacs-slack/issues/566#issuecomment-1208866953
   (message "Deleting %s to clear old Slack cookies" (request--curl-cookie-jar))
   (delete-file (request--curl-cookie-jar))
   (kill-new "window.prompt(\"your api token is: \", TS.boot_data.api_token)")
