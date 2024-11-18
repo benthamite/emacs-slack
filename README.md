@@ -11,21 +11,6 @@
 
 You can see some gifs on the [wiki](https://github.com/emacs-slack/emacs-slack/wiki/ScreenShots).
 
-## Dependencies
-
-- [Alert](https://github.com/jwiegley/alert)
-- [circe](https://github.com/jorgenschaefer/circe) (for the Linewise User
-  Interface library).
-- [Emojify](https://github.com/iqbalansari/emacs-emojify) (optional)
-- [Oauth2](https://github.com/emacsmirror/oauth2/blob/master/oauth2.el)
-  - do `package install`
-- [request](https://github.com/tkf/emacs-request)
-- [websocket](https://github.com/ahyatt/emacs-websocket)
-
-## Extensions
-
-- [helm-slack](https://github.com/yuya373/helm-slack)
-
 ## Configuration
 
 [How to get token and cookie](#how-to-get-token-and-cookie)
@@ -33,12 +18,7 @@ You can see some gifs on the [wiki](https://github.com/emacs-slack/emacs-slack/w
 If your token expires, you can use `slack-refresh-token` for a way to refresh interactively.
 
 ```elisp
-(unless (package-installed-p 'vc-use-package)
-    (package-vc-install "https://github.com/slotThe/vc-use-package"))
-  (require 'vc-use-package)
-
 (use-package emacs-slack
-  :vc (:repo ag91/emacs-slack :fetcher github)
   :bind (("C-c S K" . slack-stop)
          ("C-c S c" . slack-select-rooms)
          ("C-c S u" . slack-select-unread-rooms)
@@ -209,3 +189,32 @@ about them).
 ## Notification
 
 See [alert](https://github.com/jwiegley/alert).
+
+## Extensions
+
+- [helm-slack](https://github.com/yuya373/helm-slack)
+- [ol-emacs-slack](https://github.com/ag91/ol-emacs-slack) 
+  I use this to add slack messages to my Org Agenda
+## How to debug
+
+Please set `(setq slack-log-level 'debug)` to see useful messages that
+may help pin point your issue. If you plan to add that to an issue,
+make sure to edit out credentials. 
+
+You can also use `(setq slack-log-level 'trace)`, but that only if you
+need it because it will overwhelm your minibuffer with messages.
+
+## Contributing
+
+Please open an issue or better pull request for things that trouble you. 
+## Dependencies
+
+- [Alert](https://github.com/jwiegley/alert)
+- [circe](https://github.com/jorgenschaefer/circe) (for the Linewise User
+  Interface library).
+- [Emojify](https://github.com/iqbalansari/emacs-emojify) (optional)
+- [Oauth2](https://github.com/emacsmirror/oauth2/blob/master/oauth2.el)
+  - do `package install`
+- [request](https://github.com/tkf/emacs-request)
+- [websocket](https://github.com/ahyatt/emacs-websocket)
+
