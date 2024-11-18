@@ -51,9 +51,12 @@
 (require 'slack-star-event)
 (require 'slack-room-event)
 (require 'slack-thread-event)
+(require 'slack-defcustoms)
 
 (defconst slack-api-test-url "https://slack.com/api/api.test")
 (defconst slack-rtm-connect-url "https://slack.com/api/rtm.connect")
+(defconst slack-api-client-userboot-url "https://slack.com/api/client.userBoot")
+
 
 (defun slack-ws-on-timeout (team-id)
   (let* ((team (slack-team-find team-id))
@@ -65,44 +68,58 @@
       (slack-ws-reconnect ws team))))
 
 (cl-defmethod slack-ws-open ((ws slack-team-ws) team &key (on-open nil) (ws-url nil))
-  (let ((websocket-nowait-p (oref ws websocket-nowait)))
+  "Attempt to open Slack websocket for interactive experience.
+The websocket makes sure your status is communicated, your
+message buffer reacts to new messages and emacs-slack is aware of
+what is happening in your team."
+  (let ((websocket-nowait-p (oref ws websocket-nowait))
+        (ws-url (concat
+                 "wss://wss-primary.slack.com/?token="
+                 (slack-team-token team)
+                 "&sync_desync=1&slack_client=desktop&start_args=%3Fagent%3Dclient%26org_wide_aware%3Dtrue%26agent_version%3D1730299661%26eac_cache_ts%3Dtrue%26cache_ts%3D0%26name_tagging%3Dtrue%26only_self_subteams%3Dtrue%26connect_only%3Dtrue%26ms_latest%3Dtrue&no_query_on_subscribe=1&flannel=3&lazy_channels=1&gateway_server="
+                 (slack-team-id team)
+                 "-4&batch_presence_aware=1")))
     (unless websocket-nowait-p
       (slack-ws-set-connect-timeout-timer ws
                                           #'slack-ws-on-timeout
                                           (slack-team-id team)))
     (cl-labels
         ((on-message (_websocket frame)
-                     (slack-ws-on-message ws frame team))
+           (slack-ws-on-message ws frame team))
          (handle-on-open (_websocket)
-                         (oset ws reconnect-count 0)
-                         (oset ws connected t)
-                         (slack-log "WebSocket on-open"
-                                    team :level 'debug)
-                         (when (functionp on-open)
-                           (funcall on-open)))
+           (oset ws reconnect-count 0)
+           (oset ws connected t)
+           (slack-log "WebSocket on-open"
+                      team :level 'debug)
+           (when (functionp on-open)
+             (funcall on-open)))
          (on-close (websocket)
-                   (oset ws connected nil)
-                   (slack-log (format "Websocket on-close: STATE: %s"
-                                      (websocket-ready-state websocket))
-                              team :level 'debug))
+           (oset ws connected nil)
+           (slack-log (format "Websocket on-close: STATE: %s"
+                              (websocket-ready-state websocket))
+                      team :level 'debug))
          (on-error (_websocket type err)
-                   (slack-log (format "Error on `websocket-open'. TYPE: %s, ERR: %s"
-                                      type err)
-                              team
-                              :level 'error)))
-      (slack-log (format "Opening websocket connection. NOWAIT: %s, URL: %s"
+           (slack-log (format "Error on `websocket-open'. TYPE: %s, ERR: %s"
+                              type err)
+                      team
+                      :level 'error)))
+      (slack-log (format "Opening websocket connection. NOWAIT: %s, URL: %s \n(not using anymore ws object url: %s)"
                          (oref ws websocket-nowait)
+                         ws-url
                          (oref ws url))
                  team
                  :level 'debug)
       (oset ws conn
             (condition-case error-var
-                (websocket-open (or ws-url (oref ws url))
+                (websocket-open ws-url
                                 :on-message #'on-message
                                 :on-open #'handle-on-open
                                 :on-close #'on-close
                                 :on-error #'on-error
-                                :nowait websocket-nowait-p)
+                                :nowait websocket-nowait-p
+                                ;; these are not necessary as slack-start sets them already
+                                ;; :custom-header-alist (list (cons "Cookie" (format "d=%s" (slack-team-cookie team))))
+                                )
               (error
                (slack-log (format "An Error occured while opening websocket connection: %s"
                                   error-var)
@@ -114,7 +131,7 @@
                                               #'slack-ws-on-timeout
                                               (slack-team-id team)))
       (slack-log (format "Called `websocket-open' URL: %s"
-                         (oref ws url))
+                         ws-url)
                  team :level 'debug))))
 
 (defun slack-ws-close ()
@@ -250,10 +267,31 @@
     (slack-ws-open ws team
                    :ws-url (oref ws reconnect-url))))
 
+(defvar slack--lock-user-list-update nil
+  "Lock expensive user list request to run less often.
+This is just a mitigation because sometimes it will run at the
+same time as other updates and rate limit the token.")
+(defun slack--lock-user-list-update-release ()
+  "Release `slack--lock-user-list-update'."
+  (setq slack--lock-user-list-update nil))
+
+(defun slack--update-user-list-with-lock (team)
+  "Call slack-user-list-update for TEAM locking the operation via
+ `slack--lock-user-list-update' to avoid multiple calls that rate
+ limit the token and make emacs-slack unusable."
+  (unless slack--lock-user-list-update
+    (slack-user-list-update team)
+    (setq slack--lock-user-list-update t)
+    (run-with-timer 45 nil #'slack--lock-user-list-update-release)))
+
 (defun slack-ws-on-reconnect-open (team-id)
+  "Refresh data after websocket reconnection for TEAM-ID.
+This also closes unnecessary buffers and refresh message buffer contents."
   (let* ((team (slack-team-find team-id)))
     (slack-conversations-list-update team)
-    ;; (slack-user-list-update team)
+    ;; attempt at updating the user list in a delayed manner so to not hit user limit
+    (run-with-timer 3 nil #'slack--update-user-list-with-lock
+                    team)
 
     (slack-dnd-status-team-info team)
     (when (hash-table-p (oref team slack-message-buffer))
@@ -264,33 +302,36 @@
 
     (slack-team-kill-buffers
      team :except '(slack-message-buffer
+                    slack-thread-message-buffer
                     slack-message-edit-buffer
                     slack-message-share-buffer
-                    slack-room-message-compose-buffer))))
+                    slack-room-message-compose-buffer
+                    slack-search-result-buffer-mode
+                    slack-pinned-items-buffer-mode))))
 
 (defun slack-ws--reconnect (team-id &optional force)
   (let* ((team (slack-team-find team-id))
          (ws (oref team ws)))
     (cl-labels
         ((on-authorize-error (&key error-thrown symbol-status &allow-other-keys)
-                             (slack-log (format "Reconnect Failed: %s, %s"
-                                                error-thrown
-                                                symbol-status)
-                                        team)
-                             (slack-ws-reconnect ws team))
+           (slack-log (format "Reconnect Failed: %s, %s"
+                              error-thrown
+                              symbol-status)
+                      team)
+           (slack-ws-reconnect ws team))
          (on-authorize-success (data)
-                               (let ((team-data (plist-get data :team))
-                                     (self-data (plist-get data :self)))
-                                 (slack-team-set-ws-url team (plist-get data :url))
-                                 (oset team domain (plist-get team-data :domain))
-                                 (oset team id (plist-get team-data :id))
-                                 (oset team name (plist-get team-data :name))
-                                 (oset team self self-data)
-                                 (oset team self-id (plist-get self-data :id))
-                                 (oset team self-name (plist-get self-data :name))
-                                 (slack-ws-open ws team
-                                                :on-open #'(lambda ()
-                                                             (slack-ws-on-reconnect-open team-id))))))
+           (let ((team-data (plist-get data :team))
+                 (self-data (plist-get data :self)))
+             (slack-team-set-ws-url team (plist-get data :url))
+             (oset team domain (plist-get team-data :domain))
+             (oset team id (plist-get team-data :id))
+             (oset team name (plist-get team-data :name))
+             (oset team self self-data)
+             (oset team self-id (plist-get self-data :id))
+             (oset team self-name (plist-get self-data :name))
+             (slack-ws-open ws team
+                            :on-open #'(lambda ()
+                                         (slack-ws-on-reconnect-open team-id))))))
       (if (and (not force) (slack-ws-reconnect-count-exceed-p ws))
           (slack-ws-abort-reconnect team-id)
         (progn
@@ -491,7 +532,7 @@ TEAM is one of `slack-teams'"
         (oset message pinned-to (cl-remove-if #'(lambda (e) (string= channel-id e))
                                               (oref message pinned-to))))))
 
-(cl-defmethod slack-ws-handle-reconnect-url ((ws slack-team-ws) payload)
+(cl-defmethod slack-ws-handle-reconnect-url ((ws slack-team-ws) payload team)
   (oset ws reconnect-url (plist-get payload :url)))
 
 (defun slack-ws-handle-user-typing (payload team)
@@ -563,7 +604,7 @@ TEAM is one of `slack-teams'"
                  team :level 'trace)
       (setq waiting-send
             (cl-remove-if #'(lambda (e) (eq (plist-get e :id)
-                                            (plist-get payload :reply_to)))
+                                       (plist-get payload :reply_to)))
                           waiting-send))
       (slack-log (format "waiting-send: %s" (length waiting-send))
                  team :level 'trace))))
@@ -843,6 +884,7 @@ TEAM is one of `slack-teams'"
                              (list :id (oref this message-id)
                                    :type type
                                    :ids ids))))
+
 (defun slack-authorize (team &optional error-callback success-callback)
   (let ((authorize-request (oref team authorize-request)))
     (if (and authorize-request (not (request-response-done-p authorize-request)))
@@ -876,7 +918,8 @@ TEAM is one of `slack-teams'"
                                         (slack-conversations-list-update team)
                                         ;; (slack-user-list-update team)
                                         (slack-dnd-status-team-info team)
-                                        (slack-download-emoji team #'on-emoji-download)
+                                        (when slack-buffer-emojify
+                                          (slack-download-emoji team #'on-emoji-download))
                                         (slack-command-list-update team)
                                         (slack-usergroup-list-update team)
                                         (slack-update-modeline)))
@@ -895,37 +938,86 @@ TEAM is one of `slack-teams'"
                         (slack-request-create
                          slack-rtm-connect-url
                          team
-                         :params (list (cons "mpim_aware" "1")
+                         :params (list (cons "batch_presence_aware" "1")
                                        (cons "presence_sub" "true"))
                          :success #'on-success
                          :error #'on-error
                          :no-retry t))))
           (oset team authorize-request request))))))
 
+(defun slack-conversations-list-update-quick (&optional team)
+  "Like slack-conversations-list-update but uses userboot endpoint.
+This way instead of getting all channels in the workspace, you
+only get the ones you are a member of, which reduces the amount
+of requests that are being made to Slack and therefore lowers the
+risk of getting rate-limited. Especially good for workspaces with
+lots of public channels."
+  (interactive)
+  (let ((team (or team (slack-team-select))))
+    (slack-request
+     (slack-request-create
+      slack-api-client-userboot-url
+      team
+      :success
+      (cl-function
+       (lambda (&key data &allow-other-keys)
+         (let ((channels nil)
+               (groups nil)
+               (ims nil))
+           (cl-loop for c in (plist-get data :channels)
+                    do (cond
+                        ((and
+                          slack-exclude-archived-channels
+                          (eq t (plist-get c :is_archived))))
+                        ((eq t (plist-get c :is_channel))
+                         (push (slack-room-create c 'slack-channel)
+                               channels))
+                        ((eq t (plist-get c :is_im))
+                         (push (slack-room-create c 'slack-im)
+                               ims))
+                        ((eq t (plist-get c :is_group))
+                         (push (slack-room-create c 'slack-group)
+                               groups))))
+           (slack-team-set-channels team channels)
+           (slack-team-set-groups team groups)
+           (slack-team-set-ims team ims))))))))
+
 (defalias 'slack-room-list-update 'slack-conversations-list-update)
 (defun slack-conversations-list-update (&optional team after-success)
   (interactive)
+  (message ">> slack-conversations-list-update running!")
   (let ((team (or team (slack-team-select))))
+    (when slack-update-quick (slack-conversations-list-update-quick team))
     (cl-labels
         ((success (channels groups ims)
-                  (slack-team-set-channels team channels)
-                  (slack-team-set-groups team groups)
-                  (slack-team-set-ims team ims)
-                  (slack-counts-update team)
-                  (slack-user-info-request
-                   (mapcar #'(lambda (im) (oref im user))
-                           (slack-team-ims team))
-                   team)
-                  (slack-team-send-presence-sub team)
-                  (when (functionp after-success)
-                    (funcall after-success team))
-                  (slack-log "Slack Channel List Updated"
-                             team :level 'info)
-                  (slack-log "Slack Group List Updated"
-                             team :level 'info)
-                  (slack-log "Slack Im List Updated"
-                             team :level 'info)))
-      (slack-conversations-list team #'success))))
+           (slack-team-set-channels team channels)
+           (slack-team-set-groups team groups)
+           (slack-team-set-ims team ims)
+           (slack-counts-update team)
+           (slack-user-info-request
+            (mapcar #'(lambda (im) (oref im user))
+                    (slack-team-ims team))
+            team)
+           (slack-team-send-presence-sub team)
+           (when (functionp after-success)
+             (funcall after-success team))
+           (message ">> Slack is ready!")
+           (slack-log "Slack Channel List Updated"
+                      team :level 'info)
+           (slack-log "Slack Group List Updated"
+                      team :level 'info)
+           (slack-log "Slack Im List Updated"
+                      team :level 'info)))
+      (slack-conversations-list
+       team #'success
+       ;; Do not update public_channel unless slack-update-quick is nil.
+       ;; `slack-conversations-list-update-quick' fetches all joined
+       ;; public channels already.
+       (append
+        '("private_channel"
+          "mpim"
+          "im")
+        (unless slack-update-quick (list "public_channel")))))))
 
 (defun slack-im-list-update (&optional team after-success)
   (interactive)

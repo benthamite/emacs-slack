@@ -49,7 +49,7 @@
    (threads :initarg :threads :type list '())))
 
 (cl-defmethod slack-buffer-name ((this slack-all-threads-buffer))
-  (format "*Slack - %s : All Threads"
+  (format "*slack: %s : All Threads"
           (slack-team-name (slack-buffer-team this))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-all-threads-buffer)))

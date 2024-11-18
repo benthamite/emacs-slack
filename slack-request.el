@@ -40,20 +40,19 @@
   :type 'integer
   :group 'slack)
 
+(defun slack-need-cookie-p (token)
+  (string= "xoxc" (substring token 0 4)))
+
 (defun slack-parse ()
-  (let ((json-object-type 'plist)
-        (json-array-type 'list))
-    (json-read)))
+  (json-parse-buffer :object-type 'plist :array-type 'list :false-object :json-false :null-object nil))
 
 (defun slack-request-parse-payload (payload)
-  (let ((json-object-type 'plist)
-        (json-array-type 'list))
-    (condition-case err-var
-        (json-read-from-string payload)
-      (error (message "[Slack] Error on parse JSON: %S, ERR: %S"
-                      payload
-                      err-var)
-             nil))))
+  (condition-case err-var
+      (json-parse-string payload :object-type 'plist :array-type 'list :false-object :json-false :null-object nil)
+    (error (message "[Slack] Error on parse JSON: %S, ERR: %S"
+                    payload
+                    err-var)
+           nil)))
 
 (defclass slack-request-request ()
   ((response :initform nil)
@@ -189,23 +188,39 @@
       (with-slots (url type params data parser sync files headers timeout without-auth) req
         (oset req response
               (request
-               url
-               :type type
-               :sync sync
-               :params params
-               :data data
-               :files files
-               :headers (append
-                         (if without-auth nil
-                           (list (cons "Authorization"
-                                       (format "Bearer %s" (slack-team-token team)))))
-                         (when (string= "xoxc" (substring (slack-team-token team) 0 4))
-                           (list (cons "Cookie" (format "d=%s; " (slack-team-cookie team)))))
-                         headers)
-               :parser parser
-               :success #'-on-success
-               :error #'-on-error
-               :timeout timeout))))))
+                url
+                :type type
+                :sync sync
+                :params params
+                :data data
+                :files files
+                :headers
+                (append
+                 (if without-auth nil
+                   (list (cons "Authorization"
+                               (format "Bearer %s"
+                                       (if-let ((etoken (slack-team-enterprise-token team)))
+                                           (if (member
+                                                url
+                                                ;; These are the endpoints that require user tokens,
+                                                ;; instead of enterprise tokens.  The list may not be complete,
+                                                ;; I am adding them as I find them.
+                                                (list
+                                                 slack-rtm-connect-url
+                                                 slack-commands-list-url
+                                                 slack-conversations-list-url
+                                                 slack-file-upload-url
+                                                 slack-get-permalink-url))
+                                               (slack-team-token team)
+                                             etoken)
+                                         (slack-team-token team))))))
+                 (when (slack-need-cookie-p (slack-team-token team))
+                   (list (cons "Cookie" (format "d=%s; " (slack-team-cookie team)))))
+                 headers)
+                :parser parser
+                :success #'-on-success
+                :error #'-on-error
+                :timeout timeout))))))
 
 
 (cl-defmacro slack-request-handle-error ((data req-name &optional handler) &body body)
@@ -334,12 +349,13 @@
                          (length new-queue))
                  team :level 'debug))))
 
-(cl-defun slack-url-copy-file (url newname &key (success nil) (error nil) (sync nil) (token nil))
+(cl-defun slack-url-copy-file (url newname &key (success nil) (error nil) (sync nil) (token nil) (cookie nil))
   (if (executable-find "curl")
       (slack-curl-downloader url newname
                              :success success
                              :error error
-                             :token token)
+                             :token token
+                             :cookie cookie)
     (cl-labels
         ((on-success (&key _data &allow-other-keys)
                      (when (functionp success) (funcall success)))
@@ -367,39 +383,44 @@
              (use-https-p (and url-obj
                                (string= "https" (url-type url-obj)))))
         (request
-         url
-         :success #'on-success
-         :error #'on-error
-         :parser #'parser
-         :sync sync
-         :headers (if (and token use-https-p need-token-p)
-                      (list (cons "Authorization" (format "Bearer %s" token)))))))))
+          url
+          :success #'on-success
+          :error #'on-error
+          :parser #'parser
+          :sync sync
+          :headers (when (and token use-https-p need-token-p)
+                     (append
+                      (list (cons "Authorization" (format "Bearer %s" token)))
+                      (when (slack-need-cookie-p token)
+                        (list (cons "Cookie" (format "d=%s; " cookie)))))))))))
 
-(cl-defun slack-curl-downloader (url name &key (success nil) (error nil) (token nil))
+(cl-defun slack-curl-downloader (url name &key (success nil) (error nil) (token nil) (cookie nil))
   (cl-labels
       ((sentinel (proc event)
-                 (cond
-                  ((string-equal "finished\n" event)
-                   (when (functionp success) (funcall success)))
-                  (t
-                   (let ((status (process-status proc))
-                         (output (with-current-buffer (process-buffer proc)
-                                   (buffer-substring-no-properties (point-min)
-                                                                   (point-max)))))
-                     (if (functionp error)
-                         (funcall error status output url name)
-                       (message "Download Failed. STATUS: %s, EVENT: %s, URL: %s, NAME: %s, OUTPUT: %s"
-                                status
-                                event
-                                url
-                                name
-                                output))
-                     (if (file-exists-p name)
-                         (delete-file name))
-                     (delete-process proc))))))
+         (cond
+          ((string-equal "finished\n" event)
+           (when (functionp success) (funcall success)))
+          (t
+           (let ((status (process-status proc))
+                 (output (with-current-buffer (process-buffer proc)
+                           (buffer-substring-no-properties (point-min)
+                                                           (point-max)))))
+             (if (functionp error)
+                 (funcall error status output url name)
+               (warn "slack-curl-downloader: Download Failed. STATUS: %s, EVENT: %s, URL: %s, NAME: %s, OUTPUT: %s"
+                     status
+                     event
+                     url
+                     name
+                     output))
+             (if (file-exists-p name)
+                 (delete-file name))
+             (delete-process proc))))))
     (let* ((url-obj (url-generic-parse-url url))
            (need-token-p (and url-obj
-                              (string-match-p "slack" (url-host url-obj))))
+                              token
+                              (string-match-p "slack" (url-host url-obj))
+                              (string-prefix-p "https" url)))
            (proc (apply #'start-process
                         "slack-curl-downloader"
                         "slack-curl-downloader"
@@ -410,8 +431,11 @@
                         "--location"
                         "--output" name
                         "--url" url
-                        (when (and token need-token-p (string-prefix-p "https" url))
-                          `("-H" ,(format "Authorization: Bearer %s" token))))))
+                        (append
+                         (when need-token-p
+                           `("-H" ,(format "Authorization: Bearer %s" token)))
+                         (when (and need-token-p (slack-need-cookie-p token))
+                           `("-H" ,(format "Cookie: d=%s; " cookie)))))))
       (set-process-sentinel proc #'sentinel))))
 
 (provide 'slack-request)

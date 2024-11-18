@@ -53,8 +53,8 @@
 
 (defface slack-dialog-element-placeholder-face
   '((t (:inherit font-lock-comment-face :slant normal
-                 ;; :box (:line-width 1 :color "#fff")
-                 )))
+        ;; :box (:line-width 1 :color "#fff")
+        )))
   "Used to dialog's element placeholder"
   :group 'slack)
 
@@ -85,7 +85,7 @@
 
 (defface slack-dialog-submit-button-face
   '((t (:box (:line-width 1 :style released-button)
-             :foreground "#2aa198")))
+        :color "#2aa198")))
   "Used to dialog's submit button"
   :group 'slack)
 
@@ -102,7 +102,7 @@
   (let ((team (slack-buffer-team this)))
     (with-slots (dialog-id dialog) this
       (with-slots (title) dialog
-        (format "*Slack Dialog - %s [%s] : %s*"
+        (format "*slack-dialog: %s [%s] : %s*"
                 title
                 dialog-id
                 (slack-team-name team))))))

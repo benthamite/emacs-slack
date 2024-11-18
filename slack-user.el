@@ -24,12 +24,14 @@
 
 ;;; Code:
 
+(eval-when-compile (require 'subr-x))
 (require 'eieio)
 (require 'slack-util)
 (require 'slack-request)
 (require 'slack-emoji)
 (require 'slack-dnd-status)
 (require 'slack-bot)
+(require 'map)
 
 (defvar slack-completing-read-function)
 
@@ -39,6 +41,7 @@
 (defconst slack-user-info-url "https://slack.com/api/users.info")
 (defconst slack-user-list-url "https://slack.com/api/users.list")
 (defconst slack-user-profile-set-url "https://slack.com/api/users.profile.set")
+(defconst slack-user-prefs-get-url "https://slack.com/api/users.prefs.get")
 (defvar slack-current-user-id nil)
 
 (defcustom slack-dnd-sign "Z"
@@ -166,8 +169,8 @@
 
 (defface slack-user-profile-header-face
   '((t (:foreground "#FFA000"
-                    :weight bold
-                    :height 1.5)))
+        :weight bold
+        :height 1.5)))
   "Face used to user profile header."
   :group 'slack)
 
@@ -270,13 +273,13 @@
                 (when (functionp after-success)
                   (funcall after-success))))
              (request (user-ids)
-                      (slack-request
-                       (slack-request-create
-                        slack-user-info-url
-                        team
-                        :params (list (cons "users"
-                                            (mapconcat #'identity user-ids ",")))
-                        :success #'on-success))))
+               (slack-request
+                (slack-request-create
+                 slack-user-info-url
+                 team
+                 :params (list (cons "users"
+                                     (mapconcat #'identity user-ids ",")))
+                 :success #'on-success))))
           (request (pop queue)))))))
 
 (cl-defun slack-user-info-request (user-id team &key after-success)
@@ -409,32 +412,55 @@
   (let ((team (or team (slack-team-select))))
     (cl-labels
         ((on-list-update
-          (&key data &allow-other-keys)
-          (slack-request-handle-error
-           (data "slack-im-list-update")
-           (let* ((members (plist-get data :members))
-                  (response_metadata (plist-get data
-                                                :response_metadata))
-                  (next-cursor (and response_metadata
-                                    (plist-get response_metadata
-                                               :next_cursor))))
-             (slack-team-set-users team members)
+           (&key data &allow-other-keys)
+           (slack-request-handle-error
+            (data "slack-user-list-update")
+            (let* ((members (plist-get data :members))
+                   (response_metadata (plist-get data
+                                                 :response_metadata))
+                   (next-cursor (and response_metadata
+                                     (plist-get response_metadata
+                                                :next_cursor))))
+              (slack-team-set-users team members)
 
-             (if (and next-cursor (< 0 (length next-cursor)))
-                 (request next-cursor)
-               (progn
-                 (slack-log "Slack User List Updated"
-                            team :level 'info))))))
+              (if (and next-cursor (< 0 (length next-cursor)))
+                  (request next-cursor)
+                (progn
+                  (slack-log "Slack User List Updated"
+                             team :level 'info))))))
          (request (&optional next-cursor)
-                  (slack-request
-                   (slack-request-create
-                    slack-user-list-url
-                    team
-                    :params (list (cons "limit" "1000")
-                                  (and next-cursor
-                                       (cons "cursor" next-cursor)))
-                    :success #'on-list-update))))
+           (slack-request
+            (slack-request-create
+             slack-user-list-url
+             team
+             :params (list (cons "limit" "1000")
+                           (and next-cursor
+                                (cons "cursor" next-cursor)))
+             :success #'on-list-update))))
       (request))))
+
+(cl-defun slack-user-prefs-update (&optional team)
+  "Get preferences for the current user.
+See the following documentation for more information:
+https://github.com/ErikKalkoken/slackApiDoc/blob/master/users.prefs.get.md"
+  (interactive)
+  (let ((team (or team (slack-team-select))))
+    (slack-request
+     (slack-request-create
+      slack-user-prefs-get-url
+      team
+      :type "GET"
+      :success (cl-function
+                (lambda (&key data &allow-other-keys)
+                  (setf (oref team user-prefs)
+                        (let* ((prefs (plist-get data :prefs))
+                               ;; Parse muted_channels
+                               (muted-channels (thread-first
+                                                 prefs
+                                                 (plist-get :muted_channels)
+                                                 (or "")
+                                                 (string-split "," t))))
+                          (map-insert prefs :muted_channels muted-channels)))))))))
 
 (provide 'slack-user)
 ;;; slack-user.el ends here

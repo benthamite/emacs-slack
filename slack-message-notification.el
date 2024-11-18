@@ -31,6 +31,7 @@
 (require 'slack-im)
 (require 'alert)
 (require 'slack-group)
+(require 'slack-channel)
 
 (defvar alert-default-style)
 
@@ -82,14 +83,15 @@
                                    usergroup
                                    (plist-get (oref team self) :id))
                                   (string-match
-                                   (concat "@" (oref usergroup handle))
+                                   (slack-format-usergroup usergroup)
                                    body)))
                          (oref team usergroups))))))
 
 (defun slack-message-notify-p (message room team)
   (and (not (slack-message-minep message team))
+       (not (slack-room-muted-p room team))
        (or (slack-im-p room)
-           (and (slack-group-p room) (slack-mpim-p room))
+           (slack-group-p room)
            (slack-room-subscribedp room team)
            (slack-message-mentioned-p message team)
            (slack-message-subscribed-thread-message-p message room))))
@@ -126,7 +128,14 @@
                                    team-name room-name (slack-thread-message-p message))
                         (funcall slack-message-notification-title-format-function
                                  team-name room-name (slack-thread-message-p message)))
-               :category 'slack))))
+               :category 'slack
+               :data (list
+                      :team-id (slack-team-id team)
+                      :room-id (oref room id)
+                      :room-name (slack-room-name room team)
+                      :team-name (oref team name)
+                      :ts (slack-ts message)
+                      :formatted-ts (ts-format "[%H:%m]" (ts-now)))))))
 
 (cl-defmethod slack-message-sender-equalp ((_m slack-message) _sender-id)
   nil)

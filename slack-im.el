@@ -59,13 +59,13 @@
 
 (cl-defmethod slack-im-user-dnd-status ((room slack-im) team)
   (or (slack-user-dnd-status-to-string (slack-user-find room
-                                                    team)
+                                                        team)
                                        team)
       " "))
 
 (cl-defmethod slack-room-name ((room slack-im) team)
   (with-slots (user) room
-    (slack-user-name user team)))
+    (format "DM: %s" (slack-user-name user team))))
 
 (cl-defmethod slack-room-display-name ((room slack-im) team)
   "To Display emoji in minibuffer configure `emojify-inhibit-in-buffer-functions'"

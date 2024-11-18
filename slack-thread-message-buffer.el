@@ -47,18 +47,17 @@
 (defun slack-create-thread-message-buffer (room team thread-ts &optional has-more)
   "Create thread message buffer according to ROOM, TEAM, THREAD-TS."
   (slack-if-let* ((buf (slack-buffer-find 'slack-thread-message-buffer team room thread-ts)))
-      (kill-buffer (slack-buffer-buffer buf)))
-  (slack-thread-message-buffer :room-id (oref room id)
-                               :team-id (oref team id)
-                               :has-more has-more
-                               :thread-ts thread-ts))
+      buf
+    (slack-thread-message-buffer :room-id (oref room id)
+                                 :team-id (oref team id)
+                                 :has-more has-more
+                                 :thread-ts thread-ts)))
 
 (cl-defmethod slack-buffer-name ((this slack-thread-message-buffer))
   (with-slots (thread-ts) this
     (let ((team (slack-buffer-team this))
           (room (slack-buffer-room this)))
-      (format "*Slack - %s : %s Thread - %s"
-              (oref team name)
+      (format "*slack-thread: %s - %s"
               (slack-room-name room team)
               thread-ts))))
 
@@ -237,6 +236,15 @@
 (cl-defmethod slack-file-upload-params ((this slack-thread-message-buffer))
   (list (cons "thread_ts" (oref this thread-ts))
         (cons "channels" (oref (slack-buffer-room this) id))))
+
+(defun slack-thread-message-buffer-jump-to-channel-buffer ()
+  "Display the channel of current thread."
+  (interactive)
+  (unless (eq major-mode #'slack-thread-message-buffer-mode)
+    (user-error "Not in a thread"))
+  (slack-if-let-room-and-team (room team)
+      (slack-room-display room team)
+    (user-error "Can't determine the room")))
 
 (provide 'slack-thread-message-buffer)
 ;;; slack-thread-message-buffer.el ends here

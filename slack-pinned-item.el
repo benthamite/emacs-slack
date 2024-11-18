@@ -49,7 +49,6 @@
                                          team)
                         (slack-file-create (plist-get payload
                                                       :file)))))))
-
     (slack-pinned-item :message message)))
 
 (cl-defmethod slack-ts ((this slack-pinned-item))

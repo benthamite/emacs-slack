@@ -47,7 +47,7 @@
    (oldest-id :type string)))
 
 (cl-defmethod slack-buffer-name ((this slack-file-list-buffer))
-  (format "*Slack - %s : Files" (slack-team-name (slack-buffer-team this))))
+  (format "*slack: %s : Files" (slack-team-name (slack-buffer-team this))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-file-list-buffer)))
   'slack-file-list-buffer)

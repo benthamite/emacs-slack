@@ -28,9 +28,7 @@
 (require 'slack-util)
 (require 'slack-request)
 (require 'slack-conversations)
-
-(defconst slack-group-update-mark-url "https://slack.com/api/groups.mark")
-(defconst slack-mpim-open-url "https://slack.com/api/mpim.open")
+(require 'slack-defcustoms)
 
 (defvar slack-buffer-function)
 (defvar slack-completing-read-function)
@@ -95,7 +93,12 @@
   (with-slots (subscribed-channels) team
     (let ((name (slack-room-name room team)))
       (and name
-           (memq (intern name) subscribed-channels)))))
+           (memq (intern name) (append subscribed-channels slack-extra-subscribed-channels))))))
+
+(cl-defmethod slack-room-muted-p ((this slack-group) team)
+  (seq-contains-p
+   (plist-get (oref team user-prefs) :muted_channels)
+   (oref this id)))
 
 (defun slack-group-list-update (&optional team after-success)
   (interactive)

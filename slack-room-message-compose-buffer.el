@@ -39,7 +39,7 @@
 (cl-defmethod slack-buffer-name ((this slack-room-message-compose-buffer))
   (let ((team (slack-buffer-team this))
         (room (slack-buffer-room this)))
-    (format "*Slack - %s : %s Compose Message"
+    (format "*slack: %s : %s Compose Message"
             (slack-team-name team)
             (slack-room-name room team))))
 

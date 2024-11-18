@@ -112,18 +112,21 @@
       (lui-delete #'(lambda () (equal (get-text-property (point) 'ts)
                                       ts))))))
 
-(cl-defmethod slack-buffer-copy-link ((this slack-room-buffer) ts)
+(cl-defmethod slack-buffer-copy-link ((this slack-room-buffer) ts &optional success-callback)
+  "Use slack permakink api to retrieve an http link to the message at TS.
+SUCCESS-CALLBACK allows you to run a function on that permalink."
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
                   (message (slack-room-find-message room ts))
                   (template "https://%s.slack.com/archives/%s/p%s%s"))
       (cl-labels
           ((on-success (&key data &allow-other-keys)
-                       (slack-request-handle-error
-                        (data "slack-get-permalink")
-                        (let ((permalink (plist-get data :permalink)))
-                          (kill-new permalink)
-                          (message "Link Copied to Clipboard")))))
+             (slack-request-handle-error
+              (data "slack-get-permalink")
+              (let ((permalink (plist-get data :permalink)))
+                (kill-new permalink)
+                (message "Link Copied to Clipboard")
+                (when (functionp success-callback) (funcall success-callback permalink))))))
         (slack-request
          (slack-request-create
           slack-get-permalink-url
@@ -268,44 +271,44 @@
                           "Slack"
                           :actions
                           ((:name "Follow message"
-                                  :handler ,#'handle-follow-message
-                                  :display-p ,#'display-follow-p)
+                            :handler ,#'handle-follow-message
+                            :display-p ,#'display-follow-p)
                            (:name "Unfollow message"
-                                  :handler ,#'handle-unfollow-message
-                                  :display-p ,#'display-unfollow-p)
+                            :handler ,#'handle-unfollow-message
+                            :display-p ,#'display-unfollow-p)
                            (:name "Star message"
-                                  :handler ,#'handle-star-message
-                                  :display-p ,#'display-star-p)
+                            :handler ,#'handle-star-message
+                            :display-p ,#'display-star-p)
                            (:name "Unstar message"
-                                  :handler ,#'handle-unstar-message
-                                  :display-p ,#'display-unstar-p)
+                            :handler ,#'handle-unstar-message
+                            :display-p ,#'display-unstar-p)
                            (:name "Add reaction to message"
-                                  :handler ,#'handle-add-reaction)
+                            :handler ,#'handle-add-reaction)
                            (:name "Remove reaction from message"
-                                  :handler ,#'handle-remove-reaction)
+                            :handler ,#'handle-remove-reaction)
                            (:name "Edit message"
-                                  :handler ,#'handle-edit)
+                            :handler ,#'handle-edit)
                            (:name "Share message"
-                                  :handler ,#'handle-share)
+                            :handler ,#'handle-share)
                            (:name "Copy link"
-                                  :handler ,#'handle-copy-link)
+                            :handler ,#'handle-copy-link)
                            (:name "Mark unread"
-                                  :display-p ,#'message-buffer-p
-                                  :handler ,#'handle-mark-unread)
+                            :display-p ,#'message-buffer-p
+                            :handler ,#'handle-mark-unread)
                            (:name "Remind me about this"
-                                  :handler ,#'handle-remind)
+                            :handler ,#'handle-remind)
                            (:name ,(format "Pin to %s%s"
                                            (if (slack-im-p room) "@" "#")
                                            (slack-room-name room team))
-                                  :display-p ,#'display-pin-p
-                                  :handler ,#'handle-pin)
+                            :display-p ,#'display-pin-p
+                            :handler ,#'handle-pin)
                            (:name ,(format "Un-pin from %s%s"
                                            (if (slack-im-p room) "@" "#")
                                            (slack-room-name room team))
-                                  :display-p ,#'display-un-pin-p
-                                  :handler ,#'handle-un-pin)
+                            :display-p ,#'display-un-pin-p
+                            :handler ,#'handle-un-pin)
                            (:name "Delete message"
-                                  :handler ,#'handle-delete-message)))))
+                            :handler ,#'handle-delete-message)))))
           (cl-labels
               ((on-success (subscriptions)
                            (if (cl-find ts subscriptions :test #'string=)
@@ -351,9 +354,66 @@
   (slack-if-let* ((buf slack-current-buffer))
       (slack-buffer-delete-message buf (slack-get-ts))))
 
-(defun slack-message-copy-link ()
+(defun slack-message-copy-link (&optional success-callback)
+  "Copy permalink at point.
+Optionally pass SUCCESS-CALLBACK to perform an action on the permalink obtained."
   (interactive)
-  (slack-buffer-copy-link slack-current-buffer (slack-get-ts)))
+  (slack-buffer-copy-link slack-current-buffer (slack-get-ts) success-callback))
+
+(defun slack-open-url (url)
+  "Open a slack URL (permalink) in emacs-slack."
+  (interactive
+   (list (cond ((url-p (car kill-ring)) (car kill-ring))
+               ((thing-at-point 'url) (thing-at-point 'url))
+               (t (read-string "Enter slack url:")))))
+  (if-let* ((info (slack-permalink-to-info url))
+            (team-domain (plist-get info :team-domain))
+            (team (slack-team-find-by-domain team-domain))
+            (room-id (plist-get info :room-id))
+            (room (or
+                   (--> team
+                        slack-team-ims
+                        (--find (equal room-id (oref it id)) it))
+                   (--> team
+                        slack-team-channels
+                        (--find (equal room-id (oref it id)) it))
+                   ))
+            (ts (plist-get info :ts))
+            (thread-ts (plist-get info :thread-ts)))
+      (slack-open-message
+       team
+       room
+       ts
+       thread-ts)
+    (error (format "Not an url: %s" url))
+    ))
+
+(defalias 'slack-open-link 'slack-open-url  "Open a Slack permalink in emacs-slack.")
+
+(defun slack-insert-link (title url)
+  "Insert link TITLE and URL in markdown fomat."
+  (interactive
+   (list
+    (or (when (region-active-p)
+          (substring-no-properties (funcall region-extract-function)))
+        (read-string "Title:"))
+    (cond (
+           ;; TODO there must be a nicer way to check url, url-p was wrong because it just checks if it is an url-object
+           (with-temp-buffer (insert (car kill-ring)) (goto-char (point-min)) (thing-at-point-url-at-point)) (car kill-ring))
+          (t (read-string "URL:")))))
+  (when (region-active-p) (delete-region (region-beginning) (region-end)))
+  (insert (format "[%s](%s)" title url)))
+
+(defun slack-jump-to-browser ()
+  "Attempt to jump from message at point to web slack app."
+  (interactive)
+  (slack-message-copy-link
+   (lambda (link) (browse-url (string-replace "archives" "messages" link)))))
+
+(defun slack-jump-to-app ()
+  "Attempt to jump from message at point to slack app."
+  (interactive)
+  (slack-message-copy-link #'browse-url))
 
 (defun slack-message-test-notification ()
   "Debug notification.

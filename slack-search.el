@@ -99,12 +99,14 @@
            (header (propertize (format "%s%s"
                                        (if (slack-channel-p room)
                                            "#" "@")
-                                       (slack-room-name room team))
+                                       (or (ignore-errors (slack-room-name room team)) "name not available - try to update channel list")
+                                       )
                                'face 'slack-search-result-message-header-face)))
       (propertize (format "%s\n%s"
                           header
                           (slack-message-to-string (oref this message) team))
-                  'ts (slack-ts this)))))
+                  'ts (slack-ts this)
+                  'permalink (ignore-errors (oref this permalink))))))
 
 (cl-defmethod slack-ts ((this slack-search-message))
   (slack-ts (oref this message)))
@@ -143,17 +145,17 @@
                 (plist-get payload :next)))
          (next-2 (slack-search-create-around-message
                   (plist-get payload :next_2)))
-         (room (slack-room-find (oref channel id) team)))
-
+         (room (slack-room-find (oref channel id) team))
+         (permalink (plist-get payload :permalink)))
     (unless (< 0 (length (plist-get payload :user)))
       (plist-put payload :user nil)
       (plist-put payload :subtype "bot_message"))
-
     (make-instance 'slack-search-message
                    :message (slack-message-create payload team room)
                    :channel channel
                    :previous-2 previous-2
                    :previous previous
+                   :permalink permalink
                    :next next
                    :next-2 next-2)))
 
@@ -212,27 +214,27 @@
                                     after-success team &optional (page 1))
   (cl-labels
       ((callback ()
-                 (funcall after-success))
+         (funcall after-success))
        (on-success
-        (&key data &allow-other-keys)
-        (slack-request-handle-error
-         (data "slack-search-request")
-         (let* ((search-result (if (slack-file-search-result-p this)
-                                   (slack-search-create-file-result data
-                                                                    (oref this sort)
-                                                                    (oref this sort-dir))
-                                 (slack-search-create-result data
-                                                             (oref this sort)
-                                                             (oref this sort-dir)
-                                                             team)))
-                (user-ids (slack-team-missing-user-ids
-                           team (cl-loop for match in (oref search-result matches)
-                                         nconc (slack-message-user-ids match)))))
-           (slack-merge this search-result)
-           (if (< 0 (length user-ids))
-               (slack-users-info-request
-                user-ids team :after-success #'(lambda () (callback)))
-             (callback))))))
+         (&key data &allow-other-keys)
+         (slack-request-handle-error
+          (data "slack-search-request")
+          (let* ((search-result (if (slack-file-search-result-p this)
+                                    (slack-search-create-file-result data
+                                                                     (oref this sort)
+                                                                     (oref this sort-dir))
+                                  (slack-search-create-result data
+                                                              (oref this sort)
+                                                              (oref this sort-dir)
+                                                              team)))
+                 (user-ids (slack-team-missing-user-ids
+                            team (cl-loop for match in (oref search-result matches)
+                                          nconc (slack-message-user-ids match)))))
+            (slack-merge this search-result)
+            (if (< 0 (length user-ids))
+                (slack-users-info-request
+                 user-ids team :after-success #'(lambda () (callback)))
+              (callback))))))
     (with-slots (query sort sort-dir) this
       (if (< 0 (length query))
           (slack-request

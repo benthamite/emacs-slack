@@ -37,15 +37,20 @@
 
 (defface slack-message-output-header
   '((t (:foreground "#FFA000"
-                    :weight bold
-                    :height 1.0
-                    :underline t)))
+        :weight bold
+        :height 1.0
+        :underline t)))
   "Face used to text message."
   :group 'slack)
 
 (defface slack-message-output-reaction
   '((t (:box (:line-width 1 :style released-button))))
   "Face used to reactions."
+  :group 'slack)
+
+(defface slack-message-output-reaction-pressed
+  '((t (:background "cyan" :box (:line-width 1 :style released-button))))
+  "Face used to reactions pressed by user."
   :group 'slack)
 
 (defface slack-message-deleted-face

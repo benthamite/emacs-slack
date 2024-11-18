@@ -25,20 +25,30 @@
 ;;; Code:
 
 (require 'eieio)
+(require 'seq)
 (require 'slack-room)
 (require 'slack-group)
 (require 'slack-util)
 (require 'slack-request)
 (require 'slack-conversations)
+(require 'slack-defcustoms)
 
 (defvar slack-buffer-function)
 (defvar slack-completing-read-function)
 
 (defconst slack-channel-update-mark-url "https://slack.com/api/channels.mark")
+(defconst slack-bookmarks-url "https://slack.com/api/bookmarks.list")
 
 (defclass slack-channel (slack-group)
   ((is-member :initarg :is_member :initform nil :type boolean)))
 
+(cl-defmethod slack-room-name ((room slack-channel) team)
+  (if (slack-mpim-p room)
+      (format "MPIM: %s"
+              (string-join (mapcar (lambda (userid)
+                                     (slack-user-name userid team))
+                                   (slack-room-members room)) ", "))
+    (oref room name)))
 
 (defun slack-channel-names (team &optional filter)
   (slack-room-names (slack-team-channels team) team filter))
@@ -64,13 +74,35 @@
   (with-slots (subscribed-channels) team
     (let ((name (slack-room-name room team)))
       (and name
-           (memq (intern name) subscribed-channels)))))
+           (memq (intern name) (append subscribed-channels slack-extra-subscribed-channels))))))
 
 (cl-defmethod slack-room-hidden-p ((room slack-channel))
   (slack-room-archived-p room))
 
 (cl-defmethod slack-room-member-p ((this slack-channel))
   (oref this is-member))
+
+(cl-defmethod slack-room-muted-p ((this slack-channel) team)
+  (seq-contains-p
+   (plist-get (oref team user-prefs) :muted_channels)
+   (oref this id)))
+
+(defun slack-bookmarks-request (channel-id team &optional after-success)
+  "Request bookmarks for CHANNEL-ID of TEAM.
+Run an action on the data returned with AFTER-SUCCESS."
+  (cl-labels
+      ((on-success (&key data &allow-other-keys)
+         ;; TODO possibly do something like display these in the room
+         (slack-request-handle-error
+          (data "slack-bookmarks-request")
+          (if after-success
+              (funcall after-success data)))))
+    (slack-request
+     (slack-request-create
+      slack-bookmarks-url
+      team
+      :params (list (cons "channel_id" channel-id))
+      :success #'on-success))))
 
 (provide 'slack-channel)
 ;;; slack-channel.el ends here

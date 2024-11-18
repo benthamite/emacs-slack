@@ -186,7 +186,7 @@
 
 (cl-defmethod slack-counts-conversation-update-latest ((this slack-counts-conversation) ts)
   (when (slack-counts-should-update-latest-p this ts)
-        (oset this latest ts)))
+    (oset this latest ts)))
 
 (cl-defmethod slack-counts-im-update-latest ((this slack-counts) im ts)
   (with-slots (ims) this

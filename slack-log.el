@@ -60,40 +60,43 @@ One of 'info, 'debug"
     (if cell (cdr cell)
       20)))
 
+(defun slack-log--should-log? (level)
+  (declare (indent 1))
+  (let ((user-level (slack-log-level-to-int slack-log-level))
+        (current-level (slack-log-level-to-int level)))
+    (<= current-level user-level)))
 
 (defun slack-message-logger (message level team)
   "Display MESSAGE with LEVEL using `message'."
-  (let ((user-level (slack-log-level-to-int slack-log-level))
-        (current-level (slack-log-level-to-int level)))
-    (when (<= current-level user-level)
-      (message (format "%s [%s] [%s] %s"
-                       (format-time-string slack-log-time-format)
-                       level
-                       (slack-team-name team)
-                       message)))))
+  (when (slack-log--should-log? level)
+    (message "%s [%s] [%s] %s"
+             (format-time-string slack-log-time-format)
+             level
+             (slack-team-name team)
+             message)))
 
 (cl-defun slack-log (msg team &key
                          (logger #'slack-message-logger)
                          (level 'debug))
   "LEVEL is one of 'trace, 'debug, 'info, 'warn, 'error"
-  (let ((log (format "%s [%s] %s - %s"
-                     (format-time-string slack-log-time-format)
-                     level
-                     msg
-                     (slack-team-name team)))
-        (buf (get-buffer-create (slack-log-buffer-name team))))
-    (when (functionp logger)
-      (funcall logger msg level team))
-    (with-current-buffer buf
-      (setq buffer-read-only nil)
-      (save-excursion
-        (goto-char (point-max))
-        (insert log)
-        (insert "\n"))
-      (setq buffer-read-only t))))
+  (when (functionp logger)
+    (funcall logger msg level team))
+  (when (slack-log--should-log? level)
+    (let ((log (format "%s [%s] %s - %s"
+                       (format-time-string slack-log-time-format)
+                       level
+                       msg
+                       (slack-team-name team)))
+          (buf (get-buffer-create (slack-log-buffer-name team))))
+      (with-current-buffer buf
+        (let ((inhibit-read-only t))
+          (save-excursion
+            (goto-char (point-max))
+            (insert log)
+            (insert "\n")))))))
 
 (defun slack-log-buffer-name (team)
-  (format "*Slack Log - %s*" (slack-team-name team)))
+  (format "*slack-log: %s*" (slack-team-name team)))
 
 (defun slack-log-open-buffer ()
   (interactive)
@@ -101,7 +104,7 @@ One of 'info, 'debug"
     (funcall slack-buffer-function (get-buffer-create (slack-log-buffer-name team)))))
 
 (defun slack-event-log-buffer-name (team)
-  (format "*Slack Event Log - %s*" (slack-team-name team)))
+  (format "*slack-event-log: %s*" (slack-team-name team)))
 
 (defun slack-log-websocket-payload (payload team &optional out)
   (let* ((bufname (slack-event-log-buffer-name team))

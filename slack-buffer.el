@@ -56,6 +56,10 @@
     (define-key map (kbd "RET") #'slack-load-more-message)
     map))
 
+;; to have working link buttons
+;; https://github.com/emacs-slack/emacs-slack/issues/547#issuecomment-1542119271
+(advice-add 'lui-buttonize-urls :before-until (lambda () (derived-mode-p 'slack-mode)))
+
 (define-derived-mode slack-mode lui-mode "Slack"
   ""
   (setq-local default-directory slack-default-directory)
@@ -160,10 +164,10 @@
 (cl-defmethod slack-buffer-kill-buffer-window ((this slack-buffer))
   (let ((b (slack-buffer-buffer this)))
     (when (and b (buffer-live-p b))
-      (let ((w (get-buffer-window b)))
-        (when (and (window-live-p w) (< 1 (count-windows)))
-          (delete-window w)))
-
+      (unless (equal slack-buffer-function #'switch-to-buffer)
+        (let ((w (get-buffer-window b)))
+          (when (and (window-live-p w) (< 1 (count-windows)))
+            (delete-window w))))
       (kill-buffer b))))
 
 (cl-defmethod slack-buffer-create-kill-hook ((this slack-buffer))
@@ -183,7 +187,7 @@
       (error (progn
                (slack-if-let* ((buf (get-buffer (slack-buffer-name this))))
                    (kill-buffer buf))
-               (ignore-errors
+               (with-demoted-errors "slack-buffer-display swallowed error: %s"
                  (slack-log (format "Backtrace: %S" (with-output-to-string (backtrace)))
                             (slack-buffer-team this)
                             :level 'error))
@@ -260,7 +264,7 @@
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-display-user-profile ((this slack-buffer))
   (slack-buffer-cant-execute this))
-(cl-defmethod slack-buffer-copy-link ((this slack-buffer) _ts)
+(cl-defmethod slack-buffer-copy-link ((this slack-buffer) _ts &optional _success-callback)
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-file-upload-params ((this slack-buffer))
   (slack-buffer-cant-execute this))
@@ -333,7 +337,8 @@
                     (path (slack-image-path url)))
         (let* ((no-token-p (get-text-property (1- (point)) 'no-token))
                (team (slack-buffer-team slack-current-buffer))
-               (token (and (not no-token-p) (oref team token))))
+               (token (and (not no-token-p) (oref team token)))
+               (cookie (and (not no-token-p) (oref team cookie))))
           (cl-labels
               ((on-success ()
                            (slack-buffer-replace-image cur-buffer ts)))
@@ -341,7 +346,8 @@
               (slack-url-copy-file url
                                    path
                                    :success #'on-success
-                                   :token token)))))))
+                                   :token token
+                                   :cookie cookie)))))))
 
 (cl-defmethod slack-buffer-replace ((this slack-buffer) message)
   (let ((team (slack-buffer-team this)))
@@ -783,6 +789,14 @@
                   nil file nil 'quiet)
 
     (slack-file-upload file "png" "image.png")))
+
+(defun slack-join-huddle (team-id room-id)
+  "Start a huddle in room with ROOM-ID and team with TEAM-ID.
+Note this requires you are signed in on Slack in your default browser."
+  (interactive (list
+                (oref (nth 1 (slack-current-room-and-team)) id)
+                (oref (nth 0 (slack-current-room-and-team)) id)))
+  (browse-url (format "https://app.slack.com/huddle/%s/%s" team-id room-id)))
 
 (provide 'slack-buffer)
 ;;; slack-buffer.el ends here

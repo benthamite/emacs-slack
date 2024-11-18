@@ -28,6 +28,7 @@
 (require 'slack-util)
 (require 'slack-buffer)
 (require 'slack-search)
+(require 'slack-room-buffer)
 
 (define-derived-mode slack-search-result-buffer-mode slack-buffer-mode "Slack Search Result"
   (remove-hook 'lui-post-output-hook 'slack-display-image t))
@@ -37,7 +38,7 @@
 
 (cl-defmethod slack-buffer-name ((_class (subclass slack-search-result-buffer)) search-result team)
   (with-slots (query sort sort-dir) search-result
-    (format "*Slack - %s : %s Search Result - QUERY: %s, ORDER BY: %s %s"
+    (format "*slack: %s : %s Search Result - QUERY: %s, ORDER BY: %s %s"
             (oref team name)
             (if (slack-file-search-result-p search-result)
                 "File"
@@ -49,7 +50,7 @@
 (cl-defmethod slack-buffer-name ((this slack-search-result-buffer))
   (with-slots (search-result) this
     (with-slots (query sort sort-dir) search-result
-      (format "*Slack - %s : %s Search Result - QUERY: %s, ORDER BY: %s %s"
+      (format "*slack: %s : %s Search Result - QUERY: %s, ORDER BY: %s %s"
               (slack-team-name (slack-buffer-team this))
               (if (slack-file-search-result-p search-result)
                   "File"
@@ -183,9 +184,18 @@
                                    :query query)))
       (cl-labels
           ((after-success ()
-                          (let ((buffer (slack-create-search-result-buffer instance team)))
-                            (slack-buffer-display buffer))))
+             (let ((buffer (slack-create-search-result-buffer instance team)))
+               (slack-buffer-display buffer))))
         (slack-search-request instance #'after-success team)))))
+
+(defun slack-search-result-open-message ()
+  "Open url in search result page."
+  (interactive)
+  (if-let ((url (get-text-property (point) 'permalink)))
+      (slack-open-url url)
+    (error "Not possible to jump to message because permalink is not defined")))
+
+(define-key slack-search-result-buffer-mode-map (kbd "RET") 'slack-search-result-open-message)
 
 (provide 'slack-search-result-buffer)
 ;;; slack-search-result-buffer.el ends here

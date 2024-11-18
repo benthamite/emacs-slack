@@ -30,6 +30,7 @@
 (require 'slack-modeline)
 (require 'slack-message)
 (require 'slack-create-message)
+(require 'slack-defcustoms)
 
 (defcustom slack-exclude-archived-channels t
   "If t, filter out archived channels for listing and selection. If nil, include archived channels."
@@ -72,8 +73,6 @@
   "https://slack.com/api/conversations.history")
 (defconst slack-conversations-open-url
   "https://slack.com/api/conversations.open")
-(defconst slack-conversations-view-url
-  "https://slack.com/api/conversations.view")
 (defconst slack-conversations-mark-url
   "https://slack.com/api/conversations.mark")
 
@@ -100,10 +99,17 @@
        (slack-request-handle-error
         (data "conversations" #'log-error)
         (slack-if-let* ((warning (plist-get data :warning)))
-            (slack-log (format "%s" (replace-underscore-with-space
-                                     warning))
-                       team
-                       :level 'warn)
+            (progn
+              (slack-log (format "%s" (replace-underscore-with-space
+                                       warning))
+                         team
+                         :level 'warn)
+              (if
+                  (and (equal "already_in_channel" warning)
+                       (functionp on-success)
+                       )
+                  (funcall on-success data)
+                (slack-log "Not sending message because of above warning" team :level 'error)))
           (when (functionp on-success)
             (funcall on-success data))))))))
 
@@ -285,39 +291,55 @@
         :success (slack-conversations-success-handler team))))))
 
 (defun slack-conversations-list (team success-callback &optional types)
+  "Retrieve the list of conversations for TEAM.
+Run SUCCESS-CALLBACK on success. Also limit to conversation TYPES when provided."
   (let ((cursor nil)
         (channels nil)
         (groups nil)
         (ims nil)
-        (types (or types (list "public_channel"
-                               "private_channel"
-                               "mpim"
-                               "im"))))
+        (types (or types
+                   ;; Do not update public_channel unless slack-update-quick is nil.
+                   ;; `slack-conversations-list-update-quick' fetches all joined
+                   ;; public channels already.
+                   (append
+                    '("private_channel"
+                      "mpim"
+                      "im")
+                    (unless slack-update-quick (list "public_channel")))))
+        (loop-count 0))
     (cl-labels
         ((on-success
-          (&key data &allow-other-keys)
-          (slack-request-handle-error
-           (data "slack-conversations-list")
-           (cl-loop for c in (plist-get data :channels)
-                    do (cond
-                        ((eq t (plist-get c :is_channel))
-                         (push (slack-room-create c 'slack-channel)
-                               channels))
-                        ((eq t (plist-get c :is_im))
-                         (push (slack-room-create c 'slack-im)
-                               ims))
-                        ((eq t (plist-get c :is_group))
-                         (push (slack-room-create c 'slack-group)
-                               groups))))
-           (slack-if-let*
-               ((meta (plist-get data :response_metadata))
-                (next-cursor (plist-get meta :next_cursor))
-                (has-cursor (< 0 (length next-cursor))))
-               (progn
-                 (setq cursor next-cursor)
-                 (request))
-             (funcall success-callback
-                      channels groups ims))))
+           (&key data &allow-other-keys)
+           (slack-request-handle-error
+            (data "slack-conversations-list")
+            (cl-loop for c in (plist-get data :channels)
+                     do (cond
+                         ((eq t (plist-get c :is_channel))
+                          (push (slack-room-create c 'slack-channel)
+                                channels))
+                         ((eq t (plist-get c :is_im))
+                          (push (slack-room-create c 'slack-im)
+                                ims))
+                         ((eq t (plist-get c :is_group))
+                          (push (slack-room-create c 'slack-group)
+                                groups))))
+            (slack-if-let*
+                ((meta (plist-get data :response_metadata))
+                 (next-cursor (plist-get meta :next_cursor))
+                 (has-cursor (< 0 (length next-cursor)))
+                 ;; Do not fetch after page 100. We are going to get
+                 ;; rate limited here, according to my experience.
+                 (not-too-much (< loop-count 80)))
+                (progn
+                  (setq cursor next-cursor)
+                  (setq loop-count (1+ loop-count))
+                  (run-at-time
+                   (* 0.3 (log loop-count)) nil
+                   (lambda ()
+                     (slack-log (format ">> Fetching next cursor... Page: %s." loop-count) team :level 'info)
+                     (request))))
+              (progn
+                (funcall success-callback channels groups ims)))))
          (request ()
            (slack-request
             (slack-request-create
@@ -325,67 +347,75 @@
              team
              :params (list (cons "types" (mapconcat #'identity types ","))
                            (and slack-exclude-archived-channels (cons "exclude_archived" "true"))
-                           (and cursor (cons "cursor" cursor)))
+                           (and cursor (cons "cursor" cursor))
+                           (cons "limit" "999"))
              :success #'on-success))))
       (request))))
 
-(defun slack-conversations-info (room team &optional after-success)
+(defun slack-conversations-info (channel-id team &optional after-success)
   (slack-request
-   (slack-conversations-info-request room team after-success)))
+   (slack-conversations-info-request channel-id team after-success)))
 
-(defun slack-conversations-info-request (room team &optional after-success)
+(defun slack-conversations-info-request (channel-id team &optional after-success)
   (cl-labels
       ((success (&key data &allow-other-keys)
                 (slack-request-handle-error
                  (data "slack-conversations-info")
-                 (let ((new-room (slack-room-create
-                                  (plist-get data :channel)
-                                  (eieio-object-class-name room))))
+                 (let* ((c (plist-get data :channel))
+                        (new-room (slack-room-create
+                                   c
+                                   (cond
+                                    ((eq t (plist-get c :is_channel)) 'slack-channel)
+                                    ((eq t (plist-get c :is_im)) 'slack-im)
+                                    ((eq t (plist-get c :is_group)) 'slack-group)))))
                    (slack-team-set-room team new-room))
                  (when (functionp after-success)
                    (funcall after-success)))))
     (slack-request-create
      slack-conversations-info-url
      team
-     :params (list (cons "channel" (oref room id)))
+     :params (list (cons "channel" channel-id))
      :success #'success)))
 
-(cl-defun slack-conversations-replies (room ts team &key after-success (cursor nil) (oldest nil))
+(cl-defun slack-conversations-replies (room ts team &key after-success (cursor nil) (oldest nil) (limit nil) (latest nil) (inclusive nil))
   (let ((channel (oref room id)))
     (cl-labels
         ((create-message (payload)
-                         (slack-message-create payload
-                                               team
-                                               room))
+           (slack-message-create payload
+                                 team
+                                 room))
          (callback (messages next-cursor has-more)
-                   (when (functionp after-success)
-                     (funcall after-success
-                              messages
-                              next-cursor
-                              has-more)))
+           (when (functionp after-success)
+             (funcall after-success
+                      messages
+                      next-cursor
+                      has-more)))
          (on-success (&key data &allow-other-keys)
-                     (slack-request-handle-error
-                      (data "slack-conversations-replies")
-                      (let* ((messages (mapcar #'create-message
-                                               (plist-get data :messages)))
-                             (meta (plist-get data :response_metadata))
-                             (next-cursor (and meta (plist-get meta :next_cursor)))
-                             (has-more (eq t (plist-get data :has_more)))
-                             (user-ids (slack-team-missing-user-ids
-                                        team (cl-loop for m in messages
-                                                      nconc (slack-message-user-ids m)))))
+           (slack-request-handle-error
+            (data "slack-conversations-replies")
+            (let* ((messages (mapcar #'create-message
+                                     (plist-get data :messages)))
+                   (meta (plist-get data :response_metadata))
+                   (next-cursor (and meta (plist-get meta :next_cursor)))
+                   (has-more (eq t (plist-get data :has_more)))
+                   (user-ids (slack-team-missing-user-ids
+                              team (cl-loop for m in messages
+                                            nconc (slack-message-user-ids m)))))
 
-                        (if (< 0 (length user-ids))
-                            (slack-users-info-request
-                             user-ids team
-                             :after-success #'(lambda ()
-                                                (callback messages next-cursor has-more)))
-                          (callback messages next-cursor has-more))))))
+              (if (< 0 (length user-ids))
+                  (slack-users-info-request
+                   user-ids team
+                   :after-success #'(lambda ()
+                                      (callback messages next-cursor has-more)))
+                (callback messages next-cursor has-more))))))
       (slack-request
        (slack-request-create
         slack-conversations-replies-url
         team
         :params (list (cons "channel" channel)
+                      (and latest (cons "latest" latest))
+                      (and oldest (cons "oldest" oldest))
+                      (and inclusive (cons "inclusive" inclusive))
                       (cons "ts" ts)
                       (if cursor (cons "cursor" cursor)
                         (cons "oldest" oldest)))
@@ -395,8 +425,8 @@
   (let ((channel (oref room id)))
     (cl-labels
         ((on-success (data)
-                     (when (functionp after-success)
-                       (funcall after-success data))))
+           (when (functionp after-success)
+             (funcall after-success data))))
       (slack-request
        (slack-request-create
         slack-conversations-close-url
@@ -405,7 +435,6 @@
         :params (list (cons "channel" channel))
         :success (slack-conversations-success-handler
                   team :on-success #'on-success))))))
-
 (cl-defun slack-conversations-create (team &optional (is-private "false"))
   (let ((name (read-from-minibuffer "Name: "))
         (is-private (or is-private
@@ -430,24 +459,24 @@
   (let ((channel (oref room id)))
     (cl-labels
         ((callback (messages next-cursor)
-                   (when (functionp after-success)
-                     (funcall after-success
-                              messages
-                              next-cursor)))
+           (when (functionp after-success)
+             (funcall after-success
+                      messages
+                      next-cursor)))
          (success (data)
-                  (let* ((meta (plist-get data :response_metadata))
-                         (next-cursor (or (plist-get meta :next_cursor) ""))
-                         (messages (cl-loop for e in (plist-get data :messages)
-                                            collect (slack-message-create e team room)))
-                         (user-ids (slack-team-missing-user-ids
-                                    team (cl-loop for m in messages
-                                                  nconc (slack-message-user-ids m)))))
-                    (if (< 0 (length user-ids))
-                        (slack-user-info-request
-                         user-ids team
-                         :after-success #'(lambda ()
-                                            (callback messages next-cursor)))
-                      (callback messages next-cursor)))))
+           (let* ((meta (plist-get data :response_metadata))
+                  (next-cursor (or (plist-get meta :next_cursor) ""))
+                  (messages (cl-loop for e in (plist-get data :messages)
+                                     collect (slack-message-create e team room)))
+                  (user-ids (slack-team-missing-user-ids
+                             team (cl-loop for m in messages
+                                           nconc (slack-message-user-ids m)))))
+             (if (< 0 (length user-ids))
+                 (slack-user-info-request
+                  user-ids team
+                  :after-success #'(lambda ()
+                                     (callback messages next-cursor)))
+               (callback messages next-cursor)))))
       (slack-request
        (slack-request-create
         slack-conversations-history-url
@@ -509,54 +538,6 @@
                         (cons "users" users)
                       (cons "channel" channel)))
       :success (slack-conversations-success-handler team)))))
-
-(cl-defun slack-conversations-view (room team &key
-                                         (after-success nil)
-                                         (cursor nil)
-                                         (latest nil)
-                                         (oldest nil)
-                                         (inclusive nil)
-                                         (count "100"))
-  (cl-labels
-      ((success (&key data &allow-other-keys)
-                (slack-request-handle-error
-                 (data "slack-conversations-view")
-                 (let* ((key (cl-case (eieio-object-class-name room)
-                               (slack-channel :channel)
-                               (slack-im :im)
-                               (slack-group :group)))
-                        (new-room (slack-room-create
-                                   (plist-get data key)
-                                   (eieio-object-class-name room)))
-                        (bots (plist-get data :bots))
-                        (users (plist-get data :users))
-                        (history (plist-get data :history))
-                        (messages (cl-loop for e in (plist-get history :messages)
-                                           collect (slack-message-create e
-                                                                         team
-                                                                         room)))
-                        (meta (plist-get data :response_metadata))
-                        (next-cursor (or (and meta (plist-get meta :next_cursor))
-                                         "")))
-                   (slack-team-set-room team new-room)
-                   (slack-team-set-users team users)
-                   (slack-team-set-bots team bots)
-                   (when (functionp after-success)
-                     (funcall after-success messages next-cursor))))))
-    (slack-request
-     (slack-request-create
-      slack-conversations-view-url
-      team
-      :type "POST"
-      :params (list (cons "name" (oref room id))
-                    (cons "include_pin_count" "true")
-                    (cons "include_full_users" "true")
-                    (cons "count" count)
-                    (and cursor (cons "cursor" cursor))
-                    (and latest (cons "latest" latest))
-                    (and oldest (cons "oldest" oldest))
-                    (and inclusive (cons "inclusive" inclusive)))
-      :success #'success))))
 
 (defun slack-conversations-mark (room team ts &optional after-success)
   (cl-labels ((on-success (&rest _ignore)

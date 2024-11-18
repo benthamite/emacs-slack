@@ -29,8 +29,6 @@
 (require 'slack-slash-commands)
 
 (declare-function company-begin-backend "company")
-(declare-function company-grab-line "company")
-(declare-function company-doc-buffer "company")
 
 (defun company-slack-backend (command &optional arg &rest ignored)
   "Completion backend for slack chats.  It currently understands
@@ -51,9 +49,10 @@
                         (or (eq 0 (length content))
                             (string-prefix-p content text))))
     (cl-case command
-      (interactive (company-begin-backend 'company-slack-backend))
+      (interactive (when (fboundp 'company-begin-backend)
+           (company-begin-backend 'company-slack-backend)))
       (prefix (when (string= "slack" (car (split-string (format "%s" major-mode) "-")))
-                (company-grab-line
+                (slack--grab-line
                  "\\(\\W\\|^\\)\\(\\(@\\|#\\|/\\)\\(\\w\\|.\\|-\\|_\\)*\\)"
                  2)))
       (candidates (slack-if-let*
@@ -72,7 +71,7 @@
                                    if (and (not (slack-usergroup-deleted-p usergroup))
                                            (content-match-p content
                                                             (oref usergroup handle)))
-                                   collect (propertize (concat "@" (oref usergroup handle))
+                                   collect (propertize (concat "@" (slack-format-usergroup usergroup))
                                                        'slack-company-prefix 'usergroup
                                                        'slack-usergroup-id (oref usergroup id)))
                           (cl-loop for user in (slack-team-users team)
@@ -141,15 +140,45 @@
                                      (slack-buffer-team slack-current-buffer)))
                           (user-id (get-text-property 0 'slack-user-id arg))
                           (user (slack-user--find user-id team)))
-              (company-doc-buffer (slack-user--profile-to-string user team))))
+              (slack--completion-doc-buffer (slack-user--profile-to-string user team))))
          (slash
-          (company-doc-buffer
+          (slack--completion-doc-buffer
            (let* ((team (and slack-current-buffer
                              (slack-buffer-team slack-current-buffer)))
                   (command (slack-command-find arg team)))
              (when command
                (slack-command-company-doc-string command team))))))))))
 
+;;;; Utils
+
+;; Following functions are taken from company.el[1].  This way there
+;; is no direct dependency to company.el and you can use something
+;; like cape[2] to use this completion backend without company itself.
+;;
+;; [1]: https://github.com/company-mode/company-mode/blob/master/company.el
+;; [2]: https://github.com/minad/cape?tab=readme-ov-file#company-adapter
+
+(defun slack--grab (regexp &optional expression limit)
+  (when (looking-back regexp limit)
+    (or (match-string-no-properties (or expression 0)) "")))
+
+(defun slack--grab-line (regexp &optional expression)
+  "Return a match string for REGEXP if it matches text before point.
+If EXPRESSION is non-nil, return the match string for the respective
+parenthesized expression in REGEXP.
+Matching is limited to the current line."
+  (let ((inhibit-field-text-motion t))
+    (slack--grab regexp expression (line-beginning-position))))
+
+(defun slack--completion-doc-buffer (&optional string)
+  (with-current-buffer (get-buffer-create " *slack-completion-documentation*")
+    (erase-buffer)
+    (fundamental-mode)
+    (when string
+      (save-excursion
+        (insert string)
+        (visual-line-mode)))
+    (current-buffer)))
 
 (provide 'slack-company)
 ;;; slack-company.el ends here

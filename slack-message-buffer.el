@@ -26,6 +26,7 @@
 
 (require 'cl-lib)
 (require 'eieio)
+(require 'seq)
 (require 'slack-room)
 (require 'slack-util)
 (require 'slack-room-buffer)
@@ -40,6 +41,8 @@
 (require 'slack-mrkdwn)
 (require 'slack-modeline)
 (require 'slack-message-notification)
+(require 'slack-channel)
+(require 'slack-defcustoms)
 
 (defvar slack-completing-read-function)
 (defvar slack-channel-button-keymap
@@ -56,8 +59,8 @@
 
 (defface slack-new-message-marker-face
   '((t (:foreground "#d33682"
-                    :weight bold
-                    :height 0.8)))
+        :weight bold
+        :height 0.8)))
   "Face used to New Message Marker."
   :group 'slack)
 
@@ -96,8 +99,7 @@
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
                   (room-name (slack-room-name room team)))
-      (format  "*Slack - %s : %s"
-               (oref team name)
+      (format  "*slack: %s*"
                room-name)))
 
 (cl-defmethod slack-buffer-last-read ((this slack-message-buffer))
@@ -243,10 +245,10 @@
 
     (cl-labels
         ((paginate (cursor)
-                   (slack-conversations-view room team
-                                             :oldest latest
-                                             :cursor cursor
-                                             :after-success #'after-success))
+                   (slack-conversations-history room team
+                                                :oldest latest
+                                                :cursor cursor
+                                                :after-success #'after-success))
          (after-success (messages next-cursor)
                         (slack-room-set-messages room messages team)
                         (if (and next-cursor (< 0 (length next-cursor)))
@@ -260,9 +262,9 @@
                              (slack-buffer-insert-messages this messages nil t)
                              (slack-buffer-goto (slack-buffer-last-read this))
                              (slack-buffer-update-marker-overlay this)))))
-      (slack-conversations-view room team
-                                :oldest latest
-                                :after-success #'after-success))))
+      (slack-conversations-history room team
+                                   :oldest latest
+                                   :after-success #'after-success))))
 
 (cl-defmethod slack-buffer-load-more ((this slack-message-buffer))
   (let ((oldest (oref this oldest))
@@ -304,9 +306,9 @@
                         (oset this cursor next-cursor)
                         (slack-room-set-messages room messages team)
                         (update-buffer (slack-room-sorted-messages room))))
-      (slack-conversations-view room team
-                                :cursor (oref this cursor)
-                                :after-success #'after-success))))
+      (slack-conversations-history room team
+                                   :cursor (oref this cursor)
+                                   :after-success #'after-success))))
 
 (cl-defmethod slack-buffer-display-pins-list ((this slack-message-buffer))
   (let ((team (slack-buffer-team this))
@@ -630,30 +632,37 @@
   (slack-if-let* ((buf slack-current-buffer))
       (slack-buffer-display-pins-list buf)))
 
+(defalias 'slack-display-user-profile-info #'slack-room-user-select)
+
 (defun slack-room-user-select ()
   (interactive)
   (slack-if-let* ((buf slack-current-buffer))
       (slack-buffer-display-user-profile buf)))
 
-(defun slack-room-display (room team)
+(defun slack-room-display (room team &optional success-callback)
+  "Display TEAM ROOM.
+Provide SUCCESS-CALLBACK to run some action after displaying."
   (cl-labels
       ((open (buf)
-             (slack-buffer-display buf)))
+         (slack-buffer-display buf)))
     (let ((buf (slack-buffer-find 'slack-message-buffer team room)))
-      (if buf (open buf)
+      (if buf (progn
+                (open buf)
+                (when (functionp success-callback) (funcall success-callback)))
         (message "No Message in %s, fetching from server..." (slack-room-name room team))
         (slack-room-clear-messages room)
-        (slack-conversations-view
+        (slack-conversations-history
          room team
-         :after-success #'(lambda (messages cursor)
-                            (slack-room-set-messages room messages team)
-                            (open (slack-create-message-buffer room cursor team))))))))
+         :after-success (lambda (messages cursor)
+                          (slack-room-set-messages room messages team)
+                          (slack-buffer-display (slack-create-message-buffer room cursor team))
+                          (when (functionp success-callback) (funcall success-callback))))))))
 
 (cl-defmethod slack-room-update-buffer ((this slack-room) team message replace)
   (slack-if-let* ((buffer (slack-buffer-find 'slack-message-buffer team this)))
       (slack-buffer-update buffer message :replace replace)
     (and slack-buffer-create-on-notify
-         (slack-conversations-view
+         (slack-conversations-history
           this team
           :after-success #'(lambda (messages cursor)
                              (slack-room-set-messages this messages team)
@@ -665,18 +674,22 @@
 (defun slack-select-unread-rooms ()
   (interactive)
   (let* ((team (slack-team-select))
-         (room (slack-room-select
-                (cl-loop for team in (list team)
+         (rooms (cl-loop for team in (list team)
                          append (cl-remove-if
                                  #'(lambda (room)
-                                     (not (slack-room-has-unread-p room team)))
+                                     (or
+                                      (not (slack-room-has-unread-p room team))
+                                      (slack-room-muted-p room team)))
                                  (append (slack-team-ims team)
                                          (slack-team-groups team)
-                                         (slack-team-channels team))))
-                team)))
+                                         (slack-team-channels team)))))
+         (room (if (car rooms)
+                   (slack-room-select rooms team)
+                 (error "No unread rooms"))))
     (slack-room-display room team)))
 
 (defun slack-select-rooms ()
+  "Select a room to display."
   (interactive)
   (let* ((team (slack-team-select))
          (room (slack-room-select
@@ -688,12 +701,14 @@
     (slack-room-display room team)))
 
 (defun slack-message-redisplay ()
+  "Refresh message at point."
   (interactive)
   (slack-if-let* ((ts (slack-get-ts))
                   (buf slack-current-buffer))
       (slack-buffer--replace buf ts)))
 
 (defun slack-message-inspect ()
+  "Print stats of message at point."
   (interactive)
   (slack-if-let* ((ts (slack-get-ts))
                   (buffer slack-current-buffer)
@@ -896,12 +911,16 @@
                                                  ts)))
     (slack-buffer-display buf)))
 
-(cl-defmethod slack-thread-show-messages ((this slack-message) room team)
+(cl-defmethod slack-thread-show-messages ((this slack-message) room team &optional success-callback)
+  "Open messages for ROOM TEAM SLACK-MESSAGE thread.
+Call SUCCESS-CALLBACK in the thread buffer.
+A way to use that is to select the right point of the buffer."
   (cl-labels
       ((after-success (_next-cursor has-more)
-                      (let ((buf (slack-create-thread-message-buffer
-                                  room team (slack-thread-ts this) has-more)))
-                        (slack-buffer-display buf))))
+         (let ((buf (slack-create-thread-message-buffer
+                     room team (slack-thread-ts this) has-more)))
+           (slack-buffer-display buf)
+           (when (functionp success-callback) (funcall success-callback)))))
     (slack-thread-replies this room team
                           :after-success #'after-success)))
 
@@ -939,5 +958,67 @@
 (advice-add 'select-window :around 'slack-advice-select-window)
 (advice-add 'delete-window :before 'slack-advice-delete-window)
 
+(defun slack-open-message (team room ts thread-ts)
+  "Open message or thread buffer from TEAM, ROOM, TS and THREAD-TS (the latter can be nil)."
+  (if-let ((go-to-link-position `(lambda ()
+                                   (slack-buffer-goto ,(or thread-ts ts))
+                                   (when (and
+                                          (not (equal ,ts (slack-get-ts)))
+                                          (not (equal ,thread-ts (slack-get-ts)))
+                                          slack-open-message-with-browser
+                                          )
+                                     (message "slack-open-message: message not available in emacs-slack buffer, browsing permalink...")
+                                     (browse-url
+                                      (slack-info-to-permalink
+                                       (list
+                                        :team-domain ,(oref team name)
+                                        :room-id ,(oref room id)
+                                        :ts ,ts
+                                        :thread-ts ,thread-ts))))))
+           (thread-message (and (not (slack-im-p room)) (ignore-errors (slack-room-find-message room thread-ts)))))
+      (slack-thread-show-messages thread-message room team go-to-link-position)
+    (slack-room-display room team go-to-link-position)))
+
+(defun slack-quote-and-reply (quote)
+  "Prefix QUOTE to reply if region active on a slack message."
+  (interactive
+   (list
+    (if (and (slack-get-ts) (region-active-p))
+        (substring-no-properties (funcall region-extract-function))
+      (error "Need region active on Slack message for this to work"))))
+  (goto-char (point-max))
+  (insert (concat
+           (string-join
+            (seq-map
+             (lambda (it) (concat "> " it) )
+             (string-split quote "\n"))
+            "\n")
+           "\n"))
+  (goto-char (point-max)))
+
+(defun slack-quote-and-reply-with-link (quote)
+  "Prefix QUOTE and its link to reply if region active on a slack message."
+  (interactive
+   (list
+    (if (region-active-p)
+        (substring-no-properties (funcall region-extract-function))
+      "")))
+  (slack-message-copy-link
+   (lambda (link)
+     (goto-char (point-max))
+     (insert (concat
+              "from: "
+              link
+              "\n"
+              (string-join
+               (seq-map
+                (lambda (it) (concat "> " it) )
+                (string-split quote "\n"))
+               "\n")
+              "\n"
+              ))
+     (goto-char (point-max)))))
+
 (provide 'slack-message-buffer)
+
 ;;; slack-message-buffer.el ends here

@@ -36,7 +36,7 @@
   (let ((team (slack-buffer-team this))
         (room (slack-buffer-room this))
         (ts (oref this thread-ts)))
-    (format "*Slack - %s : %s Compose Thread Message - %s*"
+    (format "*slack: %s : %s Compose Thread Message - %s*"
             (slack-team-name team)
             (slack-room-name room team)
             ts)))

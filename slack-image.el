@@ -156,7 +156,7 @@
 
 (defun slack-render-image (image team)
   (let ((buf (get-buffer-create
-              (format "*Slack - %s Image*" (slack-team-name team)))))
+              (format "*slack: %s Image*" (slack-team-name team)))))
     (with-current-buffer buf
       (setq buffer-read-only nil)
       (erase-buffer)

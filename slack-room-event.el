@@ -59,7 +59,7 @@
   (slack-team-set-channels team (list room)))
 
 (cl-defmethod slack-event-notify ((_this slack-channel-created-event) room team)
-  (slack-conversations-info room
+  (slack-conversations-info (oref room id)
                             team
                             #'(lambda ()
                                 (slack-log (format "Created channel %s"
@@ -201,11 +201,11 @@
 
 (cl-defmethod slack-event-save-room ((_this slack-channel-joined-event) room team cb)
   (slack-team-set-channels team (list room))
-  (slack-conversations-info room team cb))
+  (slack-conversations-info (oref room id) team cb))
 
 (cl-defmethod slack-event-save-room ((_this slack-group-joined-event) room team cb)
   (slack-team-set-groups team (list room))
-  (slack-conversations-info room team cb))
+  (slack-conversations-info (oref room id) team cb))
 
 (cl-defmethod slack-event-notify ((_this slack-room-joined-event) _room team)
   (slack-counts-update team))
@@ -283,7 +283,7 @@
 (cl-defmethod slack-event-save-room ((_this slack-im-open-event) room team cb)
   (oset room is-open t)
   (slack-team-set-ims team (list room))
-  (slack-conversations-info room team cb))
+  (slack-conversations-info (oref room id) team cb))
 
 (cl-defmethod slack-event-notify ((_this slack-im-open-event) room team)
   (slack-log (format "Open direct message with %s"

@@ -72,6 +72,7 @@
    (subscribed :initarg :subscribed :initform nil :type boolean)
    ;; file comment (Deprecated)
    (comment :initarg :comment :initform nil :type (or null list))
+   (permalink :initarg :permalink :initform nil :type (or null string))
    ))
 
 (defclass slack-message-edited ()

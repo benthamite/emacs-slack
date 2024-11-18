@@ -2,11 +2,14 @@
 
 ;; Copyright (C) 2015  yuya.minami
 
-;; URL: https://github.com/yuya373/emacs-slack
+;; URL: https://github.com/emacs-slack/emacs-slack
 ;; Author: yuya.minami <yuya.minami@yuyaminami-no-MacBook-Pro.local>
+;; Maintainers:
+;; - Name: Andrea
+;;   Email: andrea-dev@hotmail.com
 ;; Keywords: tools
-;; Version: 0.0.2
-;; Package-Requires: ((websocket "1.12") (request "0.3.2") (circe "2.11") (alert "1.2") (emojify "1.2.1") (emacs "25.1"))
+;; Version: 0.0.3
+;; Package-Requires: ((websocket "1.12") (request "0.3.2") (circe "2.11") (alert "1.2") (emojify "1.2.1") (emacs "25.1") (dash "2.19.1") (s "1.13.1"))
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
 ;; the Free Software Foundation, either version 3 of the License, or
@@ -30,6 +33,8 @@
 (require 'cl-lib)
 (require 'subr-x)
 (require 'color)
+(require 'dash)
+(require 's)
 
 (require 'slack-util)
 (require 'slack-team)
@@ -41,6 +46,7 @@
 (require 'slack-message-sender)
 (require 'slack-message-editor)
 (require 'slack-message-reaction)
+(require 'slack-user)
 (require 'slack-user-message)
 (require 'slack-bot-message)
 (require 'slack-search)
@@ -64,6 +70,7 @@
 (require 'slack-file-info-buffer)
 (require 'slack-thread-message-compose-buffer)
 (require 'slack-search-result-buffer)
+(require 'slack-activity-feed-buffer)
 (require 'slack-stars-buffer)
 (require 'slack-dialog-buffer)
 (require 'slack-dialog-edit-element-buffer)
@@ -71,7 +78,6 @@
 (require 'slack-websocket)
 (require 'slack-request)
 (require 'slack-usergroup)
-(require 'slack-unread)
 (require 'slack-modeline)
 (require 'slack-create-message)
 
@@ -148,19 +154,62 @@ When `never', never display typing indicator."
   :type 'boolean
   :group 'slack)
 
+(defcustom slack-before-quit-hook nil
+  "Hooks to run before quitting slack."
+  :type 'list
+  :group 'slack)
+
+(defcustom slack-refresh-token-instructions "
+Using Chrome, open and sign into the slack customization page, e.g. https://my.slack.com/customize
+Right click anywhere on the page and choose \"inspect\" from the context menu. This will open the Chrome developer tools.
+Find the console (it's one of the tabs in the developer tools window)
+At the prompt (\"> \") type the following: window.prompt(\"your api token is: \", TS.boot_data.api_token)
+Copy the displayed token elsewhere.
+If your token starts with xoxc then keep following the other steps below, otherwise you are done and can close the window.
+You can also set the enterprise token by running: window.prompt(\"your enterprise api token is: \", TS.boot_data.enterprise_api_token)
+--- YOU ARE HERE ---
+Now switch to the Applications tab in the Chrome developer tools (or Storage tab in Firefox developer tools).
+Expand Cookies in the left-hand sidebar.
+Click the cookie entry named d and copy its value. Note, use the default encoded version, so don't click the Show URL decoded checkbox.
+ALSO take the d-s and lc cookie and store as 'xoxd-xxxxxxxx; d-s=xxxxxx; lc=xxxxx'.
+Now you're done and can close the window.
+
+For further explanation, see the documentation for the emojme project: (github.com/jackellenberger/emojme)
+
+Note that it is only possible to obtain the cookie manually, not through client-side javascript, due to it being set as HttpOnly and Secure. See OWASP HttpOnly.
+
+Evaluate these to update your current team:
+
+(oset slack-current-team token \"\")
+(oset slack-current-team cookie \"\")
+
+Then use `slack-start' to make the changes effective.
+"
+
+  "Instruction to refresh slack tokens."
+  :type 'string
+  :group 'slack)
+
+(defcustom slack-edit-refresh-token-instructions #'identity
+  "A function to edit `slack-refresh-token-instructions' before they are displayed.
+You can add it to append custom instructions that depend on context.")
+
 ;;;###autoload
 (defun slack-start (&optional team)
   (interactive)
   (cl-labels ((start
-               (team)
-               (slack-team-kill-buffers team)
-               (slack-if-let* ((ws (and (slot-boundp team 'ws)
-                                        (oref team ws))))
-                   (progn
-                     (when (oref ws conn)
-                       (slack-ws--close ws team))
-                     (oset ws inhibit-reconnection nil)))
-               (slack-authorize team)))
+                (team)
+                (url-cookie-store "d" (slack-team-d-cookie team) nil ".slack.com" "/" t)
+                (url-cookie-store "d-s" (slack-team-d-s-cookie team) nil ".slack.com" "/" t)
+                (url-cookie-store "lc" (slack-team-lc-cookie team) nil ".slack.com" "/" t)
+                (slack-team-kill-buffers team)
+                (slack-if-let* ((ws (and (slot-boundp team 'ws)
+                                         (oref team ws))))
+                    (progn
+                      (when (oref ws conn)
+                        (slack-ws--close ws team))
+                      (oset ws inhibit-reconnection nil)))
+                (slack-authorize team)))
     (if team
         (start team)
       (if (hash-table-empty-p slack-teams-by-token)
@@ -168,6 +217,14 @@ When `never', never display typing indicator."
         (cl-loop for team in (hash-table-values slack-teams-by-token)
                  do (start team))))
     (slack-enable-modeline)))
+
+;;;###autoload
+(defun slack-stop ()
+  "Quit all slack teams."
+  (interactive)
+  (slack-ws-close)
+  (run-hooks 'slack-before-quit-hook)
+  (message "Slack stopped"))
 
 ;;;###autoload
 (defun slack-register-team (&rest plist)
@@ -198,22 +255,22 @@ Available options (property name, type, default value)
   (interactive
    (let* ((name (read-from-minibuffer "Team Name: "))
           (token (read-from-minibuffer "Token: "))
-          (cookie (when (string= "xoxc" (substring token 0 4))
+          (cookie (when (slack-need-cookie-p token)
                     (read-from-minibuffer "Cookie: "))))
      (list :name name :token token :cookie cookie)))
   (cl-labels ((has-token-p (plist)
-                           (let ((token (plist-get plist :token)))
-                             (and token (< 0 (length token)))))
+                (let ((token (plist-get plist :token)))
+                  (and token (< 0 (length token)))))
               (register (team)
-                        (let ((same-team (slack-team-find-by-token (oref team token))))
-                          (if same-team
-                              (progn
-                                (slack-team-disconnect same-team)
-                                (slack-team-connect team))))
-                        (puthash (oref team token) team slack-teams-by-token)
-                        (if (plist-get plist :default)
-                            (setq slack-current-team team))))
-
+                (let ((same-team (slack-team-find-by-token (oref team token))))
+                  (if same-team
+                      (progn
+                        (slack-team-disconnect same-team)
+                        (slack-team-connect team))))
+                (puthash (oref team token) team slack-teams-by-token)
+                (if (plist-get plist :default)
+                    (setq slack-current-team team))
+                (slack-user-prefs-update team)))
     (if (has-token-p plist)
         (let ((team (slack-create-team plist)))
           (register team))
@@ -236,6 +293,50 @@ Available options (property name, type, default value)
                                                 "nil"))
     (if team
         (slack-team-connect team))))
+
+(defun slack-kill-all-buffers ()
+  "Kill all slack buffers."
+  (interactive)
+  (-each
+      (--filter (s-starts-with-p "*slack" (buffer-name it)) (buffer-list))
+    'kill-buffer))
+
+(defun slack-refresh-token ()
+  "Refresh slack tokens helper."
+  (interactive)
+  ;; https://github.com/emacs-slack/emacs-slack/issues/566#issuecomment-1208866953
+  (message "Deleting %s to clear old Slack cookies" (request--curl-cookie-jar))
+  (delete-file (request--curl-cookie-jar))
+  (kill-new "window.prompt(\"your api token is: \", TS.boot_data.api_token)")
+  (browse-url "https://my.slack.com/customize")
+  (switch-to-buffer-other-window (get-buffer-create "instructions"))
+  (insert (funcall slack-edit-refresh-token-instructions slack-refresh-token-instructions))
+  (slack-stop))
+
+(defun slack-show-channel-bookmarks (channel-id team)
+  "Show an org mode buffer with the bookmarks of CHANNEL-ID for TEAM."
+  (interactive (let ((room-and-team (slack-current-room-and-team)))
+                 (list
+                  (ignore-errors (oref (nth 0 room-and-team) id)) ;; if-let takes care of errors
+                  (nth 1 room-and-team))))
+  (if-let* ((on-success
+             (lambda (data)
+               (-some--> data
+                 (plist-get it :bookmarks)
+                 (let ((b "*slack bookmarks for channel*"))
+                   (with-help-window b
+                     (with-current-buffer b
+                       (insert "* Bookmarks\n\n")
+                       (org-mode)
+                       (slack-override-keybiding-in-buffer
+                        (kbd "q")
+                        'bury-buffer)
+                       )
+                     (--each it
+                       (with-current-buffer b
+                         (insert (format "- [[%s][%s]]\n" (plist-get it :link) (plist-get it :title)))))))))))
+      (slack-bookmarks-request channel-id team on-success)
+    (error "slack: Cannot show slack bookmarks here")))
 
 (provide 'slack)
 ;;; slack.el ends here

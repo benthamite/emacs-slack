@@ -30,6 +30,7 @@
 (require 'timer)
 (require 'diary-lib)
 (require 'websocket)
+(require 'dash)
 
 (defvar slack-completing-read-function)
 (defvar slack-buffer-function)
@@ -99,6 +100,9 @@
                                  value)))))))
 
 (defun slack-get-ts ()
+  "Find the first slack ts for line.
+Note: each line has many timestamps,
+if you need them all use `slack-get-positions-by-ts'."
   (let ((bol (point-at-bol))
         (eol (point-at-eol)))
     (when (and bol eol)
@@ -106,6 +110,12 @@
                for ts = (get-text-property i 'ts)
                if ts
                return ts))))
+
+(defun slack-get-positions-by-ts ()
+  "Make a alist ts - point for a slack buffer."
+  (save-excursion
+    (--keep (when-let ((ts (get-text-property it 'ts))) (list ts it)) (-iota (point-max) 1))))
+
 
 (defun slack-linkfy (text link)
   (if (not (slack-string-blankp link))
@@ -215,6 +225,11 @@ ones and overrule settings in the other lists."
             " ")))
 
 (cl-defun slack-format-ts (ts &optional (format "%Y-%m-%d %H:%M:%S"))
+  "Go from TS to readable string following FORMAT.
+Note the input timestamp must drop the last 6 digits.
+
+>> (slack-format-ts \"\1726244896\")
+=> \"2024-09-13 17:28:16\""
   (when ts
     (when (stringp ts)
       (setq ts (string-to-number ts)))
@@ -227,6 +242,66 @@ ones and overrule settings in the other lists."
                                                (< (length e) 1)))
                              messages)
                "\n")))
+
+(defun slack-format-usergroup (usergroup)
+  (concat
+   "@"
+   (or (ignore-errors
+         (oref usergroup handle))
+       "<???>")))
+
+(defun slack-override-keybiding-in-buffer (key command)
+  "Override KEY with COMMAND in buffer."
+  (interactive "KSet key buffer-locally: \nCSet key %s buffer-locally to command: ")
+  (let ((oldmap (current-local-map))
+        (newmap (make-sparse-keymap)))
+    (when oldmap
+      (set-keymap-parent newmap oldmap))
+    (define-key newmap key command)
+    (use-local-map newmap)))
+
+
+(defun slack-permalink-to-info (permalink)
+  "Turn Slack PERMALINK into (:team-domain :room-id :ts :thread-ts).
+
+>> (slack-permalink-to-info \"https://clojurians.slack.com/archives/C099W16KZ/p1730182493679269?thread_ts=1730182493.679269&cid=C099W16KZ\")
+=> (:team-domain \"clojurians\" :room-id \"C099W16KZ\" :ts \"1730182493.679269\" :thread-ts \"1730182493.679269\")"
+  (with-demoted-errors "slack-permalink-to-info: failed with %S"
+    (let* ((_ (string-match "https://\\(.*\\).slack.com/archives/\\(.*\\)/p\\(.*\\)" permalink))
+           (team-domain (match-string 1 permalink))
+           (room-id (match-string 2 permalink))
+           (ts-s (match-string 3 permalink))
+           (ts (--> ts-s
+                    (s-split "?" it)
+                    car
+                    (concat (substring it 0 (- (length it) 6)) "." (substring it (- (length it) 6) (length it)))))
+           (thread-ts (and
+                       (string-match "thread_ts=\\([0-9]*\\.[0-9]*\\)" ts-s)
+                       (match-string 1 ts-s))))
+      (list
+       :team-domain team-domain
+       :room-id room-id
+       :ts ts
+       :thread-ts thread-ts
+       ))))
+
+(defun slack-info-to-permalink (info)
+  "Turn Slack INFO (:team-domain :room-id :ts :thread-ts) into permalink.
+
+>> (slack-info-to-permalink (list :team-domain \"clojurians\" :room-id \"C099W16KZ\" :ts \"1730182493.679269\" :thread-ts \"1730182493.679269\"))
+=> \"https://clojurians.slack.com/archives/C099W16KZ/p1730182493679269?thread_ts=1730182493.679269&cid=C099W16KZ\"
+>>  (slack-info-to-permalink (slack-permalink-to-info \"https://clojurians.slack.com/archives/C099W16KZ/p1730182493679269?thread_ts=1730182493.679269&cid=C099W16KZ\"))
+=> \"https://clojurians.slack.com/archives/C099W16KZ/p1730182493679269?thread_ts=1730182493.679269&cid=C099W16KZ\""
+  (with-demoted-errors "slack-permalink-to-info: failed with %S"
+    (format
+     "https://%s.slack.com/archives/%s/p%s%s&cid=%s"
+     (plist-get info :team-domain)
+     (plist-get info :room-id)
+     (s-replace "." "" (plist-get info :ts))
+     (if (plist-get info :thread-ts)
+         (concat "?thread_ts=" (plist-get info :thread-ts))
+       "")
+     (plist-get info :room-id))))
 
 (provide 'slack-util)
 ;;; slack-util.el ends here

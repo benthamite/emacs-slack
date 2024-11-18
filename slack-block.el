@@ -23,6 +23,8 @@
 ;;
 
 ;;; Code:
+
+(eval-when-compile (require 'subr-x))
 (require 'eieio)
 (require 'lui)
 (require 'slack-util)
@@ -31,6 +33,33 @@
 (require 'slack-usergroup)
 (require 'slack-mrkdwn)
 (require 'slack-room)
+
+(defcustom slack-block-highlight-source nil
+  "If non-nil, highlight source blocks in messages.
+You need to install `language-detection' for this to work."
+  :type 'boolean
+  :group 'slack)
+
+(defface slack-block-highlight-source-overlay-face
+  '((((class grayscale) (background light))
+     :foreground "DimGray" :weight bold)
+    (((class grayscale) (background dark))
+     :foreground "LightGray" :weight bold)
+    (((class color) (min-colors 88) (background light))
+     :foreground "Firebrick")
+    (((class color) (min-colors 88) (background dark))
+     :foreground "chocolate1")
+    (((class color) (min-colors 16) (background light))
+     :foreground "red")
+    (((class color) (min-colors 16) (background dark))
+     :foreground "red1")
+    (((class color) (min-colors 8) (background light))
+     :foreground "red")
+    (((class color) (min-colors 8) (background dark))
+     :foreground "yellow")
+    (t :weight bold))
+  "If non-nil, highlight source blocks in messages.
+You need to install `language-detection' for this to work.")
 
 (defvar slack-completing-read-function)
 (defvar slack-channel-button-keymap)
@@ -64,6 +93,8 @@
       (slack-create-context-layout-block payload))
      ((string= "rich_text" type)
       (slack-create-rich-text-block payload))
+     ((string= "call" type)
+      (slack-create-call-layout-block payload))
      (t (make-instance 'slack-layout-block
                        :type type
                        :payload payload))
@@ -103,6 +134,26 @@
                  :block_id (plist-get payload :block_id)
                  :elements (mapcar #'slack-create-rich-text-block-element
                                    (plist-get payload :elements))))
+
+(defclass slack-call-layout-block ()
+  ((type :initarg :type :type string)
+   (block-id :initarg :block_id :type string)
+   (join-url :initarg :join_url :type string)))
+
+(cl-defmethod slack-block-to-string ((this slack-call-layout-block) &optional _option)
+  (concat "Join URL: " (oref this join-url)))
+
+(defun slack-create-call-layout-block (payload)
+  (make-instance
+   'slack-call-layout-block
+   :type (plist-get payload :type)
+   ;; Possibly only works for Zoom extension. Don't know about other
+   ;; "call" blocks.
+   :join_url (thread-first
+               payload
+               (plist-get :call)
+               (plist-get :v1)
+               (plist-get :join_url))))
 
 (defclass slack-rich-text-block-element ()
   ((type :initarg :type :type string)
@@ -159,17 +210,43 @@
   (let ((text (mapconcat #'(lambda (element) (slack-block-to-string element option))
                          (oref this elements)
                          "")))
-    (propertize (concat text "\n")
-                'slack-defer-face #'(lambda (beg end)
-                                      (overlay-put (make-overlay beg end)
-                                                   'face 'slack-mrkdwn-code-block-face))
-                'face 'slack-mrkdwn-code-block-face)))
+    (if (not slack-block-highlight-source)
+        (propertize (concat text "\n")
+                    'slack-defer-face #'(lambda (beg end)
+                                          (overlay-put (make-overlay beg end)
+                                                       'face 'slack-mrkdwn-code-block-face))
+                    'face 'slack-mrkdwn-code-block-face)
+      (pcase-let ((`(,lang . ,hl-text) (slack-block-fontify-text-natively text)))
+        (concat
+         "\n"
+         (propertize
+          (format "┌─ %s" lang)
+          'face 'slack-block-highlight-source-overlay-face)
+         "\n"
+         (mapconcat
+          'identity
+          (mapcar
+           (lambda (s)
+             (propertize
+              (if (string= "" s) " " s)
+              'slack-defer-face #'(lambda (beg _end)
+                                    (let ((ov (make-overlay beg beg)))
+                                      (overlay-put
+                                       ov 'before-string
+                                       (propertize "│" 'face 'slack-block-highlight-source-overlay-face))))))
+           (string-split (string-trim hl-text) "\n"))
+          "\n")
+         "\n"
+         (propertize
+          "└─"
+          'face 'slack-block-highlight-source-overlay-face)
+         "\n")))))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-preformatted) &optional option)
   (let ((text (mapconcat #'(lambda (element) (slack-block-to-mrkdwn element option))
                          (oref this elements)
                          "")))
-    (format "```%s```\n" text)))
+    (format "```\n%s\n\n```\n" text)))
 
 (defun slack-create-rich-text-preformatted (payload)
   (make-instance 'slack-rich-text-preformatted
@@ -357,12 +434,14 @@
   ((channel-id :initarg :channel_id :type string)))
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-channel-element) option)
-  (let ((team (plist-get option :team))
-        (id (oref this channel-id)))
+  (let* ((team (plist-get option :team))
+         (id (oref this channel-id))
+         (room (slack-room-find id team))
+         (room-name (if room (slack-room-name room team) "(no room)")))
     (unless team
       (error "`slack-rich-text-channel-element' need team as option"))
 
-    (propertize (format "#%s" (slack-room-name (slack-room-find id team) team))
+    (propertize (format "#%s" room-name)
                 'room-id id
                 'keymap slack-channel-button-keymap
                 'face 'slack-channel-button-face)))
@@ -477,7 +556,7 @@
       (error "`slack-rich-text-usergroup-element' need team as option"))
 
     (let ((usergroup (slack-usergroup-find id team)))
-      (propertize (format "@%s" (oref usergroup handle))
+      (propertize (slack-format-usergroup usergroup)
                   'face 'slack-message-mention-keyword-face))))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-usergroup-element) &optional option)
@@ -489,7 +568,7 @@
 
     (let ((usergroup (slack-usergroup-find id team)))
       (slack-propertize-mention-text 'slack-message-mention-keyword-face
-                                     (format "@%s" (oref usergroup handle))
+                                     (slack-format-usergroup usergroup)
                                      (format "<!subteam^%s>" id)))))
 
 (defun slack-create-rich-text-usergroup-element (payload)
@@ -772,17 +851,17 @@
                             map)))))
 
 (defface slack-button-block-element-face
-  '((t (:box (:line-width 1 :style released-button :foreground "#2aa198"))))
+  '((t (:box (:line-width 1 :style released-button :color "#2aa198"))))
   "Used to button block element"
   :group 'slack)
 
 (defface slack-button-danger-block-element-face
-  '((t (:inherit slack-button-block-element-face :foreground "#dc322f")))
+  '((t (:inherit slack-button-block-element-face :color "#dc322f")))
   "Used to danger button block element"
   :group 'slack)
 
 (defface slack-button-primary-block-element-face
-  '((t (:inherit slack-button-block-element-face :foreground "#859900")))
+  '((t (:inherit slack-button-block-element-face :color "#859900")))
   "Used to primary button block element"
   :group 'slack)
 
@@ -811,7 +890,7 @@
       (slack-block-select-from-option-group group)))
 
 (defface slack-select-block-element-face
-  '((t (:box (:line-width 1 :style released-button :forground "#2aa198"))))
+  '((t (:box (:line-width 1 :style released-button :color "#2aa198"))))
   "Used to select block element"
   :group 'slack)
 
@@ -1090,7 +1169,7 @@
                            (plist-get payload :confirm))))
 
 (defface slack-overflow-block-element-face
-  '((t (:box (:line-width 1 :style released-button :forground "#2aa198"))))
+  '((t (:box (:line-width 1 :style released-button :color "#2aa198"))))
   "Used to overflow block element"
   :group 'slack)
 
@@ -1153,7 +1232,7 @@
                             map)))))
 
 (defface slack-date-picker-block-element-face
-  '((t (:box (:line-width 1 :style released-button :forground "#2aa198"))))
+  '((t (:box (:line-width 1 :style released-button :color "#2aa198"))))
   "Used to date picker block element"
   :group 'slack)
 
@@ -1213,15 +1292,16 @@
 
 (defun slack-create-confirmation-dialog-message-composition-object (payload)
   (when payload
-    (make-instance 'slack-confirmation-dialog-message-composition-object
-                   :title (slack-create-text-message-composition-object
-                           (plist-get payload :title))
-                   :text (slack-create-text-message-composition-object
-                          (plist-get payload :text))
-                   :confirm (slack-create-text-message-composition-object
-                             (plist-get payload :confirm))
-                   :deny (slack-create-text-message-composition-object
-                          (plist-get payload :deny)))))
+    (ignore-errors
+      (make-instance 'slack-confirmation-dialog-message-composition-object
+                     :title (slack-create-text-message-composition-object
+                             (plist-get payload :title))
+                     :text (slack-create-text-message-composition-object
+                            (plist-get payload :text))
+                     :confirm (slack-create-text-message-composition-object
+                               (plist-get payload :confirm))
+                     :deny (slack-create-text-message-composition-object
+                            (plist-get payload :deny))))))
 
 (defclass slack-option-message-composition-object (slack-message-composition-object)
   ((text :initarg :text :type slack-text-message-composition-object)
@@ -1232,7 +1312,7 @@
     (make-instance 'slack-option-message-composition-object
                    :text (slack-create-text-message-composition-object
                           (plist-get payload :text))
-                   :value (plist-get payload :value))))
+                   :value (or (plist-get payload :value) ""))))
 
 (cl-defmethod slack-block-to-string ((this slack-option-message-composition-object))
   (with-slots (text) this
@@ -1282,6 +1362,34 @@
         :headers (list (cons "Content-Type"
                              "application/json;charset=utf-8"))
         :success #'success)))))
+
+;;; Utils
+
+(defun slack-block-fontify-text-natively (text)
+  (let* ((map '((cpp c++-mode)
+                (clojure lisp-mode)
+                (csharp java-mode)
+                (emacslisp emacs-lisp-mode)
+                (matlab octave-mode)
+                (objc c-mode)
+                (shell shell-script-mode)
+                (visualbasic visual-basic-mode)
+                (xml sgml-mode)))
+         (language (language-detection-string text)))
+    (let* ((lang (symbol-name language))
+           ;; (ts (intern (concat lang "-ts-mode")))
+           (normal (intern (concat lang "-mode")))
+           (other (cadr (assoc language map)))
+           (mode (cond
+                  ;; ((fboundp ts) ts)
+                  ((fboundp normal) normal)
+                  ((fboundp other) other)
+                  (t 'prog-mode))))
+      (with-temp-buffer
+        (insert text)
+        (delay-mode-hooks (funcall mode))
+        (font-lock-ensure)
+        (cons (or lang "src") (buffer-string))))))
 
 (provide 'slack-block)
 ;;; slack-block.el ends here
