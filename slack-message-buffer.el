@@ -863,9 +863,12 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
 
 (cl-defmethod slack-buffer-display-im ((this slack-user-profile-buffer))
   (let* ((user-id (oref this user-id))
-         (team (slack-buffer-team this))
-         (im (slack-im-find-by-user-id user-id team)))
-    (slack-room-display im team)))
+         (team (slack-buffer-team this)))
+    (slack-conversations-open team
+                              :user-ids (list user-id)
+                              :on-success `(lambda (&rest _args)
+                                             (let ((im (slack-im-find-by-user-id ,user-id ,team)))
+                                               (slack-room-display im ,team))))))
 
 (defun slack-user-profile-buffer-display-im ()
   "Display im buffer from user profile buffer."

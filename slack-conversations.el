@@ -525,7 +525,7 @@ Run SUCCESS-CALLBACK on success. Also limit to conversation TYPES when provided.
         :success (slack-conversations-success-handler
                   team :on-success #'success))))))
 
-(cl-defun slack-conversations-open (team &key room user-ids)
+(cl-defun slack-conversations-open (team &key room user-ids on-success on-error)
   (let ((channel (or (and room (oref room id))
                      ""))
         (users (mapconcat #'identity user-ids ",")))
@@ -537,7 +537,7 @@ Run SUCCESS-CALLBACK on success. Also limit to conversation TYPES when provided.
       :params (list (if (< 0 (length users))
                         (cons "users" users)
                       (cons "channel" channel)))
-      :success (slack-conversations-success-handler team)))))
+      :success (slack-conversations-success-handler team :on-errors on-error :on-success on-success)))))
 
 (defun slack-conversations-mark (room team ts &optional after-success)
   (cl-labels ((on-success (&rest _ignore)
