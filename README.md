@@ -1,8 +1,3 @@
-## DEPRECATED
-
-### Please note, this project is deprecated and no longer being maintained
----
-
 <p>
   <a href="https://melpa.org/#/slack"><img alt="MELPA" src="https://melpa.org/packages/slack-badge.svg"/></a>
 </p>
