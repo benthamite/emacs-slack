@@ -75,7 +75,8 @@
   ;; TODO move to `slack-room-buffer' ?
   (cursor-sensor-mode)
   (setq-local lui-max-buffer-size nil)
-  )
+  ;; don't adjust indentation of messages
+  (setq-local lui-fill-type nil))
 
 (defclass slack-message-buffer (slack-room-buffer)
   ((oldest :initform nil :type (or null string))
