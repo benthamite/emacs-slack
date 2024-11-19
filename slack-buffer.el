@@ -172,10 +172,11 @@
 
 (cl-defmethod slack-buffer-create-kill-hook ((this slack-buffer))
   #'(lambda ()
-      (let* ((key (slack-buffer-key this))
-             (team (slack-buffer-team this))
-             (ht (slot-value team (slack-team-buffer-key this))))
-        (remhash key ht))))
+      (with-demoted-errors "slack-buffer-create-kill-hook: there was an error %S"
+        (let* ((key (slack-buffer-key this))
+               (team (slack-buffer-team this))
+               (ht (slot-value team (slack-team-buffer-key this))))
+          (remhash key ht)))))
 
 (defvar slack-debug nil)
 
