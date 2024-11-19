@@ -5,7 +5,6 @@
 ;; URL: https://github.com/emacs-slack/emacs-slack
 ;; Author: andrea-dev@hotmail.com
 ;; Keywords: tools
-;; Package-Requires: ((websocket "1.12") (request "0.3.2") (circe "2.11") (alert "1.2") (emojify "1.2.1") (emacs "25.1"))
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
 ;; the Free Software Foundation, either version 3 of the License, or
