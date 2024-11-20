@@ -38,6 +38,7 @@
 ;; [How can I get the FULL list of slack emoji through API? - Stack Overflow](https://stackoverflow.com/a/39654939)
 (defconst slack-emoji-master-data-url
   "https://raw.githubusercontent.com/iamcal/emoji-data/master/emoji.json")
+;; this is to get each emoji image
 (defconst slack-emoji-master-image-url
   "https://raw.githubusercontent.com/iamcal/emoji-data/master/img-google-64/")
 
@@ -49,60 +50,6 @@
 (defvar slack-emoji-job-batch-size 200)
 (defvar slack-emoji-job-interval 10)
 
-(defun slack-download-emoji-sync (team after-success)
-  (when (require 'emojify nil t)
-    ;; create slack image file directory if it doesn't exist, otherwise curl complains
-    (ignore-errors (mkdir slack-image-file-directory 'parent-if-needed))
-    (cl-labels
-        ((handle-alias (name emojis)
-           (let* ((raw-url (plist-get emojis name))
-                  (alias (if (string-prefix-p "alias:" raw-url)
-                             (intern (format ":%s" (cadr (split-string raw-url ":")))))))
-             (or
-              (and (not raw-url) (handle-alias (intern ":slack") emojis)) ;some aliases are b0rked
-              (and (string-prefix-p "alias:" raw-url) ;recursive alias
-                   (handle-alias (intern (replace-regexp-in-string "alias" "" raw-url)) emojis))
-              (and alias (or (plist-get emojis alias)
-                             (let ((emoji (emojify-get-emoji (format "%s:" alias))))
-                               (if emoji
-                                   (concat (emojify-image-dir) "/" (gethash "image" emoji))))))
-              raw-url)))
-         (push-new-emoji (emoji)
-           (puthash (car emoji) t (oref team emoji-master))
-           (cl-pushnew emoji emojify-user-emojis
-                       :test #'string=
-                       :key #'car))
-         (on-success
-           (&key data &allow-other-keys)
-           (slack-request-handle-error
-            (data "slack-download-emoji")
-            (emojify-create-emojify-emojis)
-            (let* ((emojis (plist-get data :emoji))
-                   (paths nil))
-              (cl-loop for (name _) on emojis by #'cddr
-                       do (let* ((url (handle-alias name emojis))
-                                 (path (if (file-exists-p url) url
-                                         (slack-image-path url)))
-                                 (emoji (cons (format "%s:" name)
-                                              (list (cons "name" (substring (symbol-name name) 1))
-                                                    (cons "image" path)
-                                                    (cons "style" "github")))))
-                            (if (file-exists-p path)
-                                (push-new-emoji emoji)
-                              (slack-url-copy-file
-                               url
-                               path
-                               :success #'(lambda () (push-new-emoji emoji)))
-                              )
-
-                            (push path paths)))
-              (when (functionp after-success) (funcall after-success paths))))))
-      (slack-request
-       (slack-request-create
-        slack-emoji-list
-        team
-        :success #'on-success)))))
-
 (defun slack-emoji-run-job ()
   "Run first job of `slack-emoji-jobs-to-run'."
   (if-let ((job-to-run (-first-item slack-emoji-jobs-to-run)))
@@ -113,7 +60,8 @@
     (setq slack-emoji-job-runner nil)))
 
 (defun slack-download-emoji (team after-success)
-  "Download emojis and run AFTER-SUCCESS on the downloaded paths. This runs asynchronously, splitting the emojis in batches of 100,"
+  "Download TEAM emojis and run AFTER-SUCCESS on the downloaded paths.
+This runs asynchronously, splitting the emojis in batches of `slack-emoji-job-batch-size,' every `slack-emoji-job-interval' seconds."
   (when (and (require 'emojify nil t) (eq slack-emoji-jobs-to-run nil))
     ;; create slack image file directory if it doesn't exist, otherwise curl complains
     (ignore-errors (mkdir slack-image-file-directory 'parent-if-needed))
@@ -175,7 +123,6 @@
                                           path
                                           :success (lexical-let ((e emoji))
                                                      (lambda ()
-                                                       (message "hey!!!-- %s " e)
                                                        (funcall ',(lambda (emoji) (push-new-emoji emoji)) e))))
                                          )
                                        (add-to-list 'slack-emoji-paths path)))))
@@ -253,6 +200,7 @@
       ))))
 
 (defun slack-insert-emoji ()
+  "Insert emoji in slack buffer."
   (interactive)
   (slack-if-let* ((buffer slack-current-buffer)
                   (team (slack-buffer-team buffer)))
