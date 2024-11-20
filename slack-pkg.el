@@ -8,5 +8,6 @@
     (emojify "0.2")
     (emacs "25.1")
     (dash "2.19.1")
-    (s "1.13.1"))
+    (s "1.13.1")
+    (ts "0.3"))
   :url "https://github.com/emacs-slack/emacs-slack")
