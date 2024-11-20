@@ -35,6 +35,7 @@
 (require 'color)
 (require 'dash)
 (require 's)
+(require 'ts)
 
 (require 'slack-util)
 (require 'slack-team)
