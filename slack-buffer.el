@@ -64,7 +64,9 @@
   ""
   (setq-local default-directory slack-default-directory)
   (lui-set-prompt lui-prompt-string)
-  (setq lui-input-function 'slack-message--send))
+  (setq lui-input-function 'slack-message--send)
+  ;; don't adjust indentation of messages
+  (setq-local lui-fill-type nil))
 
 (define-derived-mode slack-info-mode lui-mode "Slack Info"
   ""
@@ -94,7 +96,9 @@
   (add-hook 'lui-post-output-hook 'slack-display-image t t)
   (add-hook 'lui-pre-output-hook 'slack-handle-lazy-user-name nil t)
   (add-hook 'lui-pre-output-hook 'slack-handle-lazy-conversation-name nil t)
-  (lui-set-prompt " "))
+  (lui-set-prompt " ")
+  ;; don't adjust indentation of messages
+  (setq-local lui-fill-type nil))
 
 (defclass slack-buffer ()
   ((team-id :initarg :team-id :type string)

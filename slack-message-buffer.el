@@ -74,9 +74,7 @@
   (add-hook 'lui-pre-output-hook 'slack-handle-lazy-conversation-name nil t)
   ;; TODO move to `slack-room-buffer' ?
   (cursor-sensor-mode)
-  (setq-local lui-max-buffer-size nil)
-  ;; don't adjust indentation of messages
-  (setq-local lui-fill-type nil))
+  (setq-local lui-max-buffer-size nil))
 
 (defclass slack-message-buffer (slack-room-buffer)
   ((oldest :initform nil :type (or null string))
