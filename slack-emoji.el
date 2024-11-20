@@ -38,13 +38,16 @@
 ;; [How can I get the FULL list of slack emoji through API? - Stack Overflow](https://stackoverflow.com/a/39654939)
 (defconst slack-emoji-master-data-url
   "https://raw.githubusercontent.com/iamcal/emoji-data/master/emoji.json")
+(defconst slack-emoji-master-image-url
+  "https://raw.githubusercontent.com/iamcal/emoji-data/master/img-google-64/")
+
 (defvar slack-emoji-master (make-hash-table :test 'equal :size 1600))
 
 (defvar slack-emoji-jobs-to-run nil "List of lambdas to run asynchronously to download and process emojis.")
 (defvar slack-emoji-paths nil "Paths to add consume on successful download of emojis.")
 (defvar slack-emoji-job-runner nil "Reference to the job runner.")
-(defvar slack-emoji-job-batch-size 100)
-(defvar slack-emoji-job-interval 20)
+(defvar slack-emoji-job-batch-size 200)
+(defvar slack-emoji-job-interval 10)
 
 (defun slack-download-emoji-sync (team after-success)
   (when (require 'emojify nil t)
@@ -138,36 +141,53 @@
            (slack-request-handle-error
             (data "slack-download-emoji")
             (emojify-create-emojify-emojis)
-            (--> (plist-get data :emoji)
-                 (-partition-all slack-emoji-job-batch-size it)
-                 (--map
-                  `(lambda ()
-                     (let ((emojis ',it))
-                       (cl-loop for (name _) on emojis by #'cddr
-                                do (let* ((url (funcall ',(lambda (name emojis) (handle-alias name emojis)) name emojis))
-                                          (path (if (file-exists-p url) url
-                                                  (slack-image-path url)))
-                                          (emoji (cons (format "%s:" name)
-                                                       (list (cons "name" (substring (symbol-name name) 1))
-                                                             (cons "image" path)
-                                                             (cons "style" "github")))))
-                                     (if (file-exists-p path)
-                                         (funcall ',(lambda (emoji) (push-new-emoji emoji)) emoji)
-                                       (slack-url-copy-file
-                                        url
-                                        path
-                                        :success #'(lambda () (funcall ',(lambda (emoji) (push-new-emoji emoji)) emoji)))
-                                       )
-                                     (add-to-list 'slack-emoji-paths path)))))
-                  it)
-                 (append
-                  it
-                  (list
-                   `(lambda ()
-                      (when (functionp ',after-success) (funcall ',after-success slack-emoji-paths))
-                      (setq slack-emoji-paths nil)
-                      )))
-                 (setq slack-emoji-jobs-to-run it))
+            (let* ((default-emojis nil)
+                   (_ (slack-emoji-fetch-default-emojis-data
+                       team
+                       (lambda (&rest default-data)
+                         (--> (plist-get default-data :data)
+                              (--map (list
+                                      (intern (concat ":" (plist-get it :short_name)))
+                                      (concat
+                                       slack-emoji-master-image-url
+                                       (plist-get it :image)))
+                                     it)
+                              (-flatten it)
+                              (setq default-emojis it)))))
+                   (emojis (append (plist-get data :emoji) default-emojis)))
+              (--> emojis
+                   (-partition-all slack-emoji-job-batch-size it)
+                   (--map
+                    `(lambda ()
+                       (let ((emojis ',it))
+                         (cl-loop for (name _) on emojis by #'cddr
+                                  do (let* ((url (funcall ',(lambda (name emojis) (handle-alias name emojis)) name emojis))
+                                            (path (if (file-exists-p url) url
+                                                    (slack-image-path url)))
+                                            (emoji (cons (format "%s:" name)
+                                                         (list (cons "name" (substring (symbol-name name) 1))
+                                                               (cons "image" path)
+                                                               (cons "style" "github")))))
+                                       (if (file-exists-p path)
+                                           (funcall ',(lambda (emoji) (push-new-emoji emoji)) emoji)
+                                         (slack-url-copy-file
+                                          url
+                                          path
+                                          :success (lexical-let ((e emoji))
+                                                     (lambda ()
+                                                       (message "hey!!!-- %s " e)
+                                                       (funcall ',(lambda (emoji) (push-new-emoji emoji)) e))))
+                                         )
+                                       (add-to-list 'slack-emoji-paths path)))))
+                    it)
+                   (append
+                    it
+                    (list
+                     `(lambda ()
+                        (when (functionp ',after-success) (funcall ',after-success slack-emoji-paths))
+                        (setq slack-emoji-paths nil)
+                        )))
+                   (setq slack-emoji-jobs-to-run it)))
             (setq slack-emoji-job-runner (run-with-timer 0 slack-emoji-job-interval #'slack-emoji-run-job))
             )))
       (slack-request
@@ -198,6 +218,17 @@
                                                                 nil)))))))
                (select)))
     (completing-read "Emoji: " (hash-table-keys slack-emoji-master))))
+
+(defun slack-emoji-fetch-default-emojis-data (team success)
+  (slack-request
+   (slack-request-create
+    slack-emoji-master-data-url
+    team
+    :type "GET"
+    :success success
+    :without-auth t
+    :sync t
+    )))
 
 (defun slack-emoji-fetch-master-data (team)
   (cl-labels
