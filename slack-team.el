@@ -263,7 +263,7 @@ TODO I should experiment to see if api calls require cookies."
 
 (cl-defmethod slack-team-d-s-cookie ((this slack-team))
   "Get d-s cookie useful to authenticate to websocket."
-  (s-trim (s-replace ";" "" (nth 0 (s-split "lc=" (nth 1 (s-split "d-s=" (oref this cookie))))))))
+  (ignore-errors (s-trim (s-replace ";" "" (nth 0 (s-split "lc=" (nth 1 (s-split "d-s=" (oref this cookie)))))))))
 
 (cl-defmethod slack-team-lc-cookie ((this slack-team))
   "Get lc cookie useful to authenticate to websocket."
