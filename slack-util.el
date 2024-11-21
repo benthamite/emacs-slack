@@ -264,20 +264,22 @@ Note the input timestamp must drop the last 6 digits.
 (defun slack-permalink-to-info (permalink)
   "Turn Slack PERMALINK into (:team-domain :room-id :ts :thread-ts).
 
+>> (slack-permalink-to-info \"https://clojurians.slack.com/x-p0731283237333-1533439499937-7343247531848/archives/C099W16KZ/p1730182493679269\")
+=> (:team-domain \"clojurians\" :room-id \"C099W16KZ\" :ts \"1730182493.679269\" :thread-ts \"1730182493.679269\")
 >> (slack-permalink-to-info \"https://clojurians.slack.com/archives/C099W16KZ/p1730182493679269?thread_ts=1730182493.679269&cid=C099W16KZ\")
 => (:team-domain \"clojurians\" :room-id \"C099W16KZ\" :ts \"1730182493.679269\" :thread-ts \"1730182493.679269\")"
   (with-demoted-errors "slack-permalink-to-info: failed with %S"
-    (let* ((_ (string-match "https://\\(.*\\).slack.com/archives/\\(.*\\)/p\\(.*\\)" permalink))
+    (let* ((_ (string-match "https://\\(.*\\).slack.com/\\(?:[^/]*/\\)?archives/\\(.*\\)/p\\(.*\\)" permalink))
            (team-domain (match-string 1 permalink))
            (room-id (match-string 2 permalink))
            (ts-s (match-string 3 permalink))
            (ts (--> ts-s
                     (s-split "?" it)
-                    car
+                    (car it)
                     (concat (substring it 0 (- (length it) 6)) "." (substring it (- (length it) 6) (length it)))))
-           (thread-ts (and
-                       (string-match "thread_ts=\\([0-9]*\\.[0-9]*\\)" ts-s)
-                       (match-string 1 ts-s))))
+           (thread-ts (if (string-match "thread_ts=\\([0-9]*\\.[0-9]*\\)" ts-s)
+                          (match-string 1 ts-s)
+                        ts)))
       (list
        :team-domain team-domain
        :room-id room-id
