@@ -1021,6 +1021,34 @@ A way to use that is to select the right point of the buffer."
               ))
      (goto-char (point-max)))))
 
+(defun slack-remove-preview (team-id channel-id ts &optional on-success)
+  "Remove preview from message at TS in CHANNEL-ID for TEAM-ID.
+Optionally pass ON-SUCCESS to run some effect after."
+  (interactive (list
+                (oref slack-current-buffer team-id)
+                (oref slack-current-buffer room-id) (slack-get-ts)
+                (lambda (&rest _args) (message "Removing of message preview completed"))))
+  (let* ((team (slack-team-find team-id))
+         (token (oref team token)))
+    (slack-request
+     (slack-request-create
+      (format "https://slack.com/api/chat.deleteAttachment")
+      team
+      :type "POST"
+      :success on-success
+      :params `(("slack_route" . ,team-id)
+                ("_x_version_ts" . "1732141953")
+                ("_x_frontend_build_type" . "current")
+                ("_x_desktop_ia" . "4")
+                ("_x_gantry" . "true")
+                ("fp" . "6a")
+                ("_x_num_retries" . "0"))
+      :data
+      (concat "------WebKitFormBoundaryenLkWQrwnl4i4gnE\r\nContent-Disposition: form-data; name=\"token\"\r\n\r\n" token "\r\n------WebKitFormBoundaryenLkWQrwnl4i4gnE\r\nContent-Disposition: form-data; name=\"channel\"\r\n\r\n" channel-id "\r\n------WebKitFormBoundaryenLkWQrwnl4i4gnE\r\nContent-Disposition: form-data; name=\"ts\"\r\n\r\n" ts "\r\n------WebKitFormBoundaryenLkWQrwnl4i4gnE\r\nContent-Disposition: form-data; name=\"attachment\"\r\n\r\n1\r\n------WebKitFormBoundaryenLkWQrwnl4i4gnE\r\nContent-Disposition: form-data; name=\"_x_reason\"\r\n\r\ndelete-single-attachment\r\n------WebKitFormBoundaryenLkWQrwnl4i4gnE\r\nContent-Disposition: form-data; name=\"_x_mode\"\r\n\r\nonline\r\n------WebKitFormBoundaryenLkWQrwnl4i4gnE\r\nContent-Disposition: form-data; name=\"_x_sonic\"\r\n\r\ntrue\r\n------WebKitFormBoundaryenLkWQrwnl4i4gnE\r\nContent-Disposition: form-data; name=\"_x_app_name\"\r\n\r\nclient\r\n------WebKitFormBoundaryenLkWQrwnl4i4gnE--\r\n")
+      :headers (list
+                (cons "content-type"
+                      "multipart/form-data; boundary=----WebKitFormBoundaryenLkWQrwnl4i4gnE"))))))
+
 (provide 'slack-message-buffer)
 
 ;;; slack-message-buffer.el ends here
