@@ -399,6 +399,7 @@ Optionally pass SUCCESS-CALLBACK to perform an action on the permalink obtained.
         (read-string "Title:"))
     (cond (
            ;; TODO there must be a nicer way to check url, url-p was wrong because it just checks if it is an url-object
+           (with-temp-buffer (clipboard-yank) (goto-char (point-min)) (thing-at-point-url-at-point)) (with-temp-buffer (clipboard-yank))
            (with-temp-buffer (insert (car kill-ring)) (goto-char (point-min)) (thing-at-point-url-at-point)) (car kill-ring))
           (t (read-string "URL:")))))
   (when (region-active-p) (delete-region (region-beginning) (region-end)))
