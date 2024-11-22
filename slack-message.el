@@ -32,6 +32,7 @@
 (require 'slack-block)
 (require 'slack-unescape)
 (require 'slack-message-faces)
+(require 'slack-defcustoms)
 
 (defvar slack-current-buffer)
 
@@ -248,7 +249,7 @@
          (status (slack-message-user-status this team))
          (edited-at (slack-format-ts (slack-message-edited-at this)))
          (deleted-at (slack-format-ts (oref this deleted-at))))
-    (concat (slack-if-let* ((render-image-p slack-render-image-p)
+    (concat (slack-if-let* ((render-image-p (and slack-render-image-p slack-render-profile-images-p))
                             (image (slack-message-profile-image this team)))
                 (concat (propertize "image" 'display image 'face 'slack-profile-image-face)
                         " ")
