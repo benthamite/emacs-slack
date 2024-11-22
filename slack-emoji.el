@@ -47,8 +47,9 @@
 (defvar slack-emoji-jobs-to-run nil "List of lambdas to run asynchronously to download and process emojis.")
 (defvar slack-emoji-paths nil "Paths to add consume on successful download of emojis.")
 (defvar slack-emoji-job-runner nil "Reference to the job runner.")
-(defvar slack-emoji-job-batch-size 200)
-(defvar slack-emoji-job-interval 10)
+(defvar slack-emoji-job-batch-size 200 "How many emojis to process at the time.")
+(defvar slack-emoji-job-interval 10 "How many seconds have to pass in between batch processing.")
+(defvar slack-emoji-all nil "List of all emojis found.")
 
 (defun slack-emoji-run-job ()
   "Run first job of `slack-emoji-jobs-to-run'."
@@ -57,7 +58,8 @@
              (funcall job-to-run)
              )
     (cancel-function-timers #'slack-emoji-run-job)
-    (setq slack-emoji-job-runner nil)))
+    (setq slack-emoji-job-runner nil)
+    (setq slack-emoji-all nil)))
 
 (defun slack-download-emoji (team after-success)
   "Download TEAM emojis and run AFTER-SUCCESS on the downloaded paths.
@@ -66,15 +68,15 @@ This runs asynchronously, splitting the emojis in batches of `slack-emoji-job-ba
     ;; create slack image file directory if it doesn't exist, otherwise curl complains
     (ignore-errors (mkdir slack-image-file-directory 'parent-if-needed))
     (cl-labels
-        ((handle-alias (name emojis)
-           (let* ((raw-url (plist-get emojis name))
+        ((handle-alias (name)
+           (let* ((raw-url (plist-get slack-emoji-all name))
                   (alias (if (string-prefix-p "alias:" raw-url)
                              (intern (format ":%s" (cadr (split-string raw-url ":")))))))
              (or
-              (and (not raw-url) (handle-alias (intern ":slack") emojis)) ;some aliases are b0rked
+              (and (not raw-url) (handle-alias (intern ":slack"))) ;some aliases are b0rked
               (and (string-prefix-p "alias:" raw-url) ;recursive alias
-                   (handle-alias (intern (replace-regexp-in-string "alias" "" raw-url)) emojis))
-              (and alias (or (plist-get emojis alias)
+                   (handle-alias (intern (replace-regexp-in-string "alias" "" raw-url))))
+              (and alias (or (plist-get slack-emoji-all alias)
                              (let ((emoji (emojify-get-emoji (format "%s:" alias))))
                                (if emoji
                                    (concat (emojify-image-dir) "/" (gethash "image" emoji))))))
@@ -102,14 +104,14 @@ This runs asynchronously, splitting the emojis in batches of `slack-emoji-job-ba
                                      it)
                               (-flatten it)
                               (setq default-emojis it)))))
-                   (emojis (append (plist-get data :emoji) default-emojis)))
+                   (emojis (setq slack-emoji-all (append (plist-get data :emoji) default-emojis))))
               (--> emojis
                    (-partition-all slack-emoji-job-batch-size it)
                    (--map
                     `(lambda ()
                        (let ((emojis ',it))
                          (cl-loop for (name _) on emojis by #'cddr
-                                  do (let* ((url (funcall ',(lambda (name emojis) (handle-alias name emojis)) name emojis))
+                                  do (let* ((url (funcall ',(lambda (name) (handle-alias name)) name))
                                             (path (if (file-exists-p url) url
                                                     (slack-image-path url)))
                                             (emoji (cons (format "%s:" name)
