@@ -54,6 +54,14 @@ One of 'info, 'debug"
   :type 'string
   :group 'slack)
 
+(defcustom slack-log-logger
+  nil
+  "Function to log messages to another place than slack-log-buffer."
+  :type 'function
+  :group 'slack
+  :options (list 'slack-message-logger))
+
+
 
 (defun slack-log-level-to-int (level)
   (let ((cell (cl-assoc level slack-log-levels)))
@@ -76,7 +84,7 @@ One of 'info, 'debug"
              message)))
 
 (cl-defun slack-log (msg team &key
-                         (logger #'slack-message-logger)
+                         (logger slack-log-logger)
                          (level 'debug))
   "LEVEL is one of 'trace, 'debug, 'info, 'warn, 'error"
   (when (functionp logger)
