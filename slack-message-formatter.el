@@ -131,7 +131,8 @@
                     (slack-file-link-info (oref file id)
                                           (slack-unescape title team))
                     permalink))))
-    (message "No permalink: %S" file)))
+    (slack-log (format "No permalink: %S" file)
+               team :level 'warn)))
 
 (defvar slack-expand-email-keymap
   (let ((map (make-sparse-keymap)))

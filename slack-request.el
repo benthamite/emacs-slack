@@ -349,31 +349,31 @@
                          (length new-queue))
                  team :level 'debug))))
 
-(cl-defun slack-url-copy-file (url newname &key (success nil) (error nil) (sync nil) (token nil) (cookie nil))
+(cl-defun slack-url-copy-file (url newname team &key (success nil) (error nil) (sync nil) (token nil) (cookie nil))
   (if (executable-find "curl")
-      (slack-curl-downloader url newname
+      (slack-curl-downloader url newname team
                              :success success
                              :error error
                              :token token
                              :cookie cookie)
     (cl-labels
         ((on-success (&key _data &allow-other-keys)
-                     (when (functionp success) (funcall success)))
+           (when (functionp success) (funcall success)))
          (on-error (&key error-thrown symbol-status response _data)
-                   (message "Error Download File: %s %s %s, url: %s"
-                            (request-response-status-code response)
-                            error-thrown symbol-status url)
-                   (if (file-exists-p newname)
-                       (delete-file newname))
-                   (cl-case (request-response-status-code response)
-                     (403 nil)
-                     (404 nil)
-                     (t (when (functionp error)
-                          (funcall error
-                                   (request-response-status-code response)
-                                   error-thrown
-                                   symbol-status
-                                   url)))))
+           (message "Error Download File: %s %s %s, url: %s"
+                    (request-response-status-code response)
+                    error-thrown symbol-status url)
+           (if (file-exists-p newname)
+               (delete-file newname))
+           (cl-case (request-response-status-code response)
+             (403 nil)
+             (404 nil)
+             (t (when (functionp error)
+                  (funcall error
+                           (request-response-status-code response)
+                           error-thrown
+                           symbol-status
+                           url)))))
          (parser () (mm-write-region (point-min) (point-max)
                                      newname nil nil nil 'binary t)))
       (let* ((url-obj (url-generic-parse-url url))
@@ -394,7 +394,7 @@
                       (when (slack-need-cookie-p token)
                         (list (cons "Cookie" (format "d=%s; " cookie)))))))))))
 
-(cl-defun slack-curl-downloader (url name &key (success nil) (error nil) (token nil) (cookie nil))
+(cl-defun slack-curl-downloader (url name team &key (success nil) (error nil) (token nil) (cookie nil))
   (cl-labels
       ((sentinel (proc event)
          (cond
@@ -407,12 +407,15 @@
                                                            (point-max)))))
              (if (functionp error)
                  (funcall error status output url name)
-               (warn "slack-curl-downloader: Download Failed. STATUS: %s, EVENT: %s, URL: %s, NAME: %s, OUTPUT: %s"
-                     status
-                     event
-                     url
-                     name
-                     output))
+               (slack-log
+                (format "slack-curl-downloader: Download Failed. STATUS: %s, EVENT: %s, URL: %s, NAME: %s, OUTPUT: %s"
+                        status
+                        event
+                        url
+                        name
+                        output)
+                team
+                :level 'warn))
              (if (file-exists-p name)
                  (delete-file name))
              (delete-process proc))))))

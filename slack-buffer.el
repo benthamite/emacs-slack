@@ -346,10 +346,11 @@
                (cookie (and (not no-token-p) (oref team cookie))))
           (cl-labels
               ((on-success ()
-                           (slack-buffer-replace-image cur-buffer ts)))
+                 (slack-buffer-replace-image cur-buffer ts)))
             (unless (file-exists-p path)
               (slack-url-copy-file url
                                    path
+                                   team
                                    :success #'on-success
                                    :token token
                                    :cookie cookie)))))))

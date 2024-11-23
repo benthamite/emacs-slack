@@ -74,7 +74,7 @@
          (file-path (and image-url (slack-profile-image-path image-url team))))
     (when file-path
       (if (file-exists-p file-path) file-path
-        (slack-url-copy-file image-url file-path))
+        (slack-url-copy-file image-url file-path team))
       file-path)))
 
 (cl-defun slack-bot-image (bot team &optional (size 36))

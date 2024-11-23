@@ -556,7 +556,7 @@
                   (dir (expand-file-name slack-file-dir))
                   (confirmed-p (y-or-n-p (format "Download %s to %s ? "
                                                  filename dir))))
-      (slack-url-copy-file url (format "%s%s" dir filename)
+      (slack-url-copy-file url (format "%s%s" dir filename) team
                            :token (slack-team-token team)
                            :cookie (slack-team-cookie team)
                            :sync t)))
