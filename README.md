@@ -218,3 +218,6 @@ Please open an issue or better pull request for things that trouble you.
 - [request](https://github.com/tkf/emacs-request)
 - [websocket](https://github.com/ahyatt/emacs-websocket)
 
+## Similar projects
+
+- https://github.com/wee-slack/wee-slack
