@@ -40,10 +40,16 @@
 (declare-function slack-message-create "slack-create-message")
 
 (defun slack-team-id-safe (team)
-  "Return TEAM's id, or nil if the slot is unbound."
-  (condition-case nil
-      (oref team id)
-    (error nil)))
+  "Return TEAM's id, falling back to reverse token lookup."
+  (or (condition-case nil (oref team id) (error nil))
+      (let ((token (condition-case nil (oref team token) (error nil))))
+        (when token
+          (let ((found nil))
+            (maphash (lambda (id tok)
+                       (when (equal tok token)
+                         (setq found id)))
+                     slack-tokens-by-id)
+            found)))))
 
 (defvar slack-activity-feed-url "https://slack.com/api/activity.feed")
 (defvar slack-activity-feed-mode-show-only-unread nil "If non-nil, show only unread activity.")
@@ -207,7 +213,8 @@ Run an action on the data returned with AFTER-SUCCESS."
   (remove-hook 'lui-post-output-hook 'slack-display-image t))
 
 (defclass slack-activity-feed-buffer (slack-buffer)
-  ((activity-feed :initarg :activity-feed :type slack-activity-feed)))
+  ((activity-feed :initarg :activity-feed :type slack-activity-feed)
+   (cached-team :initarg :cached-team :initform nil)))
 
 (cl-defmethod slack-buffer-name ((_class (subclass slack-activity-feed-buffer)) team)
   (format "*slack: %s Activity Feed*"
@@ -232,6 +239,7 @@ Run an action on the data returned with AFTER-SUCCESS."
              (buffer-live-p (oref existing buf)))
         (progn
           (oset existing activity-feed activity-feed)
+          (oset existing cached-team team)
           (with-current-buffer (oref existing buf)
             (let ((inhibit-read-only t))
               (erase-buffer))
@@ -245,6 +253,7 @@ Run an action on the data returned with AFTER-SUCCESS."
           existing)
       (make-instance 'slack-activity-feed-buffer
                      :team-id (slack-team-id-safe team)
+                     :cached-team team
                      :activity-feed activity-feed))))
 
 (defclass activity-message ()
@@ -331,8 +340,8 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
   (with-slots (is-unread item) this
     (format "%s %s" (if is-unread "*" " ") (slack-activity-item-to-string item team))))
 
-(cl-defmethod slack-buffer-insert ((this slack-activity-feed-buffer) activity)
-  (let* ((team (slack-buffer-team this))
+(cl-defmethod slack-buffer-insert ((this slack-activity-feed-buffer) activity &rest _args)
+  (let* ((team (or (oref this cached-team) (slack-buffer-team this)))
          (time (slack-ts-to-time (oref activity feed-ts)))
          (is-unread (oref activity is-unread))
          (item (oref activity item))
