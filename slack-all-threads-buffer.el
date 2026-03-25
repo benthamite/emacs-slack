@@ -133,6 +133,11 @@
                  do (slack-buffer-insert-thread this thread)))
       (when (slack-buffer-has-next-page-p this)
         (slack-buffer-insert-load-more this))
+      ;; Force emojify to process all text now, since jit-lock may not
+      ;; trigger for bulk-inserted text in a not-yet-visible buffer.
+      (when (bound-and-true-p emojify-mode)
+        (with-demoted-errors "emojify redisplay: %S"
+          (emojify-redisplay-emojis-in-region (point-min) (point-max))))
       (goto-char (point-min)))
     (slack-subscriptions-thread-clear-all (slack-buffer-team this))
     buf))
