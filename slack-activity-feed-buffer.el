@@ -549,13 +549,13 @@ matching Slack's behavior."
             (room (slack-room-find room-id team)))
       (progn
         (slack-team-ensure-registered team)
-        ;; Always open channel view and navigate to the message.
-        ;; Thread view is fragile — conversations.replies can return
-        ;; thread_not_found for valid activity entries when the thread
-        ;; parent is cached but the thread itself is gone or the API
-        ;; is inconsistent.  Channel view is reliable and still shows
-        ;; the thread indicator for threaded messages.
-        (slack-open-message team room ts nil ts))
+        ;; Use thread-ts (parent) when available — it is always a
+        ;; channel-level message findable by conversations.history.
+        ;; The latest-reply ts from thread_v2 entries only lives in
+        ;; the thread, not the channel, so navigating to it would
+        ;; fail with "No Message ... fetching from server".
+        (let ((navigate-ts (or (get-text-property (point) 'thread-ts) ts)))
+          (slack-open-message team room navigate-ts nil navigate-ts)))
     (error "Not possible to jump to message")))
 (defun slack-activity-feed-goto-next ()
   "Move point to the next activity entry."
