@@ -406,7 +406,37 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
          ts
          thread-ts))
     (error "Not possible to jump to message")))
+(defun slack-activity-feed-goto-next ()
+  "Move point to the next activity entry."
+  (interactive)
+  (let ((cur-ts (get-text-property (point) 'ts)))
+    ;; First skip past current ts region (or nil region)
+    (if-let ((pos (next-single-property-change (point) 'ts)))
+        (if (get-text-property pos 'ts)
+            (goto-char pos)
+          ;; Landed on a nil gap (separator/header), skip to next ts
+          (if-let ((pos2 (next-single-property-change pos 'ts)))
+              (goto-char pos2)
+            (message "You are on the last message.")))
+      (message "You are on the last message."))))
+
+(defun slack-activity-feed-goto-prev ()
+  "Move point to the previous activity entry."
+  (interactive)
+  (let ((cur-ts (get-text-property (point) 'ts)))
+    (if-let ((pos (previous-single-property-change (point) 'ts)))
+        (if (get-text-property pos 'ts)
+            ;; Find the start of this ts region
+            (goto-char (or (previous-single-property-change pos 'ts) (point-min)))
+          ;; Landed on a nil gap, skip back to previous ts
+          (if-let ((pos2 (previous-single-property-change pos 'ts)))
+              (goto-char (or (previous-single-property-change pos2 'ts) (point-min)))
+            (message "You are on the first message.")))
+      (message "You are on the first message."))))
+
 (define-key slack-activity-feed-buffer-mode-map (kbd "RET") 'slack-activity-feed-open-message)
+(define-key slack-activity-feed-buffer-mode-map (kbd "n") 'slack-activity-feed-goto-next)
+(define-key slack-activity-feed-buffer-mode-map (kbd "p") 'slack-activity-feed-goto-prev)
 
 (provide 'slack-activity-feed-buffer)
 ;;; slack-activity-feed-buffer.el ends here
