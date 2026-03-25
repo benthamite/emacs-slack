@@ -39,6 +39,12 @@
 (declare-function slack-conversations-replies "slack-conversations")
 (declare-function slack-message-create "slack-create-message")
 
+(defun slack-team-id-safe (team)
+  "Return TEAM's id, or nil if the slot is unbound."
+  (condition-case nil
+      (oref team id)
+    (error nil)))
+
 (defvar slack-activity-feed-url "https://slack.com/api/activity.feed")
 (defvar slack-activity-feed-mode-show-only-unread nil "If non-nil, show only unread activity.")
 
@@ -238,7 +244,7 @@ Run an action on the data returned with AFTER-SUCCESS."
                     (slack-buffer-insert-load-more existing)))))
           existing)
       (make-instance 'slack-activity-feed-buffer
-                     :team-id (oref team id)
+                     :team-id (slack-team-id-safe team)
                      :activity-feed activity-feed))))
 
 (defclass activity-message ()
@@ -285,7 +291,7 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                                   (slack-message-to-string fetched-msg team)
                                 "TODO"))
                       'ts ts
-                      'team-id (oref team id)
+                      'team-id (slack-team-id-safe team)
                       'room-id (oref room id)
                       'thread-ts thread-ts))
       (error
@@ -388,7 +394,7 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                 (lui-insert-with-text-properties
                  message-str
                  'ts ts
-                 'team-id (oref team id)
+                 'team-id (oref this team-id)
                  'room-id (or room-id channel)
                  'thread-ts thread-ts))
               ;; Blank separator
