@@ -1113,10 +1113,11 @@ A way to use that is to select the right point of the buffer."
                                  :after-success #'success))
   )
 
-(defun slack-open-message (team room ts thread-ts)
-  "Open message or thread buffer from TEAM, ROOM, TS and THREAD-TS (the latter can be nil)."
+(defun slack-open-message (team room ts thread-ts &optional goto-ts)
+  "Open message or thread buffer from TEAM, ROOM, TS and THREAD-TS (the latter can be nil).
+When GOTO-TS is non-nil, navigate to that timestamp instead of the default."
   (cl-labels ((go-to-link-position ()
-                (slack-buffer-goto (or thread-ts ts))
+                (slack-buffer-goto (or goto-ts thread-ts ts))
                 (when (and
                        (not (equal ts (slack-get-ts)))
                        (not (equal thread-ts (slack-get-ts)))
