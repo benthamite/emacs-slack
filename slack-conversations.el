@@ -585,10 +585,13 @@ it does a call for each type and `slack-conversation-list' doesn't do more than 
                       (cons "channel" channel)))
       :success (slack-conversations-success-handler team :on-errors on-error :on-success on-success)))))
 
-(defun slack-conversations-mark (room team ts &optional after-success)
+(defun slack-conversations-mark (room team ts &optional after-success after-error)
   (cl-labels ((on-success (&rest _ignore)
                           (when (functionp after-success)
-                            (funcall after-success))))
+                            (funcall after-success)))
+              (on-errors (_errors)
+                         (when (functionp after-error)
+                           (funcall after-error))))
     (slack-request
      (slack-request-create
       slack-conversations-mark-url
@@ -596,7 +599,9 @@ it does a call for each type and `slack-conversation-list' doesn't do more than 
       :type "POST"
       :params (list (cons "channel"  (oref room id))
                     (cons "ts"  ts))
-      :success (slack-conversations-success-handler team :on-success #'on-success)))))
+      :success (slack-conversations-success-handler team
+                                                    :on-success #'on-success
+                                                    :on-errors #'on-errors)))))
 
 (provide 'slack-conversations)
 ;;; slack-conversations.el ends here

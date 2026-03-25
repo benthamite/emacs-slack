@@ -144,11 +144,17 @@ and forces recomputation of load-more placeholders next time.
   (let ((team (slack-buffer-team this))
         (room (slack-buffer-room this)))
     (when (slack-room-member-p room)
-      (oset room last-read ts)
-      (slack-buffer-update-marker-overlay this)
-      (slack-conversations-mark room team ts after-success)
-      ;; update read counts after marking
-      (slack-counts-update team))))
+      (let ((prev-last-read (oref room last-read)))
+        (oset room last-read ts)
+        (slack-buffer-update-marker-overlay this)
+        (slack-conversations-mark
+         room team ts after-success
+         (lambda ()
+           (message "slack: conversations.mark failed, reverting last-read")
+           (oset room last-read prev-last-read)
+           (slack-buffer-update-marker-overlay this)))
+        ;; update read counts after marking
+        (slack-counts-update team)))))
 
 (cl-defmethod slack-buffer-send-message ((this slack-message-buffer) message)
   (slack-message-send-internal message
