@@ -90,7 +90,8 @@
                       :is-broadcast (slack-activity-feed--jbool
                                      (plist-get m :is_broadcast))
                       :thread-ts (when thread-ts (format "%s" thread-ts))
-                      :author-id (format "%s" (plist-get m :author_user_id)))
+                      :author-id (when-let ((id (plist-get m :author_user_id)))
+                                   (format "%s" id)))
             :reaction (when r (make-instance
                                'activity-reaction
                                :user (format "%s" (plist-get r :user))
@@ -177,26 +178,38 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                                  room-name))
                (type-prefix (pcase activity-type
                               ((or "thread_reply" "thread_v2") "Thread in ")
+                              ((or "at_user" "at_user_group" "at_channel" "at_everyone")
+                               "Mentioned in ")
+                              ("internal_channel_invite" "Invited to ")
                               (_ "")))
                (header (propertize (concat type-prefix location)
-                                   'face 'slack-search-result-message-header-face)))
+                                   'face 'slack-search-result-message-header-face))
+               (fetched-msg
+                (condition-case msg-err
+                    (when (or ts thread-ts)
+                      (slack-message-get-or-fetch
+                       ts (oref room id) team thread-ts))
+                  (error
+                   (message "slack-activity-message-to-string: Loading messages failed with: %S"
+                            (error-message-string msg-err))
+                   nil)))
+               (effective-author-id
+                (or author-id
+                    (when (and fetched-msg
+                               (slot-exists-p fetched-msg 'user)
+                               (slot-boundp fetched-msg 'user))
+                      (oref fetched-msg user))))
+               (author-name
+                (when effective-author-id
+                  (or (slack-user-name effective-author-id team)
+                      effective-author-id))))
           (propertize (concat header
-                              (when-let ((author (slack-user-name author-id team)))
-                                (format " from %s" author))
+                              (when author-name
+                                (format " from %s" author-name))
                               "\n"
-                              (or
-                               (condition-case msg-err
-                                   (when (or ts thread-ts)
-                                     (slack-message-body
-                                      (slack-message-get-or-fetch
-                                       ts
-                                       (oref room id) team thread-ts)
-                                      team))
-                                 (error
-                                  (message "slack-activity-message-to-string: Loading messages failed with: %S"
-                                           (error-message-string msg-err))
-                                  nil))
-                               "TODO"))
+                              (or (when fetched-msg
+                                    (slack-message-body fetched-msg team))
+                                  "TODO"))
                       'ts ts
                       'team-id (oref team id)
                       'room-id (oref room id)
