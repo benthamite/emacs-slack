@@ -531,6 +531,9 @@ TEAM is one of `slack-teams'"
           (slack-ws-handle-pin-added decoded-payload team))
          ((string= type "update_thread_state")
           (slack-ws-handle-update-thread-state payload team))
+         (t
+          (slack-log (format "Unhandled WebSocket event type: %s" type)
+                     team :level 'debug))
          )))))
 
 (defun slack-ws-handle-update-thread-state (payload team)
