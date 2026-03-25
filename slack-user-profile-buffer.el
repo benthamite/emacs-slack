@@ -116,17 +116,19 @@
 (defun slack-user-profile-to-string (id team)
   "Print user's profile according to ID in TEAM."
   (let ((user (slack-user-find id team)))
-    (format "\n%s\n\n%s\n\n%s"
-            (slack-image-string (list (slack-user-image-url user 512)
-                                      nil nil nil (window-width
-                                                   (get-buffer-window
-                                                    (current-buffer))
-                                                   t))
-                                nil t)
-            (slack-user--profile-to-string user team)
-            (propertize "[Open Direct Message]"
-                        'face '(:underline t)
-                        'keymap slack-open-direct-message-keymap))))
+    (if (null user)
+        (format "\nUser %s not found in local cache.\nTry updating the user list." id)
+      (format "\n%s\n\n%s\n\n%s"
+              (slack-image-string (list (slack-user-image-url user 512)
+                                        nil nil nil (window-width
+                                                     (get-buffer-window
+                                                      (current-buffer))
+                                                     t))
+                                  nil t)
+              (slack-user--profile-to-string user team)
+              (propertize "[Open Direct Message]"
+                          'face '(:underline t)
+                          'keymap slack-open-direct-message-keymap)))))
 
 (defun slack-user-select ()
   "Select user from team, then display the user's profile."
