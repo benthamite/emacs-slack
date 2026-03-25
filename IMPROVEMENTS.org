@@ -1,0 +1,271 @@
+#+title: emacs-slack improvement plan
+#+author: Pablo Stafforini
+#+date: 2026-03-25
+
+* Activity feed
+** DONE Show author names in activity feed entries
+:PROPERTIES:
+:COMMIT: f2e6ff2
+:END:
+
+The ~activity.feed~ API provides ~author_user_id~ only in the ~:message~
+sub-field. For ~thread_v2~ and ~dm~ activity types, data comes from
+~bundle_payload~ instead, so ~(plist-get m :author_user_id)~ returned nil and
+~(format "%s" nil)~ produced the string ~"nil"~.
+
+Fixed by: using ~when-let~ in the parser so ~author-id~ stays nil, then at
+render time falling back to the fetched message's ~user~ slot. Also added
+type-specific prefixes ("Mentioned in", "Invited to").
+
+** DONE Reuse ~slack-message-to-string~ for activity feed rendering
+:PROPERTIES:
+:COMMIT: 8e603c9
+:END:
+
+The activity feed had its own message rendering (custom header, ~slack-message-body~
+only) that was inconsistent with channel buffers. Now it delegates to
+~slack-message-to-string~ — the same function channels use — and just prepends an
+activity context line ("Thread in #channel", "Mentioned in #ops-team", etc.).
+
+This gives activity entries: profile images, colored author names, attachments,
+reactions, thread info, and all future rendering improvements for free.
+
+** TODO Parse additional activity types
+
+The API request sends 17 activity types, but only a few are meaningfully handled.
+From a live API response (2026-03-25), the types observed were:
+
+| Type                     | Parsed | Rendered | Notes                            |
+|--------------------------+--------+----------+----------------------------------|
+| ~thread_v2~              | yes    | yes      | "Thread in" prefix               |
+| ~dm~                     | yes    | yes      | No author in API data            |
+| ~message_reaction~       | yes    | yes      | Shows reactor + emoji            |
+| ~at_user~                | yes    | yes      | "Mentioned in" prefix            |
+| ~at_user_group~          | yes    | yes      | "Mentioned in" prefix            |
+| ~internal_channel_invite~ | yes   | yes      | "Invited to" prefix              |
+| ~generic_system_alert~   | partial | partial | Only ~click_target_id~ extracted |
+| ~bot_dm_bundle~          | skipped | skipped | Explicitly returns ""            |
+| ~at_channel~             | via ~:message~ | yes | "Mentioned in" prefix        |
+| ~at_everyone~            | via ~:message~ | yes | "Mentioned in" prefix        |
+| ~keyword~                | via ~:message~ | generic | No keyword highlighting     |
+| ~list_record_edited~     | unknown | generic | Slack Lists not supported        |
+| ~list_record_assigned~   | unknown | generic | Slack Lists not supported        |
+| ~list_user_mentioned~    | unknown | generic | Slack Lists not supported        |
+| ~external_channel_invite~ | unknown | generic |                                 |
+| ~shared_workspace_invite~ | unknown | generic |                                 |
+| ~external_dm_invite~     | unknown | generic |                                 |
+
+*** API response structure by type
+
+From the live response, no ~actors~ field exists in the API data. The Slack
+desktop app derives actor names ("Maria and 3 others") from locally cached
+thread participants, not from the ~activity.feed~ endpoint.
+
+~thread_v2~:
+#+begin_src json
+{"type": "thread_v2", "bundle_info": {"payload": {"thread_entry": {
+    "channel_id": "...", "latest_ts": "...", "thread_ts": "...",
+    "unread_msg_count": 0}}}}
+#+end_src
+
+~dm~:
+#+begin_src json
+{"type": "dm", "bundle_info": {"payload": {"dm_entry": {
+    "latest_message": {"ts": "...", "channel": "..."}}}}}
+#+end_src
+
+~at_user~, ~at_user_group~, ~internal_channel_invite~:
+#+begin_src json
+{"type": "at_user", "message": {"ts": "...", "channel": "...",
+    "is_broadcast": false, "thread_ts": "...",
+    "author_user_id": "U06J3JGAXH8"}}
+#+end_src
+
+~message_reaction~:
+#+begin_src json
+{"type": "message_reaction", "message": {"ts": "...", "channel": "..."},
+    "reaction": {"user": "U06J3JGAXH8", "name": "+1"}}
+#+end_src
+
+** TODO Improve unread indicator styling
+
+Currently uses ~"*"~ vs ~" "~ prefix (line 240). Should use a propertized face
+(e.g. ~slack-room-unread-face~ or a new ~slack-activity-unread-face~) for better
+visibility.
+
+* Stale reaction cache
+:PROPERTIES:
+:FILE: slack-message.el
+:LINES: 347-382
+:END:
+
+** Problem
+
+~slack-message-get-or-fetch~ returns a cached message immediately if found in
+the room's message list, without checking freshness:
+
+#+begin_src elisp
+(or message          ;; cached version returned immediately
+    (-some--> ...    ;; API fetch only if NOT cached
+#+end_src
+
+Reactions added after a message was cached are lost unless the channel buffer was
+open when the ~reaction_added~ WebSocket event arrived. The WebSocket handler
+(~slack-reaction-event.el:54-61~) only finds messages already in cache:
+
+#+begin_src elisp
+(cl-defmethod slack-event-find-message ((this slack-message-reaction-event) team)
+  (let* (... (room (slack-room-find channel team))
+             (ts (plist-get item :ts)))
+    (when room
+      (slack-room-find-message room ts))))  ;; nil if room not loaded
+#+end_src
+
+So: WebSocket ~reaction_added~ event arrives -> room not loaded -> message not
+found -> reaction silently dropped -> cached message stays stale.
+
+** Observed behavior
+
+- Message in #benchmarking-data: ~:raised_hands: 1 :nice: 2~ renders (message
+  cached with reactions, or buffer was open when reactions added).
+- Message in #seo: ~:+1: 1~ does not render (message cached before reaction was
+  added, buffer not open when WebSocket event arrived).
+
+** Possible fixes
+
+1. *Fetch-on-display*: when ~slack-message-get-or-fetch~ finds a cached message,
+   still fetch reactions from the API and merge them. Downside: extra API call on
+   every display.
+2. *Store WebSocket events for unloaded rooms*: buffer reaction events and replay
+   them when the room is loaded. More complex but no extra API calls.
+3. *Invalidate cache on WebSocket events*: when a ~reaction_added~ event can't
+   find the message, mark the room as needing refresh. Next time the room is
+   opened, fetch fresh data.
+4. *Selective refresh*: only re-fetch the specific message (by ts) when a
+   reaction event targets an unloaded room. Lightweight and targeted.
+
+Option 4 seems best: on ~reaction_added~ for an unloaded room, fetch the single
+message via ~conversations.history~ with ~latest=ts, inclusive=true, limit=1~ and
+update the room's message cache. This also helps with other stale-cache
+scenarios (edits, deletions).
+
+* Synchronous blocking calls
+:PROPERTIES:
+:FILE: slack-message.el
+:LINES: 347-382
+:END:
+
+~slack-message-get-or-fetch~ uses ~:sync t~ for ~slack-conversations-replies~ and
+~slack-conversations-history~. This blocks Emacs completely until the API
+responds. The file itself has a TODO noting this:
+
+#+begin_example
+;; TODO this block is time consuming! We could retrieve these messages
+;; in parallel using the same waiting mechanism (accept-process-output,)
+;; but waiting on the list of messages.
+#+end_example
+
+The activity feed renders 20 items sequentially, each potentially making a
+synchronous API call. This can freeze Emacs for several seconds.
+
+** Possible fixes
+
+1. Prefetch messages in parallel before rendering (batch
+   ~conversations.history~ calls, wait for all, then render).
+2. Render incrementally: show placeholder text, fetch async, replace when ready.
+3. Use ~conversations.history~ with a wider window to fetch multiple messages per
+   room in a single call, then distribute to activity items.
+
+* WebSocket event handling gaps
+:PROPERTIES:
+:FILE: slack-websocket.el
+:END:
+
+** Missing or silently dropped events
+
+- No catch-all for unhandled event types (line 528 area): unknown events are
+  silently dropped with no logging.
+- ~app_mention~ — not handled (relevant for bot/integration notifications).
+- ~app_rate_limited~ — no handler for rate limit notifications from Slack.
+- ~update_thread_state~ (line 526-534) — only updates mention count, does not
+  refresh the UI or message content.
+
+** Reconnection fragility
+
+- ~slack-ws-handle-error~ handles code 6 (network error after sleep) but the
+  comment suggests it's a workaround, not a robust fix.
+- No exponential backoff on reconnection attempts.
+
+* Deprecated API usage
+** Stars/saved items (~slack-star.el~)
+
+Comment at line 35 explicitly says the stars API moved to ~saved.list~ in July
+2023. The code still works but uses deprecated terminology and may break if Slack
+removes the old endpoint.
+
+** Reminders (~slack-reminder.el~)
+
+Slack deprecated the reminders API (July 2023). Should migrate to ~saved.list~
+for "save for later" functionality. Current code references the changelog but has
+no migration.
+
+* Token handling fragility
+:PROPERTIES:
+:FILE: slack-request.el
+:LINES: 215-237
+:END:
+
+Hard-coded list of endpoints that require enterprise vs team tokens. A comment in
+the code warns: "which token is required for an endpoint may change arbitrarily
+at any time." No dynamic discovery or version check mechanism.
+
+* Missing nil checks and silent error suppression
+:PROPERTIES:
+:SEVERITY: medium
+:END:
+
+Multiple places use ~ignore-errors~ to silently swallow failures:
+
+- ~slack-activity-feed-buffer.el:174~ — room name lookup
+- ~slack-message-formatter.el:178~ — message body processing
+- ~slack-block.el:1323~ — block formatting
+- ~slack-message-reaction.el:66~ — reaction creation
+
+These hide real bugs. Prefer ~condition-case~ with explicit error logging.
+
+* Image cache unbounded
+:PROPERTIES:
+:FILE: slack-image.el
+:END:
+
+Image cache files accumulate in the temp directory with no size limit or cleanup
+policy. Heavy image usage could consume hundreds of MB over time.
+
+* Mark-as-read optimistic update
+:PROPERTIES:
+:FILE: slack-message-buffer.el
+:LINES: 147
+:END:
+
+~conversations.mark~ is called asynchronously but ~last-read~ is set
+optimistically without waiting for the API response. If the API call fails, UI
+state is inconsistent with the server. Should add a failure callback that reverts
+the local state.
+
+* Block types not implemented
+:PROPERTIES:
+:FILE: slack-block.el
+:LINES: 103-110
+:END:
+
+Two TODO comments for unimplemented block types. These render as empty strings,
+meaning some message content is silently dropped.
+
+* Rate limiting not abstracted
+:PROPERTIES:
+:FILE: slack-conversations.el
+:LINES: 335
+:END:
+
+Hard-coded tier 2 API limit (20 req/min) directly in code. No abstraction for
+different endpoints with different rate limits. The manual sleep logic is fragile.
