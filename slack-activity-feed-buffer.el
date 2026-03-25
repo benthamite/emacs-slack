@@ -66,12 +66,15 @@ object that lacks rooms or has an unbound id slot."
 (defvar slack-activity-feed-url "https://slack.com/api/activity.feed")
 (defvar slack-activity-feed-mode-show-only-unread nil "If non-nil, show only unread activity.")
 
-(defun slack-activity-feed-toggle-mode ()
+(defun slack-activity-feed-toggle-unread ()
+  "Toggle between showing all activity and only unread, then refresh."
   (interactive)
-  (setq slack-activity-feed-mode-show-only-unread (not slack-activity-feed-mode-show-only-unread))
+  (setq slack-activity-feed-mode-show-only-unread
+        (not slack-activity-feed-mode-show-only-unread))
   (message (if slack-activity-feed-mode-show-only-unread
-               "slack-activity-feed will show only unread messages next time"
-             "slack-activity-feed will show read and unread messages next time")))
+               "Showing unread only..."
+             "Showing all activity..."))
+  (slack-activity-feed-show))
 
 (defun slack-activity-feed--jbool (jf)
   "Return nil if JF is JSON false, t otherwise."
@@ -585,6 +588,8 @@ matching Slack's behavior."
 (define-key slack-activity-feed-buffer-mode-map (kbd "RET") 'slack-activity-feed-open-message)
 (define-key slack-activity-feed-buffer-mode-map (kbd "n") 'slack-activity-feed-goto-next)
 (define-key slack-activity-feed-buffer-mode-map (kbd "p") 'slack-activity-feed-goto-prev)
+(define-key slack-activity-feed-buffer-mode-map (kbd "u") 'slack-activity-feed-toggle-unread)
+(define-key slack-activity-feed-buffer-mode-map (kbd "g") 'slack-activity-feed-show)
 
 (provide 'slack-activity-feed-buffer)
 ;;; slack-activity-feed-buffer.el ends here
