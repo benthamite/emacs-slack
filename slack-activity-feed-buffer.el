@@ -549,13 +549,9 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
               (slack-buffer-display buffer)
               (message "Activity feed ready.")))))))))
 
-(defun slack-activity-feed-open-message ()
-  "Open message at point in activity-feed.
-Opens the thread (if applicable) and scrolls to the specific reply,
-matching Slack's behavior."
-  (interactive)
-  (if-let* ((ts (get-text-property (point) 'ts))
-            (room-id (get-text-property (point) 'room-id))
+(cl-defmethod slack-feed--open ((_buf slack-activity-feed-buffer) ts)
+  "Open the activity feed entry at TS."
+  (if-let* ((room-id (get-text-property (point) 'room-id))
             (buf slack-current-buffer)
             (team (slack-buffer-team buf))
             (room (slack-room-find room-id team)))
@@ -569,37 +565,10 @@ matching Slack's behavior."
         (let ((navigate-ts (or (get-text-property (point) 'thread-ts) ts)))
           (slack-open-message team room navigate-ts nil navigate-ts)))
     (error "Not possible to jump to message")))
-(defun slack-activity-feed-goto-next ()
-  "Move point to the next activity entry."
-  (interactive)
-  (let ((cur-ts (get-text-property (point) 'ts)))
-    ;; First skip past current ts region (or nil region)
-    (if-let ((pos (next-single-property-change (point) 'ts)))
-        (if (get-text-property pos 'ts)
-            (goto-char pos)
-          ;; Landed on a nil gap (separator/header), skip to next ts
-          (if-let ((pos2 (next-single-property-change pos 'ts)))
-              (goto-char pos2)
-            (message "You are on the last message.")))
-      (message "You are on the last message."))))
 
-(defun slack-activity-feed-goto-prev ()
-  "Move point to the previous activity entry."
-  (interactive)
-  (let ((cur-ts (get-text-property (point) 'ts)))
-    (if-let ((pos (previous-single-property-change (point) 'ts)))
-        (if (get-text-property pos 'ts)
-            ;; Find the start of this ts region
-            (goto-char (or (previous-single-property-change pos 'ts) (point-min)))
-          ;; Landed on a nil gap, skip back to previous ts
-          (if-let ((pos2 (previous-single-property-change pos 'ts)))
-              (goto-char (or (previous-single-property-change pos2 'ts) (point-min)))
-            (message "You are on the first message.")))
-      (message "You are on the first message."))))
-
-(define-key slack-activity-feed-buffer-mode-map (kbd "RET") 'slack-activity-feed-open-message)
-(define-key slack-activity-feed-buffer-mode-map (kbd "n") 'slack-activity-feed-goto-next)
-(define-key slack-activity-feed-buffer-mode-map (kbd "p") 'slack-activity-feed-goto-prev)
+(define-key slack-activity-feed-buffer-mode-map (kbd "RET") 'slack-feed-open-at-point)
+(define-key slack-activity-feed-buffer-mode-map (kbd "n") 'slack-feed-goto-next)
+(define-key slack-activity-feed-buffer-mode-map (kbd "p") 'slack-feed-goto-prev)
 (define-key slack-activity-feed-buffer-mode-map (kbd "u") 'slack-activity-feed-toggle-unread)
 (define-key slack-activity-feed-buffer-mode-map (kbd "g") 'slack-activity-feed-show)
 

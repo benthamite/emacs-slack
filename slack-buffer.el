@@ -957,5 +957,51 @@ Note this requires you are signed in on Slack in your default browser."
   (browse-url (format "https://app.slack.com/huddle/%s/%s" team-id room-id)))
 
 
+;;; Feed buffer navigation
+;;
+;; Shared by slack-activity-feed-buffer and slack-all-threads-buffer.
+;; Both are "feed" buffers that display a list of items with `ts' text
+;; properties.  These functions provide entry-to-entry navigation and a
+;; generic open-at-point dispatch.
+
+(defun slack-feed-goto-next ()
+  "Move point to the next feed entry (next distinct `ts' region)."
+  (interactive)
+  (if-let ((pos (next-single-property-change (point) 'ts)))
+      (if (get-text-property pos 'ts)
+          (goto-char pos)
+        ;; Landed on a nil gap (separator/header), skip to next ts
+        (if-let ((pos2 (next-single-property-change pos 'ts)))
+            (goto-char pos2)
+          (message "You are on the last message.")))
+    (message "You are on the last message.")))
+
+(defun slack-feed-goto-prev ()
+  "Move point to the previous feed entry (previous distinct `ts' region)."
+  (interactive)
+  (if-let ((pos (previous-single-property-change (point) 'ts)))
+      (if (get-text-property pos 'ts)
+          ;; Find the start of this ts region
+          (goto-char (or (previous-single-property-change pos 'ts) (point-min)))
+        ;; Landed on a nil gap, skip back to previous ts
+        (if-let ((pos2 (previous-single-property-change pos 'ts)))
+            (goto-char (or (previous-single-property-change pos2 'ts) (point-min)))
+          (message "You are on the first message.")))
+    (message "You are on the first message.")))
+
+(defun slack-feed-open-at-point ()
+  "Open the message or thread at point in a feed buffer.
+Dispatches to the buffer-specific open function."
+  (interactive)
+  (if-let* ((ts (get-text-property (point) 'ts))
+            (buf slack-current-buffer))
+      (slack-feed--open buf ts)
+    (message "No message at point.")))
+
+(cl-defgeneric slack-feed--open (buffer ts)
+  "Open the item at TS in BUFFER.
+Subclasses of `slack-buffer' that act as feed buffers should
+specialize this method.")
+
 (provide 'slack-buffer)
 ;;; slack-buffer.el ends here

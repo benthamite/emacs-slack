@@ -133,6 +133,22 @@
     (slack-subscriptions-thread-clear-all (slack-buffer-team this))
     buf))
 
+(cl-defmethod slack-buffer-insert ((this slack-all-threads-buffer) message
+                                   &optional not-tracked-p)
+  "Insert MESSAGE into the all-threads buffer THIS.
+Adds `room-id' property so `slack-feed-open-at-point' can find the channel."
+  (let ((lui-time-stamp-format "[%Y-%m-%d %H:%M] ")
+        (lui-time-stamp-time (slack-message-time-stamp message))
+        (team (slack-buffer-team this)))
+    (lui-insert-with-text-properties
+     (slack-message-to-string message team)
+     'not-tracked-p not-tracked-p
+     'ts (slack-ts message)
+     'room-id (oref message channel)
+     'slack-last-ts lui-time-stamp-last
+     'cursor-sensor-functions '(slack-buffer-subscribe-cursor-event))
+    (lui-insert "" t)))
+
 (cl-defmethod slack-buffer-insert-thread ((this slack-all-threads-buffer) thread)
   (with-slots (root-msg latest-replies unread-replies) thread
     (oset this current-ts (oref root-msg last-read))
@@ -307,6 +323,29 @@
         :type "POST"
         :params (list (cons "current_ts" current-ts))
         :success #'success)))))
+
+(cl-defmethod slack-feed--open ((buf slack-all-threads-buffer) ts)
+  "Open the thread containing TS in all-threads buffer BUF.
+TS may belong to a root message or any reply within a thread."
+  (with-slots (threads) buf
+    ;; Find the thread that contains this ts (root or reply)
+    (let ((thread
+           (cl-find-if
+            (lambda (thr)
+              (or (string= ts (slack-ts (oref thr root-msg)))
+                  (cl-find ts (oref thr latest-replies)
+                           :key #'slack-ts :test #'string=)
+                  (cl-find ts (oref thr unread-replies)
+                           :key #'slack-ts :test #'string=)))
+            threads)))
+      (if thread
+          (slack-buffer-display-thread buf (slack-ts (oref thread root-msg)))
+        (message "Thread not found for ts %s" ts)))))
+
+(define-key slack-all-threads-buffer-mode-map (kbd "RET") 'slack-feed-open-at-point)
+(define-key slack-all-threads-buffer-mode-map (kbd "n") 'slack-feed-goto-next)
+(define-key slack-all-threads-buffer-mode-map (kbd "p") 'slack-feed-goto-prev)
+(define-key slack-all-threads-buffer-mode-map (kbd "g") 'slack-all-threads)
 
 (provide 'slack-all-threads-buffer)
 ;;; slack-all-threads-buffer.el ends here
