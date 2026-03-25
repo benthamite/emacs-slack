@@ -93,6 +93,92 @@ Currently uses ~"*"~ vs ~" "~ prefix (line 240). Should use a propertized face
 (e.g. ~slack-room-unread-face~ or a new ~slack-activity-unread-face~) for better
 visibility.
 
+** TODO Fix 5-10 second delay when opening the activity feed
+
+Every invocation of ~slack-activity-feed-show~ freezes Emacs for 5-10 seconds.
+This is because the rendering path calls ~slack-message-get-or-fetch~ (which uses
+~:sync t~) sequentially for each of the 20 activity items. Each uncached message
+triggers a blocking API call.
+
+Root cause chain:
+1. ~slack-activity-feed-show~ calls ~slack-activity-feed-request~ (async, fine).
+2. The callback creates the buffer and calls ~slack-buffer-init-buffer~.
+3. ~slack-buffer-init-buffer~ loops over activities, calling ~slack-buffer-insert~
+   for each.
+4. Each insert calls ~slack-activity-message-to-string~ ->
+   ~slack-message-to-string~ -> ~slack-message-get-or-fetch~.
+5. ~slack-message-get-or-fetch~ does a synchronous API call if the message is not
+   cached (~:sync t~).
+6. 20 sequential sync calls x ~250-500ms each = 5-10 seconds of frozen Emacs.
+
+*** Proposed fix: parallel prefetch
+
+After receiving the activity feed response but before rendering, batch-fetch all
+uncached messages in parallel:
+
+1. Parse the activity items and collect all ~(ts, channel, thread-ts)~ tuples.
+2. For each, check if the message is already cached via ~slack-room-find-message~.
+3. For uncached messages, fire async ~conversations.history~ /
+   ~conversations.replies~ requests in parallel.
+4. Wait for all requests to complete (using ~accept-process-output~ with a
+   timeout).
+5. Store fetched messages in the room caches.
+6. Then render all items — ~slack-message-get-or-fetch~ will now find everything
+   in cache and return immediately.
+
+This turns 20 sequential network round-trips into ~20 parallel requests resolved
+in a single round-trip time (~300-500ms total).
+
+An alternative: group items by channel and fetch a wider window of
+~conversations.history~ per channel, reducing the number of API calls further.
+
+* Channel loading delay / background prefetch
+:PROPERTIES:
+:SEVERITY: high
+:END:
+
+Opening any channel for the first time always takes a few seconds because it
+fetches ~conversations.history~ synchronously. This is noticeable and makes
+navigation feel sluggish.
+
+** Proposed fix: background prefetch on connect
+
+After WebSocket connection is established and the channel list is loaded, start
+prefetching messages for channels in the background:
+
+1. On ~client.userBoot~ completion, collect the user's channel list.
+2. Prioritize: channels with unread messages first, then recently active
+   channels, then the rest.
+3. Fire async ~conversations.history~ requests (respecting rate limits) to
+   populate each room's message cache.
+4. When the user opens a channel whose messages are already cached, display is
+   instant.
+
+*** Rate limit considerations
+
+Slack's ~conversations.history~ is Tier 3 (50+ req/min). With 20-50 channels,
+prefetching completes in under a minute. Stagger requests to avoid bursts:
+
+#+begin_src elisp
+;; Pseudocode: prefetch with staggered timing
+(let ((channels (sort-by-priority (slack-team-channels team))))
+  (cl-loop for ch in channels
+           for delay from 0 by 1.2  ;; ~50 req/min
+           do (run-at-time delay nil
+                #'slack-conversations-history ch team
+                :limit "50" :after-success #'cache-messages)))
+#+end_src
+
+*** Scope
+
+This is a significant architectural change. It affects:
+- Memory usage (all channels' messages in RAM).
+- Startup time (background work after connect).
+- Rate limit budget (prefetch competes with user-initiated requests).
+
+A lighter alternative: prefetch only channels with unreads, which is typically a
+small subset and addresses the most common "I want to check my unreads" workflow.
+
 * Stale reaction cache
 :PROPERTIES:
 :FILE: slack-message.el
