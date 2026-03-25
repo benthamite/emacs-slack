@@ -182,8 +182,8 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                                "Mentioned in ")
                               ("internal_channel_invite" "Invited to ")
                               (_ "")))
-               (header (propertize (concat type-prefix location)
-                                   'face 'slack-search-result-message-header-face))
+               (context-header (propertize (concat type-prefix location)
+                                           'face 'slack-search-result-message-header-face))
                (fetched-msg
                 (condition-case msg-err
                     (when (or ts thread-ts)
@@ -192,24 +192,11 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                   (error
                    (message "slack-activity-message-to-string: Loading messages failed with: %S"
                             (error-message-string msg-err))
-                   nil)))
-               (effective-author-id
-                (or author-id
-                    (when (and fetched-msg
-                               (slot-exists-p fetched-msg 'user)
-                               (slot-boundp fetched-msg 'user))
-                      (oref fetched-msg user))))
-               (author-name
-                (when effective-author-id
-                  (or (slack-user-name effective-author-id team)
-                      effective-author-id))))
-          (propertize (concat header
-                              (when author-name
-                                (format " from %s" author-name))
-                              "\n"
-                              (or (when fetched-msg
-                                    (slack-message-body fetched-msg team))
-                                  "TODO"))
+                   nil))))
+          (propertize (concat context-header "\n"
+                              (if fetched-msg
+                                  (slack-message-to-string fetched-msg team)
+                                "TODO"))
                       'ts ts
                       'team-id (oref team id)
                       'room-id (oref room id)
