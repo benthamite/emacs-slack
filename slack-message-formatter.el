@@ -192,8 +192,11 @@ download button when the file is downloadable."
 (cl-defmethod slack-message-to-string ((this slack-file) ts team)
   (if (slack-file-hidden-by-limit-p this)
       (slack-file-hidden-by-limit-message this)
-    (let ((body (or (ignore-errors
-                      (slack-file-summary this ts team))
+    (let ((body (or (condition-case err
+                        (slack-file-summary this ts team)
+                      (error
+                       (message "slack-message: file summary error: %S" err)
+                       nil))
                     (slack-file-error-fallback this team)))
           (thumb (slack-image-string (slack-file-thumb-image-spec this))))
       (slack-format-message

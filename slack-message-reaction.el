@@ -63,9 +63,11 @@
   (interactive)
   (slack-if-let* ((buf slack-current-buffer)
                   (team (slack-buffer-team buf)))
-      (slack-if-let* ((reaction (ignore-errors
-                                  (get-text-property (point)
-                                                     'reaction))))
+      (slack-if-let* ((reaction (condition-case err
+                                  (get-text-property (point) 'reaction)
+                                (error
+                                 (message "slack-reaction: error reading reaction at point: %S" err)
+                                 nil))))
           (slack-reaction-help-text reaction
                                     team
                                     #'(lambda (message) (message message)))

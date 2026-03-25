@@ -1647,16 +1647,19 @@ You need to install `language-detection' for this to work.")
 
 (defun slack-create-confirmation-dialog-message-composition-object (payload)
   (when payload
-    (ignore-errors
-      (make-instance 'slack-confirmation-dialog-message-composition-object
-                     :title (slack-create-text-message-composition-object
-                             (plist-get payload :title))
-                     :text (slack-create-text-message-composition-object
-                            (plist-get payload :text))
-                     :confirm (slack-create-text-message-composition-object
-                               (plist-get payload :confirm))
-                     :deny (slack-create-text-message-composition-object
-                            (plist-get payload :deny))))))
+    (condition-case err
+        (make-instance 'slack-confirmation-dialog-message-composition-object
+                       :title (slack-create-text-message-composition-object
+                               (plist-get payload :title))
+                       :text (slack-create-text-message-composition-object
+                              (plist-get payload :text))
+                       :confirm (slack-create-text-message-composition-object
+                                 (plist-get payload :confirm))
+                       :deny (slack-create-text-message-composition-object
+                              (plist-get payload :deny)))
+      (error
+       (message "slack-block: confirmation dialog creation error: %S" err)
+       nil))))
 
 (defclass slack-option-message-composition-object (slack-message-composition-object)
   ((text :initarg :text :type slack-text-message-composition-object)
