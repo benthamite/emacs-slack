@@ -522,16 +522,12 @@ Opens the thread (if applicable) and scrolls to the specific reply,
 matching Slack's behavior."
   (interactive)
   (if-let* ((ts (get-text-property (point) 'ts))
-            (team-id (get-text-property (point) 'team-id))
             (room-id (get-text-property (point) 'room-id))
-            (team (slack-team-find team-id)))
+            (buf slack-current-buffer)
+            (team (slack-buffer-team buf))
+            (room (slack-room-find room-id team)))
       (let ((thread-ts (get-text-property (point) 'thread-ts)))
-        (slack-open-message
-         team
-         (slack-room-find room-id team)
-         ts
-         thread-ts
-         ts))
+        (slack-open-message team room ts thread-ts ts))
     (error "Not possible to jump to message")))
 (defun slack-activity-feed-goto-next ()
   "Move point to the next activity entry."
