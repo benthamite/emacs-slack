@@ -212,9 +212,8 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
 (cl-defmethod slack-activity-reaction-to-string ((this activity-reaction) team)
   (with-slots (user name) this
     (format "  %s reacted with :%s:"
-            (slack-user-name user team)
-            name
-            )))
+            (or (slack-user-name user team) user)
+            name)))
 
 (defclass activity-item ()
   ((type :initarg :type :type string)
@@ -251,10 +250,13 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
       (with-slots (channel ts thread-ts) msg
         (condition-case err
             (let* ((room (slack-room-find channel team))
-                   (room-name (or (ignore-errors (slack-room-name room team))
-                                  "name not available - try to update channel list"))
+                   (room-id (when room (oref room id)))
+                   (room-name (if room
+                                  (or (ignore-errors (slack-room-name room team))
+                                      "name not available")
+                                channel))
                    (location (format "%s%s"
-                                     (if (slack-channel-p room) "#" "@")
+                                     (if (and room (slack-channel-p room)) "#" "@")
                                      room-name))
                    (type-prefix (pcase type
                                   ((or "thread_reply" "thread_v2") "Thread in ")
@@ -269,9 +271,9 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                                         'face 'slack-search-result-message-header-face)))
                    (fetched-msg
                     (condition-case msg-err
-                        (when (or ts thread-ts)
+                        (when (and room-id (or ts thread-ts))
                           (slack-message-get-or-fetch
-                           ts (oref room id) team thread-ts))
+                           ts room-id team thread-ts))
                       (error
                        (message "slack-activity-feed: Loading message failed: %S"
                                 (error-message-string msg-err))
@@ -293,7 +295,7 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                  message-str
                  'ts ts
                  'team-id (oref team id)
-                 'room-id (oref room id)
+                 'room-id (or room-id channel)
                  'thread-ts thread-ts))
               ;; Blank separator
               (let ((lui-time-stamp-position nil))
