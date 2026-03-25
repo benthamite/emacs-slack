@@ -51,6 +51,18 @@
                      slack-tokens-by-id)
             found)))))
 
+(defun slack-team-ensure-registered (team)
+  "Ensure TEAM is the canonical object in the global lookup tables.
+Fixes the case where `slack-team-find' would return a stale team
+object that lacks rooms or has an unbound id slot."
+  (condition-case nil
+      (let ((id (oref team id))
+            (token (oref team token)))
+        (when (and id token)
+          (puthash token team slack-teams-by-token)
+          (puthash id token slack-tokens-by-id)))
+    (error nil)))
+
 (defvar slack-activity-feed-url "https://slack.com/api/activity.feed")
 (defvar slack-activity-feed-mode-show-only-unread nil "If non-nil, show only unread activity.")
 
@@ -238,6 +250,7 @@ Run an action on the data returned with AFTER-SUCCESS."
   'slack-activity-feed-buffer)
 
 (defun slack-create-activity-feed-buffer (activity-feed team)
+  (slack-team-ensure-registered team)
   (let ((existing (slack-buffer-find 'slack-activity-feed-buffer team)))
     (if (and existing
              (buffer-live-p (oref existing buf)))
@@ -247,6 +260,12 @@ Run an action on the data returned with AFTER-SUCCESS."
           (with-current-buffer (oref existing buf)
             (let ((inhibit-read-only t))
               (erase-buffer))
+            ;; Reset lui markers after erase to avoid args-out-of-range
+            ;; in lui-recover-output-marker when "load more" fires.
+            (when (markerp lui-output-marker)
+              (set-marker lui-output-marker (point-max)))
+            (when (markerp lui-input-marker)
+              (set-marker lui-input-marker (point-max)))
             (with-slots (activity-feed) existing
               (let* ((activities (oref activity-feed activities)))
                 (cl-loop for m in activities
@@ -526,8 +545,10 @@ matching Slack's behavior."
             (buf slack-current-buffer)
             (team (slack-buffer-team buf))
             (room (slack-room-find room-id team)))
-      (let ((thread-ts (get-text-property (point) 'thread-ts)))
-        (slack-open-message team room ts thread-ts ts))
+      (progn
+        (slack-team-ensure-registered team)
+        (let ((thread-ts (get-text-property (point) 'thread-ts)))
+          (slack-open-message team room ts thread-ts ts)))
     (error "Not possible to jump to message")))
 (defun slack-activity-feed-goto-next ()
   "Move point to the next activity entry."
