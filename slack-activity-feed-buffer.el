@@ -547,7 +547,12 @@ matching Slack's behavior."
             (room (slack-room-find room-id team)))
       (progn
         (slack-team-ensure-registered team)
-        (let ((thread-ts (get-text-property (point) 'thread-ts)))
+        (let* ((thread-ts (get-text-property (point) 'thread-ts))
+               ;; Only treat as a thread reply when thread-ts differs
+               ;; from ts.  When they're equal the message is a thread
+               ;; parent or standalone — opening as a thread would
+               ;; trigger "thread_not_found" from the API.
+               (thread-ts (unless (equal ts thread-ts) thread-ts)))
           (slack-open-message team room ts thread-ts ts)))
     (error "Not possible to jump to message")))
 (defun slack-activity-feed-goto-next ()
