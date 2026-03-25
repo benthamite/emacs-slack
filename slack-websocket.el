@@ -91,6 +91,7 @@ what is happening in your team."
          (handle-on-open (_websocket)
            (oset ws reconnect-count 0)
            (oset ws connected t)
+           (slack-ws-reconnect-reset-backoff ws)
            (slack-log "WebSocket on-open"
                       team :level 'debug)
            (when (functionp on-open)
@@ -307,6 +308,53 @@ Locking the operation via `slack--lock-user-list-update' to avoid
     (setq slack--lock-user-list-update t)
     (run-with-timer 45 nil #'slack--lock-user-list-update-release)))
 
+(defcustom slack-prefetch-channel-messages-p t
+  "If non-nil, prefetch messages for channels with unreads after connecting.
+This makes opening unread channels near-instant at the cost of
+background API calls after WebSocket connection."
+  :type 'boolean
+  :group 'slack)
+
+(defun slack-prefetch-unread-channels (team)
+  "Prefetch conversations.history for TEAM's channels with unread messages.
+Fires staggered async requests (~50 req/min, tier 3) for channels
+that have unreads and no cached messages, so opening them is instant."
+  (when (and slack-prefetch-channel-messages-p (oref team counts))
+    (let* ((all-rooms (append (slack-team-channels team)
+                              (slack-team-groups team)
+                              (slack-team-ims team)))
+           (unread-rooms
+            (cl-remove-if-not
+             (lambda (room)
+               (and (slack-room-has-unread-p room team)
+                    (not (slack-room-muted-p room team))
+                    ;; Skip rooms that already have cached messages
+                    (= 0 (hash-table-count (oref room messages)))))
+             all-rooms))
+           (count (length unread-rooms)))
+      (when (> count 0)
+        (slack-log (format "Prefetching messages for %d unread channels" count)
+                   team :level 'info)
+        (cl-loop for room in unread-rooms
+                 for delay from 0 by 1.2  ; ~50 req/min (tier 3)
+                 do (run-at-time
+                     delay nil
+                     (lambda (r)
+                       (condition-case err
+                           (slack-conversations-history
+                            r team
+                            :limit "50"
+                            :after-success
+                            (lambda (messages &rest _)
+                              (when messages
+                                (slack-room-set-messages r messages team))))
+                         (error
+                          (slack-log
+                           (format "Prefetch error for %s: %S"
+                                   (oref r id) err)
+                           team :level 'warn))))
+                     room))))))
+
 (defun slack-ws-on-reconnect-open (team-id)
   "Refresh data after websocket reconnection for TEAM-ID.
 This also closes unnecessary buffers and refresh message buffer contents."
@@ -332,7 +380,9 @@ This also closes unnecessary buffers and refresh message buffer contents."
                     slack-message-share-buffer
                     slack-room-message-compose-buffer
                     slack-search-result-buffer-mode
-                    slack-pinned-items-buffer-mode))))
+                    slack-pinned-items-buffer-mode))
+    ;; Prefetch messages for unread channels after counts arrive
+    (run-with-timer 5 nil #'slack-prefetch-unread-channels team)))
 
 (defun slack-ws--reconnect (team-id &optional force)
   (let* ((team (slack-team-find team-id))
@@ -376,12 +426,17 @@ This also closes unnecessary buffers and refresh message buffer contents."
                      :level 'warn))))))
 
 (cl-defmethod slack-ws-reconnect ((ws slack-team-ws) team)
-  "Reconnect if `reconnect-count' is not exceed `reconnect-count-max'.
-TEAM is one of `slack-teams'"
+  "Reconnect if `reconnect-count' does not exceed `reconnect-count-max'.
+Uses exponential backoff: delay doubles each attempt (capped at
+`reconnect-after-sec-max'), resets on successful reconnection.
+TEAM is one of `slack-teams'."
   (unless (oref ws inhibit-reconnection)
-    (slack-ws-set-reconnect-timer ws
-                                  #'slack-ws--reconnect
-                                  (slack-team-id team))))
+    (let ((delay (slack-ws-reconnect-backoff ws)))
+      (slack-log (format "Scheduling reconnect in %s seconds" delay)
+                 team :level 'info)
+      (slack-ws-set-reconnect-timer ws
+                                    #'slack-ws--reconnect
+                                    (slack-team-id team)))))
 
 ;; Message handler
 
@@ -442,7 +497,9 @@ TEAM is one of `slack-teams'"
           (slack-ws-set-ping-timer ws #'slack-ws-ping (slack-team-id team))
           (slack-ws-resend ws team)
           (slack-log "Slack Websocket Is Ready!" team :level 'info)
-          (slack-counts-update team))
+          (slack-counts-update team)
+          ;; Prefetch unread channels after counts arrive
+          (run-with-timer 5 nil #'slack-prefetch-unread-channels team))
          ((plist-get decoded-payload :reply_to)
           (slack-ws-handle-reply ws decoded-payload team))
          ((string= type "message")
@@ -531,10 +588,20 @@ TEAM is one of `slack-teams'"
           (slack-ws-handle-pin-added decoded-payload team))
          ((string= type "update_thread_state")
           (slack-ws-handle-update-thread-state payload team))
+         ((string= type "app_rate_limited")
+          (slack-ws-handle-app-rate-limited decoded-payload team))
          (t
           (slack-log (format "Unhandled WebSocket event type: %s" type)
                      team :level 'debug))
          )))))
+
+(defun slack-ws-handle-app-rate-limited (payload team)
+  "Handle an app_rate_limited event from Slack.
+PAYLOAD contains :minute_rate_limited indicating when rate limiting began."
+  (let ((minute (plist-get payload :minute_rate_limited)))
+    (slack-log (format "Rate limited by Slack API at minute %s. Requests will be throttled."
+                       minute)
+               team :level 'warn)))
 
 (defun slack-ws-handle-update-thread-state (payload team)
   (let* ((has-unreads (eq t (plist-get payload :has_unreads)))

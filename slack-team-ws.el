@@ -36,7 +36,9 @@
    (connected :initform nil)
    (reconnect-auto :initarg :reconnect-auto :initform t)
    (reconnect-timer :initform nil)
-   (reconnect-after-sec :initform 10)
+   (reconnect-after-sec :initform 2)
+   (reconnect-after-sec-base :initform 2)
+   (reconnect-after-sec-max :initform 120)
    (reconnect-count :initform 0)
    (reconnect-count-max :initarg :reconnect-count-max :initform 360)
    (last-pong :initform nil)
@@ -100,6 +102,17 @@
 (cl-defmethod slack-ws-reconnect-count-exceed-p ((ws slack-team-ws))
   (< (oref ws reconnect-count-max)
      (oref ws reconnect-count)))
+
+(cl-defmethod slack-ws-reconnect-backoff ((ws slack-team-ws))
+  "Apply exponential backoff to reconnect delay and return the new delay."
+  (let* ((current (oref ws reconnect-after-sec))
+         (doubled (min (* current 2) (oref ws reconnect-after-sec-max))))
+    (oset ws reconnect-after-sec doubled)
+    current))
+
+(cl-defmethod slack-ws-reconnect-reset-backoff ((ws slack-team-ws))
+  "Reset reconnect delay to the base value after a successful connection."
+  (oset ws reconnect-after-sec (oref ws reconnect-after-sec-base)))
 
 (cl-defmethod slack-ws-inc-reconnect-count ((ws slack-team-ws))
   (cl-incf (oref ws reconnect-count)))

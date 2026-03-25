@@ -30,30 +30,34 @@ activity context line ("Thread in #channel", "Mentioned in #ops-team", etc.).
 This gives activity entries: profile images, colored author names, attachments,
 reactions, thread info, and all future rendering improvements for free.
 
-** TODO Parse additional activity types
+** DONE Parse additional activity types
 
-The API request sends 17 activity types, but only a few are meaningfully handled.
-From a live API response (2026-03-25), the types observed were:
+Added type-specific context prefixes for all meaningful activity types:
+~message_reaction~ ("Reacted in"), ~keyword~ ("Keyword match in"),
+~generic_system_alert~ ("Alert in"), ~external_channel_invite~ /
+~shared_workspace_invite~ ("Invited to"), ~external_dm_invite~ ("DM invite
+from"). Updated both ~slack-buffer-insert~ and
+~slack-activity-message-to-string~ for consistency.
 
 | Type                     | Parsed | Rendered | Notes                            |
 |--------------------------+--------+----------+----------------------------------|
 | ~thread_v2~              | yes    | yes      | "Thread in" prefix               |
 | ~dm~                     | yes    | yes      | No author in API data            |
-| ~message_reaction~       | yes    | yes      | Shows reactor + emoji            |
+| ~message_reaction~       | yes    | yes      | "Reacted in" prefix + emoji      |
 | ~at_user~                | yes    | yes      | "Mentioned in" prefix            |
 | ~at_user_group~          | yes    | yes      | "Mentioned in" prefix            |
 | ~internal_channel_invite~ | yes   | yes      | "Invited to" prefix              |
-| ~generic_system_alert~   | partial | partial | Only ~click_target_id~ extracted |
+| ~generic_system_alert~   | yes    | yes      | "Alert in" prefix                |
 | ~bot_dm_bundle~          | skipped | skipped | Explicitly returns ""            |
 | ~at_channel~             | via ~:message~ | yes | "Mentioned in" prefix        |
 | ~at_everyone~            | via ~:message~ | yes | "Mentioned in" prefix        |
-| ~keyword~                | via ~:message~ | generic | No keyword highlighting     |
+| ~keyword~                | via ~:message~ | yes | "Keyword match in" prefix    |
+| ~external_channel_invite~ | via ~:message~ | yes | "Invited to" prefix         |
+| ~shared_workspace_invite~ | via ~:message~ | yes | "Invited to" prefix         |
+| ~external_dm_invite~     | via ~:message~ | yes | "DM invite from" prefix      |
 | ~list_record_edited~     | unknown | generic | Slack Lists not supported        |
 | ~list_record_assigned~   | unknown | generic | Slack Lists not supported        |
 | ~list_user_mentioned~    | unknown | generic | Slack Lists not supported        |
-| ~external_channel_invite~ | unknown | generic |                                 |
-| ~shared_workspace_invite~ | unknown | generic |                                 |
-| ~external_dm_invite~     | unknown | generic |                                 |
 
 *** API response structure by type
 
@@ -125,52 +129,19 @@ Since all messages are now in cache by render time,
 ~slack-message-get-or-fetch~ returns immediately for every item, eliminating
 the 5-10 second freeze from 20 sequential synchronous API calls.
 
-* Channel loading delay / background prefetch
+* DONE Channel loading delay / background prefetch
 :PROPERTIES:
 :SEVERITY: high
 :END:
 
-Opening any channel for the first time always takes a few seconds because it
-fetches ~conversations.history~ synchronously. This is noticeable and makes
-navigation feel sluggish.
+Added ~slack-prefetch-unread-channels~ in ~slack-websocket.el~: after WebSocket
+connection (both initial and reconnect), it waits 5 seconds for counts to
+arrive, then fires staggered async ~conversations.history~ requests (1.2s apart,
+~50 req/min tier 3) for channels with unreads and no cached messages. Controlled
+by ~slack-prefetch-channel-messages-p~ defcustom (default ~t~).
 
-** Proposed fix: background prefetch on connect
-
-After WebSocket connection is established and the channel list is loaded, start
-prefetching messages for channels in the background:
-
-1. On ~client.userBoot~ completion, collect the user's channel list.
-2. Prioritize: channels with unread messages first, then recently active
-   channels, then the rest.
-3. Fire async ~conversations.history~ requests (respecting rate limits) to
-   populate each room's message cache.
-4. When the user opens a channel whose messages are already cached, display is
-   instant.
-
-*** Rate limit considerations
-
-Slack's ~conversations.history~ is Tier 3 (50+ req/min). With 20-50 channels,
-prefetching completes in under a minute. Stagger requests to avoid bursts:
-
-#+begin_src elisp
-;; Pseudocode: prefetch with staggered timing
-(let ((channels (sort-by-priority (slack-team-channels team))))
-  (cl-loop for ch in channels
-           for delay from 0 by 1.2  ;; ~50 req/min
-           do (run-at-time delay nil
-                #'slack-conversations-history ch team
-                :limit "50" :after-success #'cache-messages)))
-#+end_src
-
-*** Scope
-
-This is a significant architectural change. It affects:
-- Memory usage (all channels' messages in RAM).
-- Startup time (background work after connect).
-- Rate limit budget (prefetch competes with user-initiated requests).
-
-A lighter alternative: prefetch only channels with unreads, which is typically a
-small subset and addresses the most common "I want to check my unreads" workflow.
+Chose the lighter alternative: only prefetch channels with unreads, not all
+channels, to minimize memory and rate-limit impact.
 
 * DONE Stale reaction cache
 :PROPERTIES:
@@ -228,11 +199,16 @@ Remaining:
 - ~update_thread_state~ (line 526-534) — only updates mention count, does not
   refresh the UI or message content.
 
-** Reconnection fragility
+** DONE Reconnection fragility
 
-- ~slack-ws-handle-error~ handles code 6 (network error after sleep) but the
-  comment suggests it's a workaround, not a robust fix.
-- No exponential backoff on reconnection attempts.
+Added exponential backoff to WebSocket reconnection in ~slack-team-ws.el~:
+delay starts at 2 seconds, doubles each attempt (capped at 120s), and resets
+on successful connection. New slots: ~reconnect-after-sec-base~ (2),
+~reconnect-after-sec-max~ (120). Methods: ~slack-ws-reconnect-backoff~,
+~slack-ws-reconnect-reset-backoff~.
+
+Also added ~app_rate_limited~ WebSocket event handler that logs rate limit
+notifications from Slack.
 
 * Deprecated API usage
 ** Stars/saved items (~slack-star.el~)
@@ -289,23 +265,36 @@ before the optimistic update. ~slack-conversations-mark~ accepts an optional
 error callback; on failure, the callback reverts ~last-read~ and refreshes the
 marker overlay.
 
-* Block types not implemented
+* DONE Block types not implemented
 :PROPERTIES:
 :FILE: slack-block.el
-:LINES: 103-110
 :END:
 
-Two TODO comments for unimplemented block types. These render as empty strings,
-meaning some message content is silently dropped.
+Implemented ~file~ and ~input~ block types in ~slack-block.el~:
 
-* Rate limiting not abstracted
+- ~slack-file-layout-block~: renders as ~[File: <external-id>]~ for remote file
+  references.
+- ~slack-input-layout-block~: renders label (bold) + optional hint + "[interactive
+  input]" marker. Parses ~label~, ~hint~, ~optional~, and ~dispatch_action~
+  fields.
+
+Both have ~slack-block-to-string~ and ~slack-block-to-mrkdwn~ methods.
+
+* DONE Rate limiting not abstracted
 :PROPERTIES:
-:FILE: slack-conversations.el
-:LINES: 335
+:FILE: slack-util.el, slack-conversations.el
 :END:
 
-Hard-coded tier 2 API limit (20 req/min) directly in code. No abstraction for
-different endpoints with different rate limits. The manual sleep logic is fragile.
+Added ~slack-rate-limit-delay~ and supporting infrastructure to ~slack-util.el~:
+- ~slack-rate-limit-tiers~ alist defines tier 1-4 request-per-minute limits.
+- ~slack-rate-limit-counters~ hash table tracks request counts per tier with
+  sliding 60-second windows.
+- ~slack-rate-limit-delay~ returns 0 if under limit, or seconds to wait if at
+  limit.
+- ~slack-rate-limit-reset~ clears a tier's counter.
+
+Updated ~slack-conversations-list~ to use ~(slack-rate-limit-delay 'tier-2)~
+instead of the hard-coded modulo-20 check.
 
 * DONE Slack thread URLs should open in Emacs
 
@@ -318,9 +307,14 @@ Registered automatically as a ~browse-url-handlers~ entry matching
 ~*.slack.com/archives/*~ URLs. Controlled by ~slack-intercept-urls~ defcustom
 (default ~t~).
 
-* DM "no message" after selecting unread room
+* DONE DM "no message" after selecting unread room
 
-~slack-select-unread-rooms~ shows rooms with unreads, but selecting a DM
-(e.g. "DM: Alejandro Acelas (1)") shows "No Message in DM: ..., fetching from
-server..." and doesn't display the messages. The fetch-from-server path may not
-be completing or the callback may not be triggering the buffer display.
+Root cause: ~slack-room-display~ called ~conversations.history~ directly for DMs,
+but dormant/closed DMs require ~conversations.open~ first. Without this, the API
+could return an error that the success handler swallowed silently, so the
+~after-success~ callback (which displays the buffer) never fired.
+
+Fixed by adding a ~slack-im-p~ check in ~slack-room-display~: for DMs, it now
+calls ~slack-conversations-open~ first, then proceeds with
+~conversations.history~ + buffer display in the callback. This matches the
+pattern used by ~slack-im-open~.
