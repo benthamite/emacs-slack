@@ -360,26 +360,43 @@ or not."
          (thread-ts-second-half (nth 1 thread-ts-in-halves)))
     ;; TODO this block is time consuming! We could retrieve these messages in parallel using the same waiting mechanism (accept-process-output,) but waiting on the list of messages. Needs to be done in caller, possibly passing the messages as an optional context parameter.
     (or message
-        (-some--> (if (and thread-ts-second-half
-                           (not (string-equal ts thread-ts)))
-                      ;; When TS belongs to a thread reply, fetch via replies
-                      ;; using THREAD-TS (parent) to anchor.
-                      (slack-conversations-replies room ts team
-                                                   :inclusive "true"
-                                                   :limit "1"
-                                                   :sync t)
-                    ;; Otherwise fetch from channel history at TS
-                    (slack-conversations-history room team
-                                                 :latest ts
-                                                 :inclusive "true"
-                                                 :limit "1"
-                                                 :sync t))
-          (oref it response)
-          (request-response-data it)
-          (plist-get it :messages)
-          (nth 0 it)
-          (slack-message-create it team room)))
-    ))
+        (let ((fetched
+               (-some--> (if (and thread-ts-second-half
+                                  (not (string-equal ts thread-ts)))
+                             ;; When TS belongs to a thread reply, fetch via replies
+                             ;; using THREAD-TS (parent) to anchor.
+                             (slack-conversations-replies room ts team
+                                                          :inclusive "true"
+                                                          :limit "1"
+                                                          :sync t)
+                           ;; Otherwise fetch from channel history at TS
+                           (slack-conversations-history room team
+                                                        :latest ts
+                                                        :inclusive "true"
+                                                        :limit "1"
+                                                        :sync t))
+                 (oref it response)
+                 (request-response-data it)
+                 (plist-get it :messages)
+                 (nth 0 it)
+                 (slack-message-create it team room))))
+          (if (and fetched
+                   (not (string-equal ts (slack-ts fetched)))
+                   (string-equal ts thread-ts))
+              ;; History returned a different message (likely a parent when we
+              ;; wanted a thread reply).  Retry via conversations.replies using
+              ;; the returned message's ts as the thread anchor.
+              (-some--> (slack-conversations-replies room ts team
+                                                     :oldest ts
+                                                     :inclusive "true"
+                                                     :limit "1"
+                                                     :sync t)
+                (oref it response)
+                (request-response-data it)
+                (plist-get it :messages)
+                (cl-find ts it :key (lambda (m) (plist-get m :ts)) :test #'string-equal)
+                (slack-message-create it team room))
+            fetched)))))
 
 (provide 'slack-message)
 ;;; slack-message.el ends here
