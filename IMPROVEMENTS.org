@@ -375,3 +375,19 @@ meaning some message content is silently dropped.
 
 Hard-coded tier 2 API limit (20 req/min) directly in code. No abstraction for
 different endpoints with different rate limits. The manual sleep logic is fragile.
+
+* Slack thread URLs should open in Emacs
+
+Links like ~https://epochai.slack.com/archives/C06HWUXR170/p1762163598556039?thread_ts=...~
+currently open in the browser. They should be intercepted and opened in emacs-slack
+via ~slack-open-message~ by parsing the channel ID and timestamp from the URL.
+
+This could be implemented as a ~browse-url-handlers~ entry or by advising the
+buttonization code in ~slack-buffer.el~ to detect Slack workspace URLs.
+
+* DM "no message" after selecting unread room
+
+~slack-select-unread-rooms~ shows rooms with unreads, but selecting a DM
+(e.g. "DM: Alejandro Acelas (1)") shows "No Message in DM: ..., fetching from
+server..." and doesn't display the messages. The fetch-from-server path may not
+be completing or the callback may not be triggering the buffer display.
