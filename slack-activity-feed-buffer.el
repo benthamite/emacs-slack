@@ -278,7 +278,10 @@ Run an action on the data returned with AFTER-SUCCESS."
                          do (slack-buffer-insert existing m)))
               (let ((lui-time-stamp-position nil))
                 (if (slack-buffer-has-next-page-p existing)
-                    (slack-buffer-insert-load-more existing)))))
+                    (slack-buffer-insert-load-more existing)))
+              (when (bound-and-true-p emojify-mode)
+                (with-demoted-errors "emojify redisplay: %S"
+                  (emojify-redisplay-emojis-in-region (point-min) (point-max))))))
           existing)
       (make-instance 'slack-activity-feed-buffer
                      :team-id (slack-team-id-safe team)
@@ -501,7 +504,10 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                    do (slack-buffer-insert this m)))
         (let ((lui-time-stamp-position nil))
           (if (slack-buffer-has-next-page-p this)
-              (slack-buffer-insert-load-more this)))))
+              (slack-buffer-insert-load-more this))))
+      (when (bound-and-true-p emojify-mode)
+        (with-demoted-errors "emojify redisplay: %S"
+          (emojify-redisplay-emojis-in-region (point-min) (point-max)))))
     buffer))
 
 (cl-defmethod slack-buffer-loading-message-end-point ((_this slack-activity-feed-buffer))
