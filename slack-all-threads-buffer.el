@@ -34,7 +34,11 @@
 
 (define-derived-mode slack-all-threads-buffer-mode
   slack-buffer-mode
-  "Slack All Treads")
+  "Slack All Threads"
+  (add-hook 'lui-pre-output-hook 'slack-mrkdwn-add-face nil t)
+  (add-hook 'lui-post-output-hook 'slack-display-image t t)
+  (add-hook 'lui-pre-output-hook 'slack-display-inline-action t t)
+  (cursor-sensor-mode))
 
 (defface slack-all-thread-buffer-thread-header-face
   '((t (:weight bold :height 1.2)))
