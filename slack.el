@@ -372,5 +372,54 @@ Available options (property name, type, default value)
       (slack-bookmarks-request channel-id team on-success)
     (error "slack: Cannot show slack bookmarks here")))
 
+;;; Slack URL interception
+
+(defcustom slack-intercept-urls t
+  "If non-nil, intercept Slack workspace URLs and open them in emacs-slack.
+When enabled, URLs matching *.slack.com/archives/* are handled by
+`slack-browse-url' instead of the default browser."
+  :type 'boolean
+  :group 'slack)
+
+(defconst slack-url-regexp
+  "\\`https://[^/]+\\.slack\\.com/archives/[A-Z0-9]+/p[0-9]+"
+  "Regexp matching Slack message permalink URLs.")
+
+(defun slack-browse-url (url &rest _args)
+  "Open a Slack message permalink URL in emacs-slack.
+Parses the channel ID and timestamp from URL and navigates to the
+message.  Falls back to the default browser if the team is not
+connected or parsing fails."
+  (condition-case err
+      (let* ((info (slack-permalink-to-info url))
+             (team-domain (plist-get info :team-domain))
+             (room-id (plist-get info :room-id))
+             (ts (plist-get info :ts))
+             (thread-ts (plist-get info :thread-ts))
+             (team (or (slack-team-find-by-domain team-domain)
+                       ;; Try matching by team name as fallback
+                       (--find (equal team-domain (oref it name))
+                               (hash-table-values slack-teams-by-token)))))
+        (if (and team room-id ts)
+            (let ((room (slack-room-find room-id team)))
+              (if room
+                  (slack-open-message team room ts thread-ts ts)
+                (message "slack: room %s not found, opening in browser" room-id)
+                (browse-url-default-browser url)))
+          (message "slack: could not parse URL, opening in browser")
+          (browse-url-default-browser url)))
+    (error
+     (message "slack-browse-url error: %S, opening in browser" err)
+     (browse-url-default-browser url))))
+
+(defun slack-register-url-handler ()
+  "Register `slack-browse-url' with `browse-url-handlers'."
+  (when (and slack-intercept-urls
+             (boundp 'browse-url-handlers))
+    (add-to-list 'browse-url-handlers
+                 (cons slack-url-regexp #'slack-browse-url))))
+
+(slack-register-url-handler)
+
 (provide 'slack)
 ;;; slack.el ends here
