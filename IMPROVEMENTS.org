@@ -87,6 +87,26 @@ thread participants, not from the ~activity.feed~ endpoint.
     "reaction": {"user": "U06J3JGAXH8", "name": "+1"}}
 #+end_src
 
+** TODO Show reactor as actor for message_reaction activities
+
+Slack's activity feed shows the person who reacted as the card's author (e.g.
+"Patrick — Reacted in #seo") and quotes the reacted-to message as context.
+Emacs currently shows the reacted-to message with its original author (e.g.
+"Pablo Stafforini — I'll set it up...") and appends "Patrick reacted with :+1:"
+below.
+
+To match Slack's presentation, ~message_reaction~ activities need a custom
+rendering path instead of delegating to ~slack-message-to-string~:
+
+1. Context header: "Reacted in #seo" (use reactor's name, not message author)
+2. Actor line: reactor's avatar + name (from ~activity-reaction.user~)
+3. Quoted message: the reacted-to message body (truncated, as context)
+4. Reaction emoji display
+
+This requires either a separate branch in ~slack-buffer-insert~ for reaction
+activities, or a wrapper around ~slack-message-to-string~ that replaces the
+header.
+
 ** TODO Improve unread indicator styling
 
 Currently uses ~"*"~ vs ~" "~ prefix (line 240). Should use a propertized face
