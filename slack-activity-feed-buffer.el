@@ -268,7 +268,9 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                     (format "%s %s"
                             (if is-unread "*" " ")
                             (propertize (concat type-prefix location)
-                                        'face 'slack-search-result-message-header-face)))
+                                        'face 'slack-search-result-message-header-face
+                                        'room-id (or room-id channel)
+                                        'keymap slack-channel-button-keymap)))
                    (fetched-msg
                     (condition-case msg-err
                         (when (and room-id (or ts thread-ts))
