@@ -296,7 +296,8 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                  'room-id (oref room id)
                  'thread-ts thread-ts))
               ;; Blank separator
-              (lui-insert "" t))
+              (let ((lui-time-stamp-position nil))
+                (lui-insert "" t)))
           (error
            (let ((lui-time-stamp-position nil))
              (lui-insert (format "Error loading activity: %s"
