@@ -87,7 +87,7 @@ thread participants, not from the ~activity.feed~ endpoint.
     "reaction": {"user": "U06J3JGAXH8", "name": "+1"}}
 #+end_src
 
-** TODO Show reactor as actor for message_reaction activities
+** LATER Show reactor as actor for message_reaction activities
 
 Slack's activity feed shows the person who reacted as the card's author (e.g.
 "Patrick — Reacted in #seo") and quotes the reacted-to message as context.
@@ -107,50 +107,23 @@ This requires either a separate branch in ~slack-buffer-insert~ for reaction
 activities, or a wrapper around ~slack-message-to-string~ that replaces the
 header.
 
-** TODO Improve unread indicator styling
+** DONE Improve unread indicator styling
 
-Currently uses ~"*"~ vs ~" "~ prefix (line 240). Should use a propertized face
-(e.g. ~slack-room-unread-face~ or a new ~slack-activity-unread-face~) for better
-visibility.
+Replaced ~"*"~ / ~" "~ prefix with a Unicode filled circle (~●~) propertized
+with a new ~slack-activity-unread-face~ (bold, golden foreground) for clear
+visual distinction between read and unread entries.
 
-** TODO Fix 5-10 second delay when opening the activity feed
+** DONE Fix 5-10 second delay when opening the activity feed
 
-Every invocation of ~slack-activity-feed-show~ freezes Emacs for 5-10 seconds.
-This is because the rendering path calls ~slack-message-get-or-fetch~ (which uses
-~:sync t~) sequentially for each of the 20 activity items. Each uncached message
-triggers a blocking API call.
+Added ~slack-activity-feed--prefetch-messages~: after parsing the activity feed
+API response and before rendering, it collects all ~(ts, channel, thread-ts)~
+tuples, checks which messages are already cached, and fires parallel async
+~conversations.history~ / ~conversations.replies~ requests for uncached ones.
+A counter tracks completion; once all requests finish, the buffer renders.
 
-Root cause chain:
-1. ~slack-activity-feed-show~ calls ~slack-activity-feed-request~ (async, fine).
-2. The callback creates the buffer and calls ~slack-buffer-init-buffer~.
-3. ~slack-buffer-init-buffer~ loops over activities, calling ~slack-buffer-insert~
-   for each.
-4. Each insert calls ~slack-activity-message-to-string~ ->
-   ~slack-message-to-string~ -> ~slack-message-get-or-fetch~.
-5. ~slack-message-get-or-fetch~ does a synchronous API call if the message is not
-   cached (~:sync t~).
-6. 20 sequential sync calls x ~250-500ms each = 5-10 seconds of frozen Emacs.
-
-*** Proposed fix: parallel prefetch
-
-After receiving the activity feed response but before rendering, batch-fetch all
-uncached messages in parallel:
-
-1. Parse the activity items and collect all ~(ts, channel, thread-ts)~ tuples.
-2. For each, check if the message is already cached via ~slack-room-find-message~.
-3. For uncached messages, fire async ~conversations.history~ /
-   ~conversations.replies~ requests in parallel.
-4. Wait for all requests to complete (using ~accept-process-output~ with a
-   timeout).
-5. Store fetched messages in the room caches.
-6. Then render all items — ~slack-message-get-or-fetch~ will now find everything
-   in cache and return immediately.
-
-This turns 20 sequential network round-trips into ~20 parallel requests resolved
-in a single round-trip time (~300-500ms total).
-
-An alternative: group items by channel and fetch a wider window of
-~conversations.history~ per channel, reducing the number of API calls further.
+Since all messages are now in cache by render time,
+~slack-message-get-or-fetch~ returns immediately for every item, eliminating
+the 5-10 second freeze from 20 sequential synchronous API calls.
 
 * Channel loading delay / background prefetch
 :PROPERTIES:
@@ -199,61 +172,17 @@ This is a significant architectural change. It affects:
 A lighter alternative: prefetch only channels with unreads, which is typically a
 small subset and addresses the most common "I want to check my unreads" workflow.
 
-* Stale reaction cache
+* DONE Stale reaction cache
 :PROPERTIES:
-:FILE: slack-message.el
-:LINES: 347-382
+:FILE: slack-reaction-event.el
 :END:
 
-** Problem
-
-~slack-message-get-or-fetch~ returns a cached message immediately if found in
-the room's message list, without checking freshness:
-
-#+begin_src elisp
-(or message          ;; cached version returned immediately
-    (-some--> ...    ;; API fetch only if NOT cached
-#+end_src
-
-Reactions added after a message was cached are lost unless the channel buffer was
-open when the ~reaction_added~ WebSocket event arrived. The WebSocket handler
-(~slack-reaction-event.el:54-61~) only finds messages already in cache:
-
-#+begin_src elisp
-(cl-defmethod slack-event-find-message ((this slack-message-reaction-event) team)
-  (let* (... (room (slack-room-find channel team))
-             (ts (plist-get item :ts)))
-    (when room
-      (slack-room-find-message room ts))))  ;; nil if room not loaded
-#+end_src
-
-So: WebSocket ~reaction_added~ event arrives -> room not loaded -> message not
-found -> reaction silently dropped -> cached message stays stale.
-
-** Observed behavior
-
-- Message in #benchmarking-data: ~:raised_hands: 1 :nice: 2~ renders (message
-  cached with reactions, or buffer was open when reactions added).
-- Message in #seo: ~:+1: 1~ does not render (message cached before reaction was
-  added, buffer not open when WebSocket event arrived).
-
-** Possible fixes
-
-1. *Fetch-on-display*: when ~slack-message-get-or-fetch~ finds a cached message,
-   still fetch reactions from the API and merge them. Downside: extra API call on
-   every display.
-2. *Store WebSocket events for unloaded rooms*: buffer reaction events and replay
-   them when the room is loaded. More complex but no extra API calls.
-3. *Invalidate cache on WebSocket events*: when a ~reaction_added~ event can't
-   find the message, mark the room as needing refresh. Next time the room is
-   opened, fetch fresh data.
-4. *Selective refresh*: only re-fetch the specific message (by ts) when a
-   reaction event targets an unloaded room. Lightweight and targeted.
-
-Option 4 seems best: on ~reaction_added~ for an unloaded room, fetch the single
-message via ~conversations.history~ with ~latest=ts, inclusive=true, limit=1~ and
-update the room's message cache. This also helps with other stale-cache
-scenarios (edits, deletions).
+Implemented option 4 (selective refresh): when ~slack-event-find-message~ for a
+reaction event finds the room but the message is not in cache, it now calls
+~slack-reaction-event--fetch-and-cache-message~ which fetches the single message
+via ~conversations.history~ with ~latest=ts, inclusive=true, limit=1~ and pushes
+it into the room's message cache. The reaction is then applied to the freshly
+cached message rather than being silently dropped.
 
 * Synchronous blocking calls
 :PROPERTIES:
@@ -287,10 +216,13 @@ synchronous API call. This can freeze Emacs for several seconds.
 :FILE: slack-websocket.el
 :END:
 
-** Missing or silently dropped events
+** DONE Missing or silently dropped events
 
-- No catch-all for unhandled event types (line 528 area): unknown events are
-  silently dropped with no logging.
+Added a catch-all ~t~ clause to the WebSocket event dispatcher that logs
+unhandled event types at debug level via ~slack-log~, so unknown events are
+no longer silently dropped.
+
+Remaining:
 - ~app_mention~ — not handled (relevant for bot/integration notifications).
 - ~app_rate_limited~ — no handler for rate limit notifications from Slack.
 - ~update_thread_state~ (line 526-534) — only updates mention count, does not
@@ -325,38 +257,37 @@ Hard-coded list of endpoints that require enterprise vs team tokens. A comment i
 the code warns: "which token is required for an endpoint may change arbitrarily
 at any time." No dynamic discovery or version check mechanism.
 
-* Missing nil checks and silent error suppression
+* DONE Missing nil checks and silent error suppression
 :PROPERTIES:
 :SEVERITY: medium
 :END:
 
-Multiple places use ~ignore-errors~ to silently swallow failures:
+Replaced all four ~ignore-errors~ sites with ~condition-case~ + ~message~ logging:
 
-- ~slack-activity-feed-buffer.el:174~ — room name lookup
-- ~slack-message-formatter.el:178~ — message body processing
-- ~slack-block.el:1323~ — block formatting
-- ~slack-message-reaction.el:66~ — reaction creation
+- ~slack-activity-feed-buffer.el~ — room name lookup (both instances)
+- ~slack-message-formatter.el~ — file summary
+- ~slack-block.el~ — confirmation dialog creation
+- ~slack-message-reaction.el~ — reaction at point lookup
 
-These hide real bugs. Prefer ~condition-case~ with explicit error logging.
-
-* Image cache unbounded
+* DONE Image cache unbounded
 :PROPERTIES:
 :FILE: slack-image.el
 :END:
 
-Image cache files accumulate in the temp directory with no size limit or cleanup
-policy. Heavy image usage could consume hundreds of MB over time.
+Added ~slack-image-cleanup~ interactive command that deletes cached images older
+than ~slack-image-cache-max-age-days~ (default 30) from both
+~slack-image-file-directory~ and ~slack-profile-image-file-directory~. Reports
+number of files deleted and space freed.
 
-* Mark-as-read optimistic update
+* DONE Mark-as-read optimistic update
 :PROPERTIES:
 :FILE: slack-message-buffer.el
-:LINES: 147
 :END:
 
-~conversations.mark~ is called asynchronously but ~last-read~ is set
-optimistically without waiting for the API response. If the API call fails, UI
-state is inconsistent with the server. Should add a failure callback that reverts
-the local state.
+~slack-buffer-update-mark-request~ now saves the previous ~last-read~ value
+before the optimistic update. ~slack-conversations-mark~ accepts an optional
+error callback; on failure, the callback reverts ~last-read~ and refreshes the
+marker overlay.
 
 * Block types not implemented
 :PROPERTIES:
@@ -376,14 +307,16 @@ meaning some message content is silently dropped.
 Hard-coded tier 2 API limit (20 req/min) directly in code. No abstraction for
 different endpoints with different rate limits. The manual sleep logic is fragile.
 
-* Slack thread URLs should open in Emacs
+* DONE Slack thread URLs should open in Emacs
 
-Links like ~https://epochai.slack.com/archives/C06HWUXR170/p1762163598556039?thread_ts=...~
-currently open in the browser. They should be intercepted and opened in emacs-slack
-via ~slack-open-message~ by parsing the channel ID and timestamp from the URL.
+Added ~slack-browse-url~ which parses Slack permalink URLs using the existing
+~slack-permalink-to-info~, finds the team by domain via
+~slack-team-find-by-domain~, and navigates via ~slack-open-message~. Falls back
+to the default browser if the team isn't connected or parsing fails.
 
-This could be implemented as a ~browse-url-handlers~ entry or by advising the
-buttonization code in ~slack-buffer.el~ to detect Slack workspace URLs.
+Registered automatically as a ~browse-url-handlers~ entry matching
+~*.slack.com/archives/*~ URLs. Controlled by ~slack-intercept-urls~ defcustom
+(default ~t~).
 
 * DM "no message" after selecting unread room
 
