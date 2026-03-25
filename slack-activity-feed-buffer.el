@@ -226,9 +226,9 @@ Run an action on the data returned with AFTER-SUCCESS."
    (last :initarg :last :type (or null integer))))
 (define-derived-mode slack-activity-feed-buffer-mode slack-buffer-mode "Slack Activity Feed"
   (add-hook 'lui-pre-output-hook 'slack-mrkdwn-add-face nil t)
-  (add-hook 'lui-post-output-hook 'slack-display-image t t)
   (add-hook 'lui-pre-output-hook 'slack-display-inline-action t t)
-  (cursor-sensor-mode))
+  (cursor-sensor-mode)
+  (slack-buffer-enable-emojify))
 
 (defclass slack-activity-feed-buffer (slack-buffer)
   ((activity-feed :initarg :activity-feed :type slack-activity-feed)
