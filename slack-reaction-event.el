@@ -28,6 +28,9 @@
 (require 'slack-event)
 (require 'slack-message-buffer)
 
+(declare-function slack-conversations-history "slack-conversations")
+(declare-function slack-message-create "slack-create-message")
+
 (defclass slack-reaction-event (slack-event slack-message-event-processable) ())
 (defclass slack-message-reaction-event (slack-reaction-event) ())
 (defclass slack-message-reaction-added-event (slack-message-reaction-event) ())
@@ -58,7 +61,9 @@
          (room (slack-room-find channel team))
          (ts (plist-get item :ts)))
     (when room
-      (slack-room-find-message room ts))))
+      (or (slack-room-find-message room ts)
+          ;; Message not in cache — fetch it so the reaction is not lost
+          (slack-reaction-event--fetch-and-cache-message room ts team)))))
 
 (cl-defmethod slack-event-save-message ((this slack-message-reaction-removed-event) message _team)
   (let* ((payload (oref this payload))
@@ -83,6 +88,28 @@
 (cl-defmethod slack-event-update-buffer ((_this slack-message-reaction-event) message team)
   (slack-message-replace-buffer message team))
 
+
+(defun slack-reaction-event--fetch-and-cache-message (room ts team)
+  "Fetch message at TS from ROOM via API and cache it.
+Returns the fetched message, or nil on failure.  Used when a
+reaction WebSocket event targets a message not yet in cache."
+  (condition-case err
+      (-some--> (slack-conversations-history room team
+                                              :latest ts
+                                              :inclusive "true"
+                                              :limit "1"
+                                              :sync t)
+        (oref it response)
+        (request-response-data it)
+        (plist-get it :messages)
+        (nth 0 it)
+        (slack-message-create it team room)
+        (progn
+          (slack-room-push-message room it team)
+          it))
+    (error
+     (message "slack-reaction-event: failed to fetch message %s: %S" ts err)
+     nil)))
 
 (provide 'slack-reaction-event)
 ;;; slack-reaction-event.el ends here
