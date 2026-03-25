@@ -286,5 +286,35 @@ when SVG support is not available.  Results are cached."
                    (create-image file nil nil :ascent 80))
                  slack-image--profile-cache))))
 
+(defcustom slack-image-cache-max-age-days 30
+  "Maximum age in days for cached Slack images.
+Images older than this are deleted by `slack-image-cleanup'."
+  :type 'integer
+  :group 'slack)
+
+(defun slack-image-cleanup (&optional max-age-days)
+  "Delete cached Slack images older than MAX-AGE-DAYS days.
+Defaults to `slack-image-cache-max-age-days'.  Cleans both
+`slack-image-file-directory' and `slack-profile-image-file-directory'."
+  (interactive)
+  (let* ((max-age (* (or max-age-days slack-image-cache-max-age-days) 86400))
+         (now (float-time))
+         (deleted 0)
+         (freed 0))
+    (dolist (dir (delete-dups (list slack-image-file-directory
+                                    slack-profile-image-file-directory)))
+      (when (file-directory-p dir)
+        (dolist (file (directory-files dir t "\\.\\(png\\|jpg\\|jpeg\\|gif\\|webp\\|bmp\\)\\'" t))
+          (let ((age (- now (float-time (file-attribute-modification-time
+                                          (file-attributes file))))))
+            (when (> age max-age)
+              (let ((size (file-attribute-size (file-attributes file))))
+                (delete-file file)
+                (cl-incf deleted)
+                (cl-incf freed (or size 0))))))))
+    (message "slack-image-cleanup: deleted %d files, freed %s"
+             deleted
+             (file-size-human-readable freed))))
+
 (provide 'slack-image)
 ;;; slack-image.el ends here
