@@ -82,9 +82,7 @@
    (lambda (&key data &allow-other-keys)
      (cl-labels
          ((replace-underscore-with-space (s)
-                                         (replace-regexp-in-string "_"
-                                                                   " "
-                                                                   s))
+            (replace-regexp-in-string "_" " " s))
           (log-error
            (_)
            (slack-if-let*
@@ -99,20 +97,13 @@
                (funcall on-errors errors))))
        (slack-request-handle-error
         (data "conversations" #'log-error)
-        (slack-if-let* ((warning (plist-get data :warning)))
-            (progn
-              (slack-log (format "%s" (replace-underscore-with-space
-                                       warning))
-                         team
-                         :level 'warn)
-              (if
-                  (and (equal "already_in_channel" warning)
-                       (functionp on-success)
-                       )
-                  (funcall on-success data)
-                (slack-log "Not sending message because of above warning" team :level 'error)))
-          (when (functionp on-success)
-            (funcall on-success data))))))))
+        ;; Log warnings but still proceed — warnings like missing_charset
+        ;; are benign and must not suppress the success callback.
+        (when-let ((warning (plist-get data :warning)))
+          (slack-log (format "%s" (replace-underscore-with-space warning))
+                     team :level 'warn))
+        (when (functionp on-success)
+          (funcall on-success data)))))))
 
 (defun slack-conversations-archive (room team)
   (let ((id (oref room id)))
