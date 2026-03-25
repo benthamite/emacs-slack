@@ -397,18 +397,23 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
          (slack-buffer-display buffer))))))
 
 (defun slack-activity-feed-open-message ()
-  "Open message at point of activity-feed."
+  "Open channel at message point in activity-feed.
+Opens the channel view and scrolls to the message, matching Slack's
+behavior of navigating to the message in context rather than opening
+a thread view."
   (interactive)
   (if-let* ((ts (get-text-property (point) 'ts))
             (team-id (get-text-property (point) 'team-id))
             (room-id (get-text-property (point) 'room-id))
             (team (slack-team-find team-id)))
       (let ((thread-ts (get-text-property (point) 'thread-ts)))
+        ;; Use thread-ts as target (parent message visible in channel),
+        ;; pass nil for thread-ts arg to open the channel, not the thread.
         (slack-open-message
          team
          (slack-room-find room-id team)
-         ts
-         thread-ts))
+         (or thread-ts ts)
+         nil))
     (error "Not possible to jump to message")))
 (defun slack-activity-feed-goto-next ()
   "Move point to the next activity entry."
