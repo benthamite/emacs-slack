@@ -666,19 +666,28 @@ and forces recomputation of load-more placeholders next time.
 Provide SUCCESS-CALLBACK to run some action after displaying."
   (cl-labels
       ((open (buf)
-         (slack-buffer-display buf)))
+         (slack-buffer-display buf))
+       (fetch-and-display ()
+         (message "No Message in %s, fetching from server..." (slack-room-name room team))
+         (slack-room-clear-messages room)
+         (slack-conversations-history
+          room team
+          :after-success (lambda (messages cursor)
+                           (slack-room-set-messages room messages team)
+                           (slack-buffer-display (slack-create-message-buffer room cursor team))
+                           (when (functionp success-callback) (funcall success-callback))))))
     (let ((buf (slack-buffer-find 'slack-message-buffer team room)))
       (if buf (progn
                 (open buf)
                 (when (functionp success-callback) (funcall success-callback)))
-        (message "No Message in %s, fetching from server..." (slack-room-name room team))
-        (slack-room-clear-messages room)
-        (slack-conversations-history
-         room team
-         :after-success (lambda (messages cursor)
-                          (slack-room-set-messages room messages team)
-                          (slack-buffer-display (slack-create-message-buffer room cursor team))
-                          (when (functionp success-callback) (funcall success-callback))))))))
+        ;; For DMs, ensure the conversation is open before fetching history.
+        ;; Dormant DMs may fail conversations.history without this step.
+        (if (slack-im-p room)
+            (slack-conversations-open
+             team :room room
+             :on-success (lambda (_data)
+                           (fetch-and-display)))
+          (fetch-and-display))))))
 
 (cl-defmethod slack-room-update-buffer ((this slack-room) team message replace)
   (slack-if-let* ((buffer (slack-buffer-find 'slack-message-buffer team this)))

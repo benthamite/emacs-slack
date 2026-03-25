@@ -97,20 +97,13 @@ You need to install `language-detection' for this to work.")
       (slack-create-rich-text-block payload))
      ((string= "call" type)
       (slack-create-call-layout-block payload))
+     ((string= "file" type)
+      (slack-create-file-layout-block payload))
+     ((string= "input" type)
+      (slack-create-input-layout-block payload))
      (t (make-instance 'slack-layout-block
                        :type type
-                       :payload payload))
-     ;; ;; TODO https://api.slack.com/reference/block-kit/blocks#file
-     ;; ((string= "file" type)
-     ;;  (message "TODO: %S" payload)
-     ;;  nil
-     ;;  )
-     ;; ;; TODO https://api.slack.com/reference/block-kit/blocks#input
-     ;; ((string= "input" type)
-     ;;  (message "TODO: %S" payload)
-     ;;  nil
-     ;;  )
-     )))
+                       :payload payload)))))
 
 ;; Rich Text Blocks
 ;; [Changes to message objects on the way to support WYSIWYG | Slack](https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-and-less)
@@ -175,6 +168,67 @@ You need to install `language-detection' for this to work.")
                (plist-get :call)
                (plist-get :v1)
                (plist-get :join_url))))
+
+;; File block: references a remote file shared in Slack
+;; https://api.slack.com/reference/block-kit/blocks#file
+(defclass slack-file-layout-block ()
+  ((type :initarg :type :type string)
+   (block-id :initarg :block_id :type (or string null) :initform nil)
+   (external-id :initarg :external_id :type string)
+   (source :initarg :source :type string)))
+
+(cl-defmethod slack-block-to-string ((this slack-file-layout-block) &optional _option)
+  (propertize (format "[File: %s]" (oref this external-id))
+              'face 'slack-mrkdwn-code-face))
+
+(cl-defmethod slack-block-to-mrkdwn ((this slack-file-layout-block) &optional _option)
+  (format "[File: %s]" (oref this external-id)))
+
+(defun slack-create-file-layout-block (payload)
+  (make-instance 'slack-file-layout-block
+                 :type (plist-get payload :type)
+                 :block_id (plist-get payload :block_id)
+                 :external_id (or (plist-get payload :external_id) "unknown")
+                 :source (or (plist-get payload :source) "remote")))
+
+;; Input block: collects information from users via interactive elements
+;; https://api.slack.com/reference/block-kit/blocks#input
+(defclass slack-input-layout-block ()
+  ((type :initarg :type :type string)
+   (block-id :initarg :block_id :type (or string null) :initform nil)
+   (label :initarg :label :type slack-text-message-composition-object)
+   (element :initarg :element :initform nil)
+   (hint :initarg :hint :type (or null slack-text-message-composition-object) :initform nil)
+   (optional-p :initarg :optional-p :type boolean :initform nil)
+   (dispatch-action :initarg :dispatch-action :type boolean :initform nil)))
+
+(cl-defmethod slack-block-to-string ((this slack-input-layout-block) &optional _option)
+  (let ((label-str (slack-block-to-string (oref this label)))
+        (hint-str (when (oref this hint)
+                    (slack-block-to-string (oref this hint)))))
+    (concat (propertize label-str 'face '(:weight bold))
+            (when (oref this optional-p) " (optional)")
+            (when hint-str (concat "\n" (propertize hint-str 'face 'font-lock-comment-face)))
+            "\n[interactive input]")))
+
+(cl-defmethod slack-block-to-mrkdwn ((this slack-input-layout-block) &optional _option)
+  (let ((label-str (slack-block-to-string (oref this label))))
+    (concat "*" label-str "*"
+            (when (oref this optional-p) " (optional)")
+            "\n[interactive input]")))
+
+(defun slack-create-input-layout-block (payload)
+  (make-instance 'slack-input-layout-block
+                 :type (plist-get payload :type)
+                 :block_id (plist-get payload :block_id)
+                 :label (slack-create-text-message-composition-object
+                         (plist-get payload :label))
+                 :element (plist-get payload :element)
+                 :hint (when (plist-get payload :hint)
+                         (slack-create-text-message-composition-object
+                          (plist-get payload :hint)))
+                 :optional-p (eq t (plist-get payload :optional))
+                 :dispatch-action (eq t (plist-get payload :dispatch_action))))
 
 (defclass slack-rich-text-block-element ()
   ((type :initarg :type :type string)

@@ -305,5 +305,47 @@ Note the input timestamp must drop the last 6 digits.
        "")
      (plist-get info :room-id))))
 
+;;; Rate limiting
+
+(defvar slack-rate-limit-tiers
+  '((tier-1 . (:requests-per-minute 1))
+    (tier-2 . (:requests-per-minute 20))
+    (tier-3 . (:requests-per-minute 50))
+    (tier-4 . (:requests-per-minute 100)))
+  "Slack API rate limit tiers.
+See https://api.slack.com/docs/rate-limits.")
+
+(defvar slack-rate-limit-counters (make-hash-table :test 'equal)
+  "Hash table mapping tier symbols to (count . reset-time) pairs.")
+
+(defun slack-rate-limit-delay (tier)
+  "Return the delay in seconds before the next request for TIER.
+Returns 0 if the request can proceed immediately, or the number of
+seconds to wait if the rate limit for this tier would be exceeded."
+  (let* ((tier-info (alist-get tier slack-rate-limit-tiers))
+         (rpm (plist-get tier-info :requests-per-minute))
+         (state (gethash tier slack-rate-limit-counters))
+         (now (float-time))
+         (count (car state))
+         (window-start (cdr state)))
+    (if (or (null state)
+            (> (- now window-start) 60))
+        ;; New window — reset counter
+        (progn
+          (puthash tier (cons 1 now) slack-rate-limit-counters)
+          0)
+      (if (< count rpm)
+          ;; Under the limit — increment and proceed
+          (progn
+            (puthash tier (cons (1+ count) window-start) slack-rate-limit-counters)
+            0)
+        ;; At limit — wait until the window resets
+        (let ((wait (- 61 (- now window-start))))
+          (max 0.1 wait))))))
+
+(defun slack-rate-limit-reset (tier)
+  "Reset the rate limit counter for TIER."
+  (remhash tier slack-rate-limit-counters))
+
 (provide 'slack-util)
 ;;; slack-util.el ends here
