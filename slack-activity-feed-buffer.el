@@ -131,16 +131,12 @@ Run an action on the data returned with AFTER-SUCCESS."
   ((activity-feed :initarg :activity-feed :type slack-activity-feed)))
 
 (cl-defmethod slack-buffer-name ((_class (subclass slack-activity-feed-buffer)) team)
-  (format "*slack: %s Activity Feed %s*"
-          (oref team name)
-          (format-time-string "%Y-%m-%d %H:%M:%S")
-          ))
+  (format "*slack: %s Activity Feed*"
+          (oref team name)))
 
 (cl-defmethod slack-buffer-name ((this slack-activity-feed-buffer))
-  (format "*slack: %s Activity Feed %s*"
-          (slack-team-name (slack-buffer-team this))
-          (format-time-string "%Y-%m-%d %H:%M:%S")
-          ))
+  (format "*slack: %s Activity Feed*"
+          (slack-team-name (slack-buffer-team this))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-activity-feed-buffer)))
   "activity feed")
@@ -152,11 +148,25 @@ Run an action on the data returned with AFTER-SUCCESS."
   'slack-activity-feed-buffer)
 
 (defun slack-create-activity-feed-buffer (activity-feed team)
-  (let ((buffer (slack-buffer-find 'slack-activity-feed-buffer team)))
-    (when buffer (kill-buffer (oref buffer buf)))
-    (make-instance 'slack-activity-feed-buffer
-                   :team-id (oref team id)
-                   :activity-feed activity-feed)))
+  (let ((existing (slack-buffer-find 'slack-activity-feed-buffer team)))
+    (if (and existing
+             (buffer-live-p (oref existing buf)))
+        (progn
+          (oset existing activity-feed activity-feed)
+          (with-current-buffer (oref existing buf)
+            (let ((inhibit-read-only t))
+              (erase-buffer))
+            (with-slots (activity-feed) existing
+              (let* ((activities (oref activity-feed activities)))
+                (cl-loop for m in activities
+                         do (slack-buffer-insert existing m)))
+              (let ((lui-time-stamp-position nil))
+                (if (slack-buffer-has-next-page-p existing)
+                    (slack-buffer-insert-load-more existing)))))
+          existing)
+      (make-instance 'slack-activity-feed-buffer
+                     :team-id (oref team id)
+                     :activity-feed activity-feed))))
 
 (defclass activity-message ()
   ((ts :initarg :ts :type string)
