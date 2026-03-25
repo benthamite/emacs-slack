@@ -216,6 +216,10 @@ Run an action on the data returned with AFTER-SUCCESS."
   ((activity-feed :initarg :activity-feed :type slack-activity-feed)
    (cached-team :initarg :cached-team :initform nil)))
 
+(cl-defmethod slack-buffer-team ((this slack-activity-feed-buffer))
+  "Return the team for THIS buffer, preferring the cached reference."
+  (or (oref this cached-team) (cl-call-next-method)))
+
 (cl-defmethod slack-buffer-name ((_class (subclass slack-activity-feed-buffer)) team)
   (format "*slack: %s Activity Feed*"
           (oref team name)))
@@ -341,7 +345,7 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
     (format "%s %s" (if is-unread "*" " ") (slack-activity-item-to-string item team))))
 
 (cl-defmethod slack-buffer-insert ((this slack-activity-feed-buffer) activity &rest _args)
-  (let* ((team (or (oref this cached-team) (slack-buffer-team this)))
+  (let* ((team (slack-buffer-team this))
          (time (slack-ts-to-time (oref activity feed-ts)))
          (is-unread (oref activity is-unread))
          (item (oref activity item))
