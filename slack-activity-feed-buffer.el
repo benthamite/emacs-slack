@@ -34,7 +34,10 @@
 (require 'dash)
 (require 's)
 
-(declare-function "slack-message-get-or-fetch" "slack-message.el")
+(declare-function slack-message-get-or-fetch "slack-message")
+(declare-function slack-conversations-history "slack-conversations")
+(declare-function slack-conversations-replies "slack-conversations")
+(declare-function slack-message-create "slack-create-message")
 
 (defvar slack-activity-feed-url "https://slack.com/api/activity.feed")
 (defvar slack-activity-feed-mode-show-only-unread nil "If non-nil, show only unread activity.")
@@ -96,6 +99,76 @@
                                'activity-reaction
                                :user (format "%s" (plist-get r :user))
                                :name (format "%s" (plist-get r :name))))))))
+
+(defun slack-activity-feed--prefetch-messages (activities team callback)
+  "Prefetch uncached messages for ACTIVITIES in parallel, then call CALLBACK.
+Fires async API requests for all messages not already in cache,
+and invokes CALLBACK (with no arguments) once every request has
+completed (or immediately if all messages are cached)."
+  (let* ((pending (list 0))   ; boxed counter for mutation in closures
+         (items
+          (cl-loop
+           for activity in activities
+           for item = (oref activity item)
+           for type = (oref item type)
+           unless (equal type "bot_dm_bundle")
+           for msg = (oref item message)
+           collect (list (oref msg ts)
+                         (oref msg channel)
+                         (oref msg thread-ts)))))
+    ;; Count how many need fetching
+    (dolist (entry items)
+      (let* ((ts (nth 0 entry))
+             (channel (nth 1 entry))
+             (thread-ts (nth 2 entry))
+             (room (slack-room-find channel team)))
+        (when (and room
+                   (not (equal ts "0"))
+                   (not (equal channel "unknown"))
+                   (not (slack-room-find-message room ts)))
+          (cl-incf (car pending)))))
+    (if (= 0 (car pending))
+        ;; All cached — render immediately
+        (funcall callback)
+      ;; Fire parallel async requests
+      (dolist (entry items)
+        (let* ((ts (nth 0 entry))
+               (channel (nth 1 entry))
+               (thread-ts (nth 2 entry))
+               (room (slack-room-find channel team)))
+          (when (and room
+                     (not (equal ts "0"))
+                     (not (equal channel "unknown"))
+                     (not (slack-room-find-message room ts)))
+            (let ((is-reply (and thread-ts
+                                 (not (string-equal ts thread-ts)))))
+              (condition-case err
+                  (if is-reply
+                      (slack-conversations-replies
+                       room ts team
+                       :inclusive "true"
+                       :limit "1"
+                       :after-success
+                       (lambda (messages &rest _)
+                         (when messages
+                           (slack-room-set-messages room messages team))
+                         (when (= 0 (cl-decf (car pending)))
+                           (funcall callback))))
+                    (slack-conversations-history
+                     room team
+                     :latest ts
+                     :inclusive "true"
+                     :limit "1"
+                     :after-success
+                     (lambda (messages &rest _)
+                       (when messages
+                         (slack-room-set-messages room messages team))
+                       (when (= 0 (cl-decf (car pending)))
+                         (funcall callback)))))
+                (error
+                 (message "slack-activity-feed: prefetch error for %s: %S" ts err)
+                 (when (= 0 (cl-decf (car pending)))
+                   (funcall callback)))))))))))
 
 (defun slack-activity-feed-request (team &optional after-success cursor)
   "Request activity feed for CHANNEL-ID of TEAM.
@@ -181,7 +254,11 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
   (with-slots (channel ts is-broadcast thread-ts author-id) this
     (condition-case err ;; this is to find out more easily messages that we fail to handle
         (let* ((room (slack-room-find channel team))
-               (room-name (or (ignore-errors (slack-room-name room team))
+               (room-name (or (condition-case err
+                                  (slack-room-name room team)
+                                (error
+                                 (message "slack-activity: room name lookup failed: %S" err)
+                                 nil))
                               "name not available - try to update channel list"))
                (location (format "%s%s"
                                  (if (slack-channel-p room) "#" "@")
@@ -262,7 +339,11 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
             (let* ((room (slack-room-find channel team))
                    (room-id (when room (oref room id)))
                    (room-name (if room
-                                  (or (ignore-errors (slack-room-name room team))
+                                  (or (condition-case err
+                                          (slack-room-name room team)
+                                        (error
+                                         (message "slack-activity: room name lookup failed: %S" err)
+                                         nil))
                                       "name not available")
                                 channel))
                    (location (format "%s%s"
@@ -275,8 +356,9 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                                   ("internal_channel_invite" "Invited to ")
                                   (_ "")))
                    (context-header
-                    (format "%s %s"
-                            (if is-unread "*" " ")
+                    (concat (propertize (if is-unread "\u25cf " "  ")
+                                        'face (when is-unread
+                                                'slack-activity-unread-face))
                             (propertize (concat type-prefix location)
                                         'face 'slack-search-result-message-header-face
                                         'room-id (or room-id channel)
@@ -393,18 +475,27 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
   "Show Slack activity feed."
   (interactive)
   (let ((team (slack-team-select)))
+    (message "Fetching activity feed...")
     (slack-activity-feed-request
      team
      (lambda (data)
-       (let* ((activity-feed
+       (let* ((activities (mapcar #'slack-activity-feed--parse-item
+                                  (plist-get data :items)))
+              (activity-feed
                (make-instance
                 'slack-activity-feed
-                :activities (mapcar #'slack-activity-feed--parse-item
-                                    (plist-get data :items))
+                :activities activities
                 :pagination (plist-get (plist-get data :response_metadata)
-                                       :next_cursor)))
-              (buffer (slack-create-activity-feed-buffer activity-feed team)))
-         (slack-buffer-display buffer))))))
+                                       :next_cursor))))
+         ;; Prefetch all uncached messages in parallel, then render
+         (message "Prefetching messages...")
+         (slack-activity-feed--prefetch-messages
+          activities team
+          (lambda ()
+            (let ((buffer (slack-create-activity-feed-buffer
+                           activity-feed team)))
+              (slack-buffer-display buffer)
+              (message "Activity feed ready.")))))))))
 
 (defun slack-activity-feed-open-message ()
   "Open message at point in activity-feed.

@@ -98,6 +98,12 @@
   "Face used to @here, @channel, @everyone mention."
   :group 'slack)
 
+(defface slack-activity-unread-face
+  '((t (:foreground "#b58900"
+        :weight bold)))
+  "Face used to mark unread activity feed entries."
+  :group 'slack)
+
 (defface slack-preview-face
   (let* ((default-bg (or (face-background 'default) "unspecified-bg"))
          (light-bg (if (equal default-bg "unspecified-bg")
