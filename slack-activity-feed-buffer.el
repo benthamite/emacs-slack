@@ -221,8 +221,7 @@ Run an action on the data returned with AFTER-SUCCESS."
   ((activities :initarg :activities :initform nil :type (or null list))
    (pagination :initarg :pagination :type (or null string))
    (last :initarg :last :type (or null integer))))
-(define-derived-mode slack-activity-feed-buffer-mode slack-buffer-mode "Slack Activity Feed"
-  (remove-hook 'lui-post-output-hook 'slack-display-image t))
+(define-derived-mode slack-activity-feed-buffer-mode slack-buffer-mode "Slack Activity Feed")
 
 (defclass slack-activity-feed-buffer (slack-buffer)
   ((activity-feed :initarg :activity-feed :type slack-activity-feed)
