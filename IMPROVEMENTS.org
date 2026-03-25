@@ -309,12 +309,15 @@ Registered automatically as a ~browse-url-handlers~ entry matching
 
 * DONE DM "no message" after selecting unread room
 
-Root cause: ~slack-room-display~ called ~conversations.history~ directly for DMs,
-but dormant/closed DMs require ~conversations.open~ first. Without this, the API
-could return an error that the success handler swallowed silently, so the
-~after-success~ callback (which displays the buffer) never fired.
+Two root causes:
 
-Fixed by adding a ~slack-im-p~ check in ~slack-room-display~: for DMs, it now
-calls ~slack-conversations-open~ first, then proceeds with
-~conversations.history~ + buffer display in the callback. This matches the
-pattern used by ~slack-im-open~.
+1. ~slack-conversations-success-handler~ silently dropped the ~on-success~
+   callback when the API response contained a warning other than
+   ~already_in_channel~. Benign warnings like ~missing_charset~ would prevent
+   the buffer from ever being created. Fixed by always calling ~on-success~
+   after logging the warning.
+
+2. ~slack-room-display~ called ~conversations.history~ directly for DMs, but
+   dormant/closed DMs require ~conversations.open~ first. Fixed by adding a
+   ~slack-im-p~ check that calls ~conversations.open~ before fetching history,
+   matching the pattern used by ~slack-im-open~.
