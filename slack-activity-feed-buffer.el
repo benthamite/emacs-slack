@@ -242,10 +242,66 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
 (cl-defmethod slack-buffer-insert ((this slack-activity-feed-buffer) activity)
   (let* ((team (slack-buffer-team this))
          (time (slack-ts-to-time (oref activity feed-ts)))
-         (lui-time-stamp-time time)
-         (lui-time-stamp-format "[%Y-%m-%d %H:%M] "))
-    (lui-insert (slack-activity-to-string activity team) t)
-    (lui-insert "" t)))
+         (is-unread (oref activity is-unread))
+         (item (oref activity item))
+         (type (oref item type))
+         (msg (oref item message))
+         (reaction (oref item reaction)))
+    (unless (equal type "bot_dm_bundle")
+      (with-slots (channel ts thread-ts) msg
+        (condition-case err
+            (let* ((room (slack-room-find channel team))
+                   (room-name (or (ignore-errors (slack-room-name room team))
+                                  "name not available - try to update channel list"))
+                   (location (format "%s%s"
+                                     (if (slack-channel-p room) "#" "@")
+                                     room-name))
+                   (type-prefix (pcase type
+                                  ((or "thread_reply" "thread_v2") "Thread in ")
+                                  ((or "at_user" "at_user_group" "at_channel" "at_everyone")
+                                   "Mentioned in ")
+                                  ("internal_channel_invite" "Invited to ")
+                                  (_ "")))
+                   (context-header
+                    (format "%s %s"
+                            (if is-unread "*" " ")
+                            (propertize (concat type-prefix location)
+                                        'face 'slack-search-result-message-header-face)))
+                   (fetched-msg
+                    (condition-case msg-err
+                        (when (or ts thread-ts)
+                          (slack-message-get-or-fetch
+                           ts (oref room id) team thread-ts))
+                      (error
+                       (message "slack-activity-feed: Loading message failed: %S"
+                                (error-message-string msg-err))
+                       nil)))
+                   (message-str
+                    (concat (if fetched-msg
+                                (slack-message-to-string fetched-msg team)
+                              "TODO")
+                            (when reaction
+                              (concat "\n" (slack-activity-reaction-to-string
+                                            reaction team))))))
+              ;; Context header: no timestamp, no fill
+              (let ((lui-time-stamp-position nil))
+                (lui-insert context-header t))
+              ;; Message: with timestamp, consistent with channel buffers
+              (let ((lui-time-stamp-time time)
+                    (lui-time-stamp-format "[%Y-%m-%d %H:%M] "))
+                (lui-insert-with-text-properties
+                 message-str
+                 'ts ts
+                 'team-id (oref team id)
+                 'room-id (oref room id)
+                 'thread-ts thread-ts))
+              ;; Blank separator
+              (lui-insert "" t))
+          (error
+           (let ((lui-time-stamp-position nil))
+             (lui-insert (format "Error loading activity: %s"
+                                 (error-message-string err))
+                         t))))))))
 
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-activity-feed-buffer))
   "Tell if there is another page of results for THIS SLACK-ACTIVITY-FEED-BUFFER."
