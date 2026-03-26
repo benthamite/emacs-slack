@@ -223,19 +223,16 @@ token for endpoints recorded in `slack-token-preference'."
                       (not (oref req token-retried))
                       (slack-team-enterprise-token team))
                  ;; Token mismatch: flip preference and retry once
-                 (let ((url (oref req url)))
+                 (progn
                    (if (string= err "team_is_restricted")
-                       (remhash url slack-token-preference)
-                     (puthash url 'team slack-token-preference))
-                   (slack-log (format "Token restriction (%s) for %s, retrying with %s token"
-                                      err url
-                                      (if (eq 'team (gethash url slack-token-preference))
-                                          "team" "enterprise"))
+                       (remhash (oref req url) slack-token-preference)
+                     (puthash (oref req url) 'team slack-token-preference))
+                   (slack-log (format "Token restriction (%s) for %s, retrying"
+                                      err (oref req url))
                               team :level 'info)
                    (oset req token-retried t)
                    (oset req response nil)
                    (slack-request req :on-success on-success :on-error on-error))
-               ;; Normal path: call user callback and fire completion
                (unwind-protect
                    (progn
                      (funcall (oref req success) :data data)
