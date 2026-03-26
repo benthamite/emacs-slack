@@ -350,23 +350,9 @@ Available options (property name, type, default value)
 (defun slack-show-channel-bookmarks (channel-id team)
   "Show an org mode buffer with the bookmarks of CHANNEL-ID for TEAM."
   (interactive (let ((room-and-team (slack-current-room-and-team)))
-                 (if (nth 0 room-and-team)
-                     (list (oref (nth 0 room-and-team) id)
-                           (nth 1 room-and-team))
-                   ;; Fall back to text properties near point (e.g. activity feed).
-                   ;; Point may be on a header/separator with no room-id,
-                   ;; so search backward then forward.
-                   (let ((room-id (or (get-text-property (point) 'room-id)
-                                      (let ((prev (previous-single-property-change
-                                                   (point) 'room-id)))
-                                        (and prev (> prev (point-min))
-                                             (get-text-property (1- prev) 'room-id)))
-                                      (let ((next (next-single-property-change
-                                                   (point) 'room-id)))
-                                        (and next (get-text-property next 'room-id))))))
-                     (list room-id
-                           (and (bound-and-true-p slack-current-buffer)
-                                (slack-buffer-team slack-current-buffer)))))))
+                 (list
+                  (ignore-errors (oref (nth 0 room-and-team) id))
+                  (nth 1 room-and-team))))
   (if (and channel-id team)
       (slack-bookmarks-request
        channel-id team
@@ -384,7 +370,7 @@ Available options (property name, type, default value)
                (--each it
                  (with-current-buffer b
                    (insert (format "- [[%s][%s]]\n" (plist-get it :link) (plist-get it :title))))))))))
-    (error "slack: Cannot show slack bookmarks here")))
+    (user-error "Not in a Slack channel buffer")))
 
 ;;; Slack URL interception
 
