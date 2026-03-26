@@ -353,23 +353,23 @@ Available options (property name, type, default value)
                  (list
                   (ignore-errors (oref (nth 0 room-and-team) id)) ;; if-let takes care of errors
                   (nth 1 room-and-team))))
-  (if-let* ((on-success
-             (lambda (data)
-               (-some--> data
-                 (plist-get it :bookmarks)
-                 (let ((b "*slack bookmarks for channel*"))
-                   (with-help-window b
-                     (with-current-buffer b
-                       (insert "* Bookmarks\n\n")
-                       (org-mode)
-                       (slack-override-keybiding-in-buffer
-                        (kbd "q")
-                        'bury-buffer)
-                       )
-                     (--each it
-                       (with-current-buffer b
-                         (insert (format "- [[%s][%s]]\n" (plist-get it :link) (plist-get it :title)))))))))))
-      (slack-bookmarks-request channel-id team on-success)
+  (if (and channel-id team)
+      (slack-bookmarks-request
+       channel-id team
+       (lambda (data)
+         (-some--> data
+           (plist-get it :bookmarks)
+           (let ((b "*slack bookmarks for channel*"))
+             (with-help-window b
+               (with-current-buffer b
+                 (insert "* Bookmarks\n\n")
+                 (org-mode)
+                 (slack-override-keybiding-in-buffer
+                  (kbd "q")
+                  'bury-buffer))
+               (--each it
+                 (with-current-buffer b
+                   (insert (format "- [[%s][%s]]\n" (plist-get it :link) (plist-get it :title))))))))))
     (error "slack: Cannot show slack bookmarks here")))
 
 ;;; Slack URL interception

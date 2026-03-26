@@ -378,6 +378,17 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
   (with-slots (is-unread item) this
     (format "%s %s" (if is-unread "*" " ") (slack-activity-item-to-string item team))))
 
+(cl-defmethod slack-buffer--replace ((this slack-activity-feed-buffer) ts)
+  (slack-if-let* ((team (slack-buffer-team this))
+                  (buf (slack-buffer-buffer this)))
+    (with-current-buffer buf
+      (let ((pos (text-property-any (point-min) (point-max) 'ts ts)))
+        (when pos
+          (slack-if-let* ((room-id (get-text-property pos 'room-id))
+                          (room (slack-room-find room-id team))
+                          (message (slack-room-find-message room ts)))
+              (slack-buffer-replace this message)))))))
+
 (cl-defmethod slack-buffer-insert ((this slack-activity-feed-buffer) activity &rest _args)
   (let* ((team (slack-buffer-team this))
          (time (slack-ts-to-time (oref activity feed-ts)))
