@@ -37,6 +37,49 @@
 (defconst slack-request-max-retry 3
   "Maximum number of retries for failed request.")
 
+;; Dynamic token selection cache.
+;; Maps URL -> 'team for endpoints that require team tokens.
+;; Endpoints not in this table default to the enterprise token.
+;; The cache is self-healing: token restriction errors flip the
+;; preference and retry the request once.
+(defvar slack-token-preference (make-hash-table :test #'equal)
+  "Hash table mapping API URL to preferred token type.
+Values are the symbol `team' for endpoints requiring team tokens.
+Absence means use enterprise token (the default).")
+
+(defun slack-token-preference-init ()
+  "Pre-seed the token preference cache with known endpoint preferences.
+Called once at load time.  The cache self-corrects at runtime when
+Slack returns token restriction errors, so this seed list need not
+be exhaustive or up-to-date."
+  (dolist (url '("https://slack.com/api/rtm.connect"
+                 "https://slack.com/api/conversations.list"
+                 "https://slack.com/api/files.upload"
+                 "https://slack.com/api/chat.getPermalink"
+                 "https://slack.com/api/conversations.members"
+                 "https://slack.com/api/conversations.open"
+                 "https://slack.com/api/usergroups.list"
+                 "https://slack.com/api/conversations.join"))
+    (puthash url 'team slack-token-preference)))
+
+(slack-token-preference-init)
+
+(defun slack-select-token (url team)
+  "Select the appropriate token for URL and TEAM.
+Uses the enterprise token by default, falling back to the team
+token for endpoints recorded in `slack-token-preference'."
+  (if-let ((etoken (slack-team-enterprise-token team)))
+      (if (eq 'team (gethash url slack-token-preference))
+          (slack-team-token team)
+        etoken)
+    (slack-team-token team)))
+
+(defun slack-token-restriction-error-p (err)
+  "Return non-nil if ERR is a token restriction error string."
+  (and (stringp err)
+       (or (string= err "team_is_restricted")
+           (string= err "enterprise_is_restricted"))))
+
 (defcustom slack-request-timeout 30
   "Request Timeout in seconds."
   :type 'integer
@@ -79,7 +122,9 @@
    (execute-at :initarg :execute-at :initform 0.0 :type float)
    (retry-count :initarg :retry-count :initform 0 :type number)
    (no-retry :initarg :no-retry :initform nil :type boolean)
-   (without-auth :initarg :without-auth :initform nil :type boolean)))
+   (without-auth :initarg :without-auth :initform nil :type boolean)
+   (token-retried :initform nil :type boolean
+                  :documentation "Non-nil if this request already retried with a different token.")))
 
 (cl-defun slack-request-create
     (url team &key type success error params data parser sync files headers (timeout slack-request-timeout) without-auth no-retry)
@@ -171,12 +216,32 @@
         (team (oref req team)))
     (cl-labels
         ((-on-success (&key data &allow-other-keys)
-           (unwind-protect
-               (progn
-                 (funcall (oref req success) :data data)
-                 (slack-request-log-success req data))
-             (when (functionp on-success)
-               (funcall on-success))))
+           (let ((err (and (eq (plist-get data :ok) :json-false)
+                           (plist-get data :error))))
+             (if (and err
+                      (slack-token-restriction-error-p err)
+                      (not (oref req token-retried))
+                      (slack-team-enterprise-token team))
+                 ;; Token mismatch: flip preference and retry once
+                 (let ((url (oref req url)))
+                   (if (string= err "team_is_restricted")
+                       (remhash url slack-token-preference)
+                     (puthash url 'team slack-token-preference))
+                   (slack-log (format "Token restriction (%s) for %s, retrying with %s token"
+                                      err url
+                                      (if (eq 'team (gethash url slack-token-preference))
+                                          "team" "enterprise"))
+                              team :level 'info)
+                   (oset req token-retried t)
+                   (oset req response nil)
+                   (slack-request req :on-success on-success :on-error on-error))
+               ;; Normal path: call user callback and fire completion
+               (unwind-protect
+                   (progn
+                     (funcall (oref req success) :data data)
+                     (slack-request-log-success req data))
+                 (when (functionp on-success)
+                   (funcall on-success))))))
          (-on-error (&key error-thrown symbol-status response data)
            (unwind-protect
                (progn
@@ -212,29 +277,7 @@
                  (if without-auth nil
                    (list (cons "Authorization"
                                (format "Bearer %s"
-                                       (if-let ((etoken (slack-team-enterprise-token team)))
-                                           (if (member
-                                                url
-                                                ;; These are the endpoints that require team tokens, instead of enterprise tokens.
-                                                ;; The list may not be complete, I am adding them as I find them.
-                                                ;;
-                                                ;; If you are getting "team_is_restricted" error, then remove the endpoint from the list below.
-                                                ;; If you are getting "enterprise_is_restricted" error, then add the url to the list below.
-                                                ;;
-                                                ;; It seems that which token is required for an endpoint may change arbitrarily at any time.
-                                                (list
-                                                 slack-rtm-connect-url
-                                                 slack-conversations-list-url
-                                                 slack-file-upload-url
-                                                 slack-get-permalink-url
-                                                 slack-conversations-members-url
-                                                 slack-conversations-open-url
-                                                 slack-usergroup-list-url
-                                                 slack-conversations-join-url
-                                                 slack-conversations-open-url))
-                                               (slack-team-token team)
-                                             etoken)
-                                         (slack-team-token team))))))
+                                       (slack-select-token url team)))))
                  (when (slack-need-cookie-p (slack-team-token team))
                    (list (cons "Cookie" (format "d=%s; " (slack-team-cookie team)))))
                  headers)
