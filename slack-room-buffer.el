@@ -279,10 +279,10 @@ SUCCESS-CALLBACK allows you to run a function on that permalink."
                            (:name "Unfollow message"
                             :handler ,#'handle-unfollow-message
                             :display-p ,#'display-unfollow-p)
-                           (:name "Star message"
+                           (:name "Save for later"
                             :handler ,#'handle-star-message
                             :display-p ,#'display-star-p)
-                           (:name "Unstar message"
+                           (:name "Remove from saved"
                             :handler ,#'handle-unstar-message
                             :display-p ,#'display-unstar-p)
                            (:name "Add reaction to message"

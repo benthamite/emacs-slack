@@ -275,12 +275,12 @@
                               #'(lambda ()
                                   (kill-new (oref file permalink))))
                         (if (oref file is-starred)
-                            (cons "Unstar file"
+                            (cons "Remove file from saved"
                                   #'(lambda ()
                                       (slack-buffer-remove-star
                                        buf
                                        (slack-file-id file))))
-                          (cons "Star file"
+                          (cons "Save file for later"
                                 #'(lambda ()
                                     (slack-buffer-add-star
                                      buf

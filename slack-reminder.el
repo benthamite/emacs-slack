@@ -20,7 +20,9 @@
 
 ;;; Commentary:
 
-;;
+;; Save-for-later with due dates using the saved.add API.
+;; The old reminders API was deprecated by Slack in July 2023:
+;; https://api.slack.com/changelog/2023-07-its-later-already-for-stars-and-reminders
 
 ;;; Code:
 
@@ -29,20 +31,19 @@
 (require 'slack-room)
 (require 'slack-team)
 (require 'slack-request)
-(require 'slack-message-formatter)
-(require 'slack-message-faces)
+(require 'slack-message)
+(require 'slack-star)
 
 (defvar slack-completing-read-function)
-(declare-function slack-buffer-add-star "slack-thread-message-buffer.el")
 
-(cl-defun slack-reminder-add-from-message (_room message _team)
-  ""
-  (let* ((message-ts (slack-ts message))
-         (time (funcall slack-completing-read-function
+(cl-defun slack-reminder-add-from-message (_room message team)
+  "Save MESSAGE for later with a due date, using the saved.add API.
+Prompts for a reminder time and saves via TEAM."
+  (let* ((time (funcall slack-completing-read-function
                         "When: "
                         '("In 20 minutes"
                           "In 1 hour"
-                          "In 3 hour"
+                          "In 3 hours"
                           "Tomorrow"
                           "Next week")
                         nil t))
@@ -52,12 +53,10 @@
                      ((string= time "In 3 hours") (* 3 60 60 1000))
                      ((string= time "Tomorrow") (* 24 60 60 1000))
                      (t (* 7 24 60 60 1000)))))
-    (cl-labels
-        ((success (&key data &allow-other-keys)
-           (slack-request-handle-error
-            (data "slack-remind-add-from-message")
-            (message "DATA: %S" data))))
-      (slack-buffer-add-star message message-ts due-in-ms))))
+    (slack-star-api-request slack-message-stars-add-url
+                            (append (list (cons "channel" (oref message channel)))
+                                    (slack-message-star-api-params message due-in-ms))
+                            team)))
 
 (provide 'slack-reminder)
 ;;; slack-reminder.el ends here
