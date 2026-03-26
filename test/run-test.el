@@ -1,3 +1,5 @@
+;;; run-test.el --- run emacs-slack tests  -*- lexical-binding: t; -*-
+
 (require 'ert)
 (require 'slack-team)
 (require 'slack-channel)
