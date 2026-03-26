@@ -155,36 +155,29 @@ via ~conversations.history~ with ~latest=ts, inclusive=true, limit=1~ and pushes
 it into the room's message cache. The reaction is then applied to the freshly
 cached message rather than being silently dropped.
 
-* Synchronous blocking calls
+* DONE Synchronous blocking calls
 :PROPERTIES:
-:FILE: slack-message.el
-:LINES: 347-382
+:FILE: slack-message.el, slack-stars-buffer.el
+:COMMIT: b19cd04
 :END:
 
-~slack-message-get-or-fetch~ uses ~:sync t~ for ~slack-conversations-replies~ and
-~slack-conversations-history~. This blocks Emacs completely until the API
-responds. The file itself has a TODO noting this:
+Added ~slack-stars--prefetch-messages~ to ~slack-stars-buffer.el~: fires parallel
+async API requests for all uncached saved-item messages, then invokes a callback
+once all are ready.  Refactored ~slack-buffer-init-buffer~,
+~slack-buffer-insert-history~, ~slack-buffer-update-oldest~, and
+~slack-buffer--replace~ to use cache lookups instead of the blocking
+~slack-message-get-or-fetch~.
 
-#+begin_example
-;; TODO this block is time consuming! We could retrieve these messages
-;; in parallel using the same waiting mechanism (accept-process-output,)
-;; but waiting on the list of messages.
-#+end_example
+Also fixed ~slack-buffer--replace~ which was fetching ALL star items just to find
+one by ts — now looks up only the needed item.
 
-The activity feed renders 20 items sequentially, each potentially making a
-synchronous API call. This can freeze Emacs for several seconds.
+~slack-message-get-or-fetch~ still exists for edge cases but all bulk callers
+(activity feed and stars buffer) now use async prefetch.
 
-** Possible fixes
-
-1. Prefetch messages in parallel before rendering (batch
-   ~conversations.history~ calls, wait for all, then render).
-2. Render incrementally: show placeholder text, fetch async, replace when ready.
-3. Use ~conversations.history~ with a wider window to fetch multiple messages per
-   room in a single call, then distribute to activity items.
-
-* WebSocket event handling gaps
+* DONE WebSocket event handling gaps
 :PROPERTIES:
 :FILE: slack-websocket.el
+:COMMIT: 200e8e5
 :END:
 
 ** DONE Missing or silently dropped events
@@ -193,11 +186,11 @@ Added a catch-all ~t~ clause to the WebSocket event dispatcher that logs
 unhandled event types at debug level via ~slack-log~, so unknown events are
 no longer silently dropped.
 
-Remaining:
-- ~app_mention~ — not handled (relevant for bot/integration notifications).
-- ~app_rate_limited~ — no handler for rate limit notifications from Slack.
-- ~update_thread_state~ (line 526-534) — only updates mention count, does not
-  refresh the UI or message content.
+All previously unhandled events are now covered:
+- ~app_mention~ — routed through the message handler (identical payload).
+- ~app_rate_limited~ — logs at warning level.
+- ~update_thread_state~ — updates thread counts, modeline, and logs channel/ts
+  details at debug level.
 
 ** DONE Reconnection fragility
 
@@ -210,28 +203,38 @@ on successful connection. New slots: ~reconnect-after-sec-base~ (2),
 Also added ~app_rate_limited~ WebSocket event handler that logs rate limit
 notifications from Slack.
 
-* Deprecated API usage
-** Stars/saved items (~slack-star.el~)
-
-Comment at line 35 explicitly says the stars API moved to ~saved.list~ in July
-2023. The code still works but uses deprecated terminology and may break if Slack
-removes the old endpoint.
-
-** Reminders (~slack-reminder.el~)
-
-Slack deprecated the reminders API (July 2023). Should migrate to ~saved.list~
-for "save for later" functionality. Current code references the changelog but has
-no migration.
-
-* Token handling fragility
+* DONE Deprecated API usage
 :PROPERTIES:
-:FILE: slack-request.el
-:LINES: 215-237
+:COMMIT: 55cbd35
 :END:
 
-Hard-coded list of endpoints that require enterprise vs team tokens. A comment in
-the code warns: "which token is required for an endpoint may change arbitrarily
-at any time." No dynamic discovery or version check mechanism.
+** DONE Stars/saved items (~slack-star.el~)
+
+API endpoints were already migrated to ~saved.list~, ~saved.add~, ~saved.delete~.
+Updated user-facing strings from "Star"/"Unstar" to "Save for later"/"Remove
+from saved" in room buffer actions and file info buffer.
+
+** DONE Reminders (~slack-reminder.el~)
+
+Fixed broken ~slack-reminder-add-from-message~: it was calling
+~slack-buffer-add-star~ on a message object (wrong type — that method expects a
+buffer). Now calls ~slack-star-api-request~ directly with the ~saved.add~
+endpoint and due date parameters.
+
+* DONE Token handling fragility
+:PROPERTIES:
+:FILE: slack-request.el
+:COMMIT: 21527e0
+:END:
+
+Replaced the hard-coded endpoint-to-token list with a self-healing cache
+(~slack-token-preference~ hash table).  Pre-seeded with the same known endpoints,
+but now self-corrects at runtime: when Slack returns ~team_is_restricted~ or
+~enterprise_is_restricted~, the cache is updated and the request retried once
+with the other token.
+
+Also consolidated the activity feed's manual token selection to use the shared
+~slack-select-token~ function.
 
 * DONE Missing nil checks and silent error suppression
 :PROPERTIES:
