@@ -353,10 +353,20 @@ Available options (property name, type, default value)
                  (if (nth 0 room-and-team)
                      (list (oref (nth 0 room-and-team) id)
                            (nth 1 room-and-team))
-                   ;; Fall back to text properties at point (e.g. activity feed)
-                   (list (get-text-property (point) 'room-id)
-                         (and (bound-and-true-p slack-current-buffer)
-                              (slack-buffer-team slack-current-buffer))))))
+                   ;; Fall back to text properties near point (e.g. activity feed).
+                   ;; Point may be on a header/separator with no room-id,
+                   ;; so search backward then forward.
+                   (let ((room-id (or (get-text-property (point) 'room-id)
+                                      (let ((prev (previous-single-property-change
+                                                   (point) 'room-id)))
+                                        (and prev (> prev (point-min))
+                                             (get-text-property (1- prev) 'room-id)))
+                                      (let ((next (next-single-property-change
+                                                   (point) 'room-id)))
+                                        (and next (get-text-property next 'room-id))))))
+                     (list room-id
+                           (and (bound-and-true-p slack-current-buffer)
+                                (slack-buffer-team slack-current-buffer)))))))
   (if (and channel-id team)
       (slack-bookmarks-request
        channel-id team
