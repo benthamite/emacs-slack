@@ -30,8 +30,9 @@
 (require 'slack-file)
 (require 'slack-buffer)
 
-;; right this moved to saved for later https://api.slack.com/changelog/2023-07-its-later-already-for-stars-and-reminders
-;; so the star naming is just Slack legacy (and I kept to keep things working while transitioning)
+;; Stars were renamed to "saved items" in July 2023.
+;; https://api.slack.com/changelog/2023-07-its-later-already-for-stars-and-reminders
+;; Internal names retain "star" for compatibility; the API uses saved.list.
 (defconst slack-stars-list-url "https://slack.com/api/saved.list")
 
 (defclass slack-star ()
