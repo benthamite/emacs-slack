@@ -30,7 +30,7 @@
 (defcustom slack-extra-subscribed-channels nil
   "A list of channel names you want to be subscribed.
 These are added to the check on team's :subscribed-channels"
-  :type 'list
+  :type '(repeat string)
   :group 'slack)
 
 (defcustom slack-update-quick nil
@@ -49,11 +49,12 @@ expect to exist."
   :group 'slack)
 
 (defcustom slack-open-message-with-browser t
-  "Open message permalink in browser if it cannot be opened in a message buffer.
+  "Open message permalink in browser if it can't be opened in a buffer.
 
-So far (2024-10-29), emacs-slack doesn't support jumping on an old message for a channel:
-it just loads the latest messages in a channel.
-Ideally we want to have that, but for now we let the user jump to Slack app or web app to check the contents."
+So far (2024-10-29), emacs-slack doesn't support jumping on an
+old message for a channel: it just loads the latest messages in a
+channel.  Ideally we want to have that, but for now we let the
+user jump to Slack app or web app to check the contents."
   :type 'boolean
   :group 'slack)
 
@@ -64,8 +65,9 @@ When nil, they are not shown anymore for all teams."
   :group 'slack)
 
 (defcustom slack-test-out-load-older-messages-p t
-  "This is a feature toggle for testing out loading old messages in buffer when searching an older message via search and feed.
-The UX is broken for now, it is really about having something somewhat functional when searching."
+  "Feature toggle for loading old messages in buffer via search.
+The UX is broken for now, it is really about having something
+somewhat functional when searching."
   :type 'boolean
   :group 'slack)
 
@@ -74,7 +76,8 @@ The UX is broken for now, it is really about having something somewhat functiona
 
 List of strings that will be passed to every curl invocation.
 You can pass extra options here, like setting the proxy."
-  :type '(repeat string))
+  :type '(repeat string)
+  :group 'slack)
 
 (defcustom slack-emit-periodic-presence-p nil
   "Emit active presence every 7s when set."

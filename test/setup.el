@@ -1,3 +1,5 @@
+;;; setup.el --- test setup  -*- lexical-binding: t; -*-
+
 (setq gnutls-algorithm-priority "NORMAL:-VERS-TLS1.3")
 (setq package-check-signature nil)
 

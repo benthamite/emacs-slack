@@ -158,7 +158,7 @@ When `never', never display typing indicator."
 
 (defcustom slack-before-quit-hook nil
   "Hooks to run before quitting slack."
-  :type 'list
+  :type '(repeat function)
   :group 'slack)
 
 (defcustom slack-refresh-token-instructions "
@@ -196,8 +196,10 @@ Then use `slack-start' to make the changes effective.
   :group 'slack)
 
 (defcustom slack-edit-refresh-token-instructions #'identity
-  "A function to edit `slack-refresh-token-instructions' before they are displayed.
-You can add it to append custom instructions that depend on context.")
+  "A function to edit `slack-refresh-token-instructions' before display.
+You can add it to append custom instructions that depend on context."
+  :type 'function
+  :group 'slack)
 
 ;;;###autoload
 (defun slack-start (&optional team)
