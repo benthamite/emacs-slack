@@ -587,7 +587,9 @@ TEAM is one of `slack-teams'."
          ((string= type "pin_added")
           (slack-ws-handle-pin-added decoded-payload team))
          ((string= type "update_thread_state")
-          (slack-ws-handle-update-thread-state payload team))
+          (slack-ws-handle-update-thread-state decoded-payload team))
+         ((string= type "app_mention")
+          (slack-ws-handle-app-mention decoded-payload team))
          ((string= type "app_rate_limited")
           (slack-ws-handle-app-rate-limited decoded-payload team))
          (t
@@ -604,10 +606,21 @@ PAYLOAD contains :minute_rate_limited indicating when rate limiting began."
                team :level 'warn)))
 
 (defun slack-ws-handle-update-thread-state (payload team)
+  "Handle update_thread_state: update thread counts and modeline."
   (let* ((has-unreads (eq t (plist-get payload :has_unreads)))
-         (mention-count (plist-get payload :mention_count)))
+         (mention-count (plist-get payload :mention_count))
+         (channel (plist-get payload :channel))
+         (latest-ts (plist-get payload :latest_ts)))
     (slack-if-let* ((counts (oref team counts)))
-        (slack-counts-update-threads counts has-unreads mention-count))))
+        (slack-counts-update-threads counts has-unreads mention-count))
+    (slack-log (format "Thread state updated: channel=%s ts=%s unreads=%s mentions=%s"
+                       channel latest-ts has-unreads mention-count)
+               team :level 'debug)))
+
+(defun slack-ws-handle-app-mention (payload team)
+  "Handle app_mention events by routing through the message handler.
+The app_mention payload is structurally identical to a message event."
+  (slack-ws-handle-message payload team))
 
 (defun slack-ws-handle-pin-added (payload team)
   (let* ((item (plist-get payload :item))
