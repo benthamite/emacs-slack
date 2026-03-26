@@ -350,9 +350,13 @@ Available options (property name, type, default value)
 (defun slack-show-channel-bookmarks (channel-id team)
   "Show an org mode buffer with the bookmarks of CHANNEL-ID for TEAM."
   (interactive (let ((room-and-team (slack-current-room-and-team)))
-                 (list
-                  (ignore-errors (oref (nth 0 room-and-team) id)) ;; if-let takes care of errors
-                  (nth 1 room-and-team))))
+                 (if (nth 0 room-and-team)
+                     (list (oref (nth 0 room-and-team) id)
+                           (nth 1 room-and-team))
+                   ;; Fall back to text properties at point (e.g. activity feed)
+                   (list (get-text-property (point) 'room-id)
+                         (and (bound-and-true-p slack-current-buffer)
+                              (slack-buffer-team slack-current-buffer))))))
   (if (and channel-id team)
       (slack-bookmarks-request
        channel-id team
