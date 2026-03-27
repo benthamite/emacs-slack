@@ -27,6 +27,7 @@
 (require 'eieio)
 (require 'slack-util)
 (require 'slack-buffer)
+(require 'slack-room-buffer)
 (require 'slack-search)
 (require 'slack-room)
 (require 'slack-message-buffer)
@@ -230,13 +231,33 @@ Run an action on the data returned with AFTER-SUCCESS."
   (cursor-sensor-mode)
   (slack-buffer-enable-emojify))
 
-(defclass slack-activity-feed-buffer (slack-buffer)
+(defclass slack-activity-feed-buffer (slack-room-buffer)
   ((activity-feed :initarg :activity-feed :type slack-activity-feed)
    (cached-team :initarg :cached-team :initform nil)))
 
 (cl-defmethod slack-buffer-team ((this slack-activity-feed-buffer))
   "Return the team for THIS buffer, preferring the cached reference."
   (or (oref this cached-team) (cl-call-next-method)))
+
+(cl-defmethod slack-buffer-room ((this slack-activity-feed-buffer))
+  "Return the room for the message at point.
+Unlike single-room buffers, the activity feed shows messages from
+many rooms.  The room is resolved from text properties at or near
+point, searching the current line first, then backward/forward."
+  (let* ((team (slack-buffer-team this))
+         (room-id (or (get-text-property (point) 'room-id)
+                      (cl-loop for i from (point-at-bol) to (point-at-eol)
+                               for rid = (get-text-property i 'room-id)
+                               if rid return rid)
+                      (let ((prev (previous-single-property-change
+                                   (point) 'room-id)))
+                        (and prev (> prev (point-min))
+                             (get-text-property (1- prev) 'room-id)))
+                      (let ((next (next-single-property-change
+                                   (point) 'room-id)))
+                        (and next (get-text-property next 'room-id))))))
+    (when room-id
+      (slack-room-find room-id team))))
 
 (cl-defmethod slack-buffer-name ((_class (subclass slack-activity-feed-buffer)) team)
   (format "*slack: %s Activity Feed*"
@@ -285,6 +306,7 @@ Run an action on the data returned with AFTER-SUCCESS."
           existing)
       (make-instance 'slack-activity-feed-buffer
                      :team-id (slack-team-id-safe team)
+                     :room-id "__activity-feed__"
                      :cached-team team
                      :activity-feed activity-feed))))
 
