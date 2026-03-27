@@ -27,6 +27,7 @@
 (require 'slack-util)
 (require 'slack-request)
 (require 'slack-team)
+(require 'slack-image)
 
 (defconst slack-bot-info-url "https://slack.com/api/bots.info")
 
@@ -64,6 +65,32 @@
       team
       :params (list (cons "bots" (mapconcat #'identity bot-ids ",")))
       :success #'success))))
+
+(defun slack-bot-profile-to-string (bot)
+  "Format BOT's profile as a display string."
+  (let* ((name (or (plist-get bot :name) "Unknown Bot"))
+         (id (plist-get bot :id))
+         (icons (plist-get bot :icons))
+         (image-url (or (plist-get icons :image_72)
+                        (plist-get icons :image_48)
+                        (plist-get icons :image_36)))
+         (header (propertize name
+                             'face '(:foreground "#FFA000"
+                                     :weight bold
+                                     :height 1.5)))
+         (deleted (eq t (plist-get bot :deleted))))
+    (format "\n%s%s  (%s)%s"
+            (if image-url
+                (concat (slack-image-string (list image-url nil nil nil nil)
+                                            nil t)
+                        "\n")
+              "")
+            header
+            id
+            (if deleted
+                (concat "\n" (propertize "This bot has been deleted."
+                                         'face '(:weight bold :height 1.2)))
+              ""))))
 
 (provide 'slack-bot)
 ;;; slack-bot.el ends here

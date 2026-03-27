@@ -28,6 +28,7 @@
 (require 'slack-util)
 (require 'slack-buffer)
 (require 'slack-user)
+(require 'slack-bot)
 (require 'slack-im)
 (require 'slack-image)
 
@@ -66,18 +67,45 @@
   'slack-user-profile-buffer)
 
 (cl-defmethod slack-buffer--insert ((this slack-user-profile-buffer))
-  (let ((inhibit-read-only t)
-        (team (slack-buffer-team this))
-        (user-id (oref this user-id)))
+  (let* ((inhibit-read-only t)
+         (team (slack-buffer-team this))
+         (user-id (oref this user-id))
+         (user (slack-user-find user-id team))
+         (bot (and (null user)
+                   (string-prefix-p "B" user-id)
+                   (slack-find-bot user-id team))))
     (setq buffer-read-only nil)
     (erase-buffer)
     (goto-char (point-min))
-    (insert (propertize (slack-user-profile-to-string user-id team)
-                        'ts 'dummy))
-    (setq buffer-read-only t)
-    (slack-buffer-enable-emojify)
-    (goto-char (point-min))
-    (slack-display-image)))
+    (cond
+     ;; User found in cache
+     (user
+      (insert (propertize (slack-user-profile-to-string user-id team)
+                          'ts 'dummy))
+      (setq buffer-read-only t)
+      (slack-buffer-enable-emojify)
+      (goto-char (point-min))
+      (slack-display-image))
+     ;; Bot found in cache
+     (bot
+      (insert (propertize (slack-bot-profile-to-string bot)
+                          'ts 'dummy))
+      (setq buffer-read-only t)
+      (slack-buffer-enable-emojify)
+      (goto-char (point-min))
+      (slack-display-image))
+     ;; Not cached — fetch and refresh
+     (t
+      (insert (propertize (format "\nFetching user %s..." user-id)
+                          'ts 'dummy))
+      (setq buffer-read-only t)
+      (slack-user-info-request
+       user-id team
+       :after-success
+       (lambda ()
+         (slack-if-let* ((buf (slack-buffer-buffer this)))
+             (with-current-buffer buf
+               (slack-buffer--insert this)))))))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-user-profile-buffer))
   (let ((buf (cl-call-next-method)))
