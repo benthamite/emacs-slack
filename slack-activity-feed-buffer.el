@@ -40,6 +40,8 @@
 (declare-function slack-conversations-replies "slack-conversations")
 (declare-function slack-message-create "slack-create-message")
 (declare-function slack-select-token "slack-request")
+(declare-function slack-message-replace-buffer "slack-message-buffer")
+(declare-function emojify-redisplay-emojis-in-region "emojify")
 
 (defun slack-team-id-safe (team)
   "Return TEAM's id, falling back to reverse token lookup."
@@ -409,7 +411,20 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
           (slack-if-let* ((room-id (get-text-property pos 'room-id))
                           (room (slack-room-find room-id team))
                           (message (slack-room-find-message room ts)))
-              (slack-buffer-replace this message)))))))
+              (progn
+                (slack-buffer-replace this message)
+                (when (bound-and-true-p emojify-mode)
+                  (let ((new-pos (text-property-any (point-min) (point-max) 'ts ts)))
+                    (when new-pos
+                      (let ((end (next-single-property-change new-pos 'ts nil (point-max))))
+                        (emojify-redisplay-emojis-in-region new-pos end))))))))))))
+
+(cl-defmethod slack-message-replace-buffer :after ((_this slack-message) team)
+  "Also update the activity feed buffer when a message changes."
+  (slack-if-let* ((af-buffer (slack-buffer-find 'slack-activity-feed-buffer team))
+                  (buf (and (slot-boundp af-buffer 'buf) (oref af-buffer buf)))
+                  (live (buffer-live-p buf)))
+      (slack-buffer--replace af-buffer (slack-ts _this))))
 
 (cl-defmethod slack-buffer-insert ((this slack-activity-feed-buffer) activity &rest _args)
   (let* ((team (slack-buffer-team this))
