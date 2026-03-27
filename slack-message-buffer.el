@@ -677,11 +677,12 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
                            (slack-buffer-display (slack-create-message-buffer room cursor team))
                            (when (functionp success-callback) (funcall success-callback))))))
     (let ((buf (slack-buffer-find 'slack-message-buffer team room)))
-      (if buf (progn
-                (open buf)
-                (when (functionp success-callback) (funcall success-callback)))
-        ;; For DMs, ensure the conversation is open before fetching history.
-        ;; Dormant DMs may fail conversations.history without this step.
+      (if (and buf (< 0 (hash-table-count (oref room messages))))
+          (progn
+            (open buf)
+            (when (functionp success-callback) (funcall success-callback)))
+        (when buf
+          (kill-buffer (slack-buffer-buffer buf)))
         (if (slack-im-p room)
             (slack-conversations-open
              team :room room
