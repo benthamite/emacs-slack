@@ -615,13 +615,16 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
             (room (slack-room-find room-id team)))
       (progn
         (slack-team-ensure-registered team)
-        ;; Use thread-ts (parent) when available — it is always a
-        ;; channel-level message findable by conversations.history.
-        ;; The latest-reply ts from thread_v2 entries only lives in
-        ;; the thread, not the channel, so navigating to it would
-        ;; fail with "No Message ... fetching from server".
-        (let ((navigate-ts (or (get-text-property (point) 'thread-ts) ts)))
-          (slack-open-message team room navigate-ts nil navigate-ts)))
+        (let ((thread-ts (get-text-property (point) 'thread-ts)))
+          (if thread-ts
+              ;; Thread reply: open the thread view and navigate to the
+              ;; reply itself.  thread-ts (the parent) is passed as both
+              ;; TS and THREAD-TS so slack-open-message finds the parent
+              ;; in the channel and opens the thread; the reply's own ts
+              ;; is passed as GOTO-TS to scroll to it.
+              (slack-open-message team room thread-ts thread-ts ts)
+            ;; Top-level message: open the channel view.
+            (slack-open-message team room ts nil ts))))
     (error "Not possible to jump to message")))
 
 (define-key slack-activity-feed-buffer-mode-map (kbd "RET") 'slack-feed-open-at-point)
