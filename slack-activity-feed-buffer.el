@@ -38,6 +38,7 @@
 (declare-function slack-message-get-or-fetch "slack-message")
 (declare-function slack-conversations-history "slack-conversations")
 (declare-function slack-conversations-replies "slack-conversations")
+(declare-function slack-conversations-info "slack-conversations")
 (declare-function slack-message-create "slack-create-message")
 (declare-function slack-select-token "slack-request")
 (declare-function slack-message-replace-buffer "slack-message-buffer")
@@ -200,6 +201,40 @@ completed (or immediately if all messages are cached)."
                  (message "slack-activity-feed: prefetch error for %s: %S" ts err)
                  (when (= 0 (cl-decf (car pending)))
                    (funcall callback)))))))))))
+
+(defun slack-activity-feed--prefetch-rooms (activities team callback)
+  "Prefetch uncached rooms for ACTIVITIES in TEAM, then call CALLBACK.
+Fire async `slack-conversations-info' requests for channel IDs not
+in the local cache.  CALLBACK is invoked with no arguments once
+every request completes, or immediately when all rooms are cached."
+  (let* ((pending (list 0))
+         (seen (make-hash-table :test #'equal))
+         (missing-ids
+          (cl-loop
+           for activity in activities
+           for item = (oref activity item)
+           for type = (oref item type)
+           unless (equal type "bot_dm_bundle")
+           for channel = (oref (oref item message) channel)
+           unless (or (gethash channel seen)
+                      (equal channel "unknown")
+                      (slack-room-find channel team))
+           collect (progn (puthash channel t seen) channel))))
+    (if (null missing-ids)
+        (funcall callback)
+      (setcar pending (length missing-ids))
+      (dolist (channel-id missing-ids)
+        (condition-case err
+            (slack-conversations-info
+             channel-id team
+             (lambda ()
+               (when (= 0 (cl-decf (car pending)))
+                 (funcall callback))))
+          (error
+           (message "slack-activity-feed: room prefetch error for %s: %S"
+                    channel-id err)
+           (when (= 0 (cl-decf (car pending)))
+             (funcall callback))))))))
 
 (defun slack-activity-feed-request (team &optional after-success cursor)
   "Request activity feed for CHANNEL-ID of TEAM.
@@ -523,23 +558,29 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
 
 (cl-defmethod slack-buffer-request-history ((this slack-activity-feed-buffer) after-success)
   (with-slots (activity-feed) this
-    (slack-activity-feed-request
-     (slack-buffer-team this)
-     (lambda (data)
-       (let ((new-activity-feed
-              (make-instance
-               'slack-activity-feed
-               :activities
-               (append
-                (oref activity-feed activities)
-                (mapcar #'slack-activity-feed--parse-item
-                        (plist-get data :items)))
-               :pagination (plist-get (plist-get data :response_metadata)
-                                      :next_cursor)
-               :last (- (length (oref activity-feed activities)) 1))))
-         (oset this activity-feed new-activity-feed)
-         (funcall after-success)))
-     (oref activity-feed pagination))))
+    (let ((team (slack-buffer-team this)))
+      (slack-activity-feed-request
+       team
+       (lambda (data)
+         (let* ((new-activities (mapcar #'slack-activity-feed--parse-item
+                                        (plist-get data :items)))
+                (new-activity-feed
+                 (make-instance
+                  'slack-activity-feed
+                  :activities (append (oref activity-feed activities)
+                                      new-activities)
+                  :pagination (plist-get (plist-get data :response_metadata)
+                                         :next_cursor)
+                  :last (- (length (oref activity-feed activities)) 1))))
+           (slack-activity-feed--prefetch-rooms
+            new-activities team
+            (lambda ()
+              (slack-activity-feed--prefetch-messages
+               new-activities team
+               (lambda ()
+                 (oset this activity-feed new-activity-feed)
+                 (funcall after-success)))))))
+       (oref activity-feed pagination)))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-activity-feed-buffer))
   (let ((buffer (cl-call-next-method)))
@@ -597,15 +638,19 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                 :activities activities
                 :pagination (plist-get (plist-get data :response_metadata)
                                        :next_cursor))))
-         ;; Prefetch all uncached messages in parallel, then render
-         (message "Prefetching messages...")
-         (slack-activity-feed--prefetch-messages
+         ;; Prefetch uncached rooms, then messages, then render
+         (message "Prefetching rooms...")
+         (slack-activity-feed--prefetch-rooms
           activities team
           (lambda ()
-            (let ((buffer (slack-create-activity-feed-buffer
-                           activity-feed team)))
-              (slack-buffer-display buffer)
-              (message "Activity feed ready.")))))))))
+            (message "Prefetching messages...")
+            (slack-activity-feed--prefetch-messages
+             activities team
+             (lambda ()
+               (let ((buffer (slack-create-activity-feed-buffer
+                              activity-feed team)))
+                 (slack-buffer-display buffer)
+                 (message "Activity feed ready.")))))))))))
 
 (cl-defmethod slack-feed--open ((_buf slack-activity-feed-buffer) ts)
   "Open the activity feed entry at TS."
