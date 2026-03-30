@@ -250,6 +250,10 @@ Defaults to 100. Used to reduce memory after closing buffers."
 (cl-defmethod slack-room-member-p ((_this slack-room))
   t)
 
+(cl-defmethod slack-room-find ((_id null) _team)
+  "Return nil when ID is nil."
+  nil)
+
 (cl-defmethod slack-room-find ((id string) team)
   (if (and id team)
       (cl-labels ((find-room (room)
