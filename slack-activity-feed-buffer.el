@@ -655,6 +655,7 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
             (room (slack-room-find room-id team)))
       (progn
         (slack-team-ensure-registered team)
+        (slack-activity-feed--mark-read room team ts)
         (let ((thread-ts (get-text-property (point) 'thread-ts)))
           (if thread-ts
               ;; Thread reply: open the thread view and navigate to the
@@ -666,6 +667,21 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
             ;; Top-level message: open the channel view.
             (slack-open-message team room ts nil ts))))
     (error "Not possible to jump to message")))
+
+(defun slack-activity-feed--mark-read (room team ts)
+  "Mark ROOM in TEAM as read up to TS and clear the unread indicator at point."
+  (let ((mark-ts (or (car (last (oref room message-ids))) ts)))
+    (when (string< (oref room last-read) mark-ts)
+      (slack-conversations-mark room team mark-ts)))
+  (slack-activity-feed--clear-unread-at-point))
+
+(defun slack-activity-feed--clear-unread-at-point ()
+  "Replace the unread indicator at point with a read indicator."
+  (save-excursion
+    (goto-char (line-beginning-position))
+    (let ((inhibit-read-only t))
+      (when (search-forward "\u25cf" (line-end-position) t)
+        (replace-match " ")))))
 
 (define-key slack-activity-feed-buffer-mode-map (kbd "RET") 'slack-feed-open-at-point)
 (define-key slack-activity-feed-buffer-mode-map (kbd "n") 'slack-feed-goto-next)
