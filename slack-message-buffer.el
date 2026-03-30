@@ -664,31 +664,37 @@ and forces recomputation of load-more placeholders next time.
 (defun slack-room-display (room team &optional success-callback)
   "Display TEAM ROOM.
 Provide SUCCESS-CALLBACK to run some action after displaying."
-  (cl-labels
-      ((open (buf)
-         (slack-buffer-display buf))
-       (fetch-and-display ()
-         (message "No Message in %s, fetching from server..." (slack-room-name room team))
-         (slack-room-clear-messages room)
-         (slack-conversations-history
-          room team
-          :after-success (lambda (messages cursor)
-                           (slack-room-set-messages room messages team)
-                           (slack-buffer-display (slack-create-message-buffer room cursor team))
-                           (when (functionp success-callback) (funcall success-callback))))))
-    (let ((buf (slack-buffer-find 'slack-message-buffer team room)))
-      (if (and buf (< 0 (hash-table-count (oref room messages))))
-          (progn
-            (open buf)
-            (when (functionp success-callback) (funcall success-callback)))
-        (when buf
-          (kill-buffer (slack-buffer-buffer buf)))
-        (if (slack-im-p room)
-            (slack-conversations-open
-             team :room room
-             :on-success (lambda (_data)
-                           (fetch-and-display)))
-          (fetch-and-display))))))
+  (let ((room-id (oref room id)))
+    (cl-labels
+        ((resolve-room ()
+           (or (slack-room-find room-id team) room))
+         (open (buf)
+           (slack-buffer-display buf))
+         (fetch-and-display ()
+           (message "No Message in %s, fetching from server..." (slack-room-name room team))
+           (slack-room-clear-messages (resolve-room))
+           (slack-conversations-history
+            room team
+            :after-success (lambda (messages cursor)
+                             (let ((current-room (resolve-room)))
+                               (slack-room-set-messages current-room messages team)
+                               (slack-buffer-display
+                                (slack-create-message-buffer current-room cursor team))
+                               (when (functionp success-callback)
+                                 (funcall success-callback)))))))
+      (let ((buf (slack-buffer-find 'slack-message-buffer team room)))
+        (if (and buf (< 0 (hash-table-count (oref room messages))))
+            (progn
+              (open buf)
+              (when (functionp success-callback) (funcall success-callback)))
+          (when buf
+            (kill-buffer (slack-buffer-buffer buf)))
+          (if (slack-im-p room)
+              (slack-conversations-open
+               team :room room
+               :on-success (lambda (_data)
+                             (fetch-and-display)))
+            (fetch-and-display)))))))
 
 (cl-defmethod slack-room-update-buffer ((this slack-room) team message replace)
   (slack-if-let* ((buffer (slack-buffer-find 'slack-message-buffer team this)))
