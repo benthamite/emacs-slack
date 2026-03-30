@@ -363,6 +363,15 @@ Optionally pass SUCCESS-CALLBACK to perform an action on the permalink obtained.
   (interactive)
   (slack-buffer-copy-link slack-current-buffer (slack-get-ts) success-callback))
 
+(defun slack-message-copy-id ()
+  "Copy the message timestamp (ID) at point to the kill ring."
+  (interactive)
+  (if-let* ((ts (slack-get-ts)))
+      (progn
+        (kill-new ts)
+        (message "Copied message id: %s" ts))
+    (user-error "No message at point")))
+
 (defun slack-open-url (url)
   "Open a slack URL (permalink) in emacs-slack."
   (interactive
