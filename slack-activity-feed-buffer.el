@@ -125,7 +125,8 @@ object that lacks rooms or has an unbound id slot."
                       :is-broadcast (slack-activity-feed--jbool
                                      (plist-get m :is_broadcast))
                       :thread-ts (when thread-ts (format "%s" thread-ts))
-                      :author-id (when-let ((id (plist-get m :author_user_id)))
+                      :author-id (when-let ((id (or (plist-get m :author_user_id)
+                                                    (plist-get bundle-msg :author_user_id))))
                                    (format "%s" id)))
             :reaction (when r (make-instance
                                'activity-reaction
@@ -142,8 +143,6 @@ completed (or immediately if all messages are cached)."
           (cl-loop
            for activity in activities
            for item = (oref activity item)
-           for type = (oref item type)
-           unless (equal type "bot_dm_bundle")
            collect (let ((msg (oref item message)))
                      (list (oref msg ts)
                            (oref msg channel)
@@ -213,8 +212,6 @@ every request completes, or immediately when all rooms are cached."
           (cl-loop
            for activity in activities
            for item = (oref activity item)
-           for type = (oref item type)
-           unless (equal type "bot_dm_bundle")
            for channel = (oref (oref item message) channel)
            unless (or (null channel)
                       (gethash channel seen)
@@ -423,11 +420,9 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
 (cl-defmethod slack-activity-item-to-string ((this activity-item) team)
   "Convert THIS activity for TEAM into a string."
   (with-slots (type message reaction) this
-    (if (equal type "bot_dm_bundle") ;; this bot message seem to have no valuable information
-        ""
-      (concat
-       (slack-activity-message-to-string message team type)
-       (when reaction (concat "\n" (slack-activity-reaction-to-string reaction team)))))))
+    (concat
+     (slack-activity-message-to-string message team type)
+     (when reaction (concat "\n" (slack-activity-reaction-to-string reaction team))))))
 
 (defclass slack-activity ()
   ((is-unread :initarg :is-unread :type boolean)
@@ -470,8 +465,7 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
          (type (oref item type))
          (msg (oref item message))
          (reaction (oref item reaction)))
-    (unless (equal type "bot_dm_bundle")
-      (with-slots (channel ts thread-ts) msg
+    (with-slots (channel ts thread-ts) msg
         (condition-case err
             (let* ((room (slack-room-find channel team))
                    (room-id (when room (oref room id)))
@@ -541,7 +535,7 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
            (let ((lui-time-stamp-position nil))
              (lui-insert (format "Error loading activity: %s"
                                  (error-message-string err))
-                         t))))))))
+                         t)))))))
 
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-activity-feed-buffer))
   "Tell if there is another page of results for THIS SLACK-ACTIVITY-FEED-BUFFER."
