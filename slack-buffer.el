@@ -168,13 +168,16 @@
         buf)))
 
 (cl-defmethod slack-buffer-kill-buffer-window ((this slack-buffer))
+  "Kill the buffer for THIS and clean up its window.
+Use `quit-restore-window' so that windows created by
+`display-buffer' are deleted, while pre-existing windows restore
+their previous buffer."
   (let ((b (slack-buffer-buffer this)))
     (when (and b (buffer-live-p b))
-      (unless (equal slack-buffer-function #'switch-to-buffer)
-        (let ((w (get-buffer-window b)))
-          (when (and (window-live-p w) (< 1 (count-windows)))
-            (delete-window w))))
-      (kill-buffer b))))
+      (let ((w (get-buffer-window b)))
+        (if (window-live-p w)
+            (quit-restore-window w 'kill)
+          (kill-buffer b))))))
 
 (cl-defmethod slack-buffer-create-kill-hook ((this slack-buffer))
   #'(lambda ()
