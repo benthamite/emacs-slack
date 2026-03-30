@@ -28,6 +28,12 @@
 
 (defvar slack-modeline nil)
 
+(defvar slack-has-unreads nil
+  "Non-nil when any connected Slack team has unread messages.")
+
+(defvar slack-unread-count 0
+  "Total mention count across all connected Slack teams.")
+
 (defcustom slack-enable-global-mode-string nil
   "If true, add `slack-modeline' to `global-mode-string'"
   :type 'boolean
@@ -86,7 +92,9 @@
     (add-to-list 'global-mode-string '(:eval slack-modeline) t)))
 
 (defun slack-update-modeline ()
+  "Recompute unread summary variables and refresh the mode line."
   (interactive)
+  (slack-update-unread-summary)
   (let ((teams (cl-remove-if-not #'slack-team-modeline-enabledp
                                  (hash-table-values slack-teams-by-token))))
     (when (< 0 (length teams))
@@ -96,8 +104,24 @@
                                  (cons (or (oref e modeline-name)
                                            (slack-team-name e))
                                        (slack-team-counts-summary e)))
-                             teams)))
-      (force-mode-line-update))))
+                             teams)))))
+  (force-mode-line-update))
+
+(defun slack-update-unread-summary ()
+  "Recompute `slack-has-unreads' and `slack-unread-count'.
+These variables aggregate raw counts across all connected teams,
+without filtering by notification importance."
+  (let ((has-unreads nil)
+        (mention-count 0))
+    (maphash
+     (lambda (_token team)
+       (when-let ((counts (oref team counts)))
+         (dolist (e (slack-counts-summary counts))
+           (when (cadr e) (setq has-unreads t))
+           (cl-incf mention-count (cddr e)))))
+     slack-teams-by-token)
+    (setq slack-has-unreads has-unreads
+          slack-unread-count mention-count)))
 
 (defun slack-team-counts-summary (team)
   (with-slots (counts) team
@@ -124,8 +148,7 @@
   (slack-client-counts team
                        #'(lambda (counts)
                            (oset team counts counts)
-                           (when (slack-team-modeline-enabledp team)
-                             (slack-update-modeline)))))
+                           (slack-update-modeline))))
 
 (provide 'slack-modeline)
 ;;; slack-modeline.el ends here
