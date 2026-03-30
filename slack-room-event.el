@@ -297,7 +297,6 @@
 (defclass slack-im-close-event (slack-room-close-event) ())
 
 (defun slack-create-room-close-event (payload)
-  (setq y payload)
   (let* ((type (plist-get payload :type))
          (klass (cond ((string= "im_close" type)
                        'slack-im-close-event)
