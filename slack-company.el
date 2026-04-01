@@ -30,7 +30,7 @@
 
 (declare-function company-begin-backend "company")
 
-(defun company-slack-backend (command &optional arg &rest ignored)
+(defun company-slack-backend (command &optional arg &rest _ignored)
   "Completion backend for slack chats.  It currently understands
 @USER; adding #CHANNEL should be a simple matter of programming."
   (interactive (list 'interactive))
@@ -119,7 +119,7 @@
                          (end (point))
                          (keyword (get-text-property 0 'slack-mention-keyword arg)))
                     (when (re-search-backward (substring-no-properties inserted)
-                                              (point-at-bol)
+                                              (pos-bol)
                                               t)
                       (let ((beg (point)))
                         (delete-region beg end)
@@ -128,7 +128,7 @@
                            (end (point))
                            (id (get-text-property 0 'slack-usergroup-id arg)))
                       (when (re-search-backward (substring-no-properties inserted)
-                                                (point-at-bol)
+                                                (pos-bol)
                                                 t)
                         (let ((beg (point)))
                           (delete-region beg end)

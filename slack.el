@@ -36,6 +36,8 @@
 (require 'dash)
 (require 's)
 
+(declare-function browse-url-default-browser "browse-url")
+
 (require 'slack-util)
 (require 'slack-team)
 (require 'slack-channel)
@@ -242,7 +244,7 @@ You can add it to append custom instructions that depend on context."
 (defun slack-register-team (&rest plist)
   "PLIST must contain :name and :token.
 Available options (property name, type, default value)
-:subscribed-channels [ list symbol ] '()
+:subscribed-channels [ list symbol ] nil
   notified when new message arrived in these channels.
 :default [boolean] nil
   if `slack-prefer-current-team' is t,
@@ -325,7 +327,7 @@ Available options (property name, type, default value)
   (browse-url "https://my.slack.com/customize")
   (switch-to-buffer-other-window (get-buffer-create "instructions"))
   (insert (funcall slack-edit-refresh-token-instructions slack-refresh-token-instructions))
-  (slack-stop))
+  (slack-stop nil))
 
 (defun slack-show-channel-info ()
   "Show an org mode buffer with channel information."

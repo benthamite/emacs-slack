@@ -331,7 +331,8 @@ token for endpoints recorded in `slack-token-preference'."
         (run-at-time 1 nil #'slack-request-worker-on-timeout)))
 
 (defun slack-request-worker-execute ()
-  "Pop request from queue until `slack-request-worker-max-request-limit', and execute."
+  "Pop requests from queue and execute.
+Stop after `slack-request-worker-max-request-limit'."
   (when slack-request-worker-instance
     (let ((do '())
           (skip '())

@@ -74,12 +74,13 @@ The websocket makes sure your status is communicated, your
 message buffer reacts to new messages and emacs-slack is aware of
 what is happening in your team."
   (let ((websocket-nowait-p (oref ws websocket-nowait))
-        (ws-url (concat
-                 "wss://wss-primary.slack.com/?token="
-                 (slack-team-token team)
-                 "&sync_desync=1&slack_client=desktop&start_args=%3Fagent%3Dclient%26org_wide_aware%3Dtrue%26agent_version%3D1730299661%26eac_cache_ts%3Dtrue%26cache_ts%3D0%26name_tagging%3Dtrue%26only_self_subteams%3Dtrue%26connect_only%3Dtrue%26ms_latest%3Dtrue&no_query_on_subscribe=1&flannel=3&lazy_channels=1&gateway_server="
-                 (slack-team-id team)
-                 "-4&batch_presence_aware=1")))
+        (ws-url (or ws-url
+                    (concat
+                     "wss://wss-primary.slack.com/?token="
+                     (slack-team-token team)
+                     "&sync_desync=1&slack_client=desktop&start_args=%3Fagent%3Dclient%26org_wide_aware%3Dtrue%26agent_version%3D1730299661%26eac_cache_ts%3Dtrue%26cache_ts%3D0%26name_tagging%3Dtrue%26only_self_subteams%3Dtrue%26connect_only%3Dtrue%26ms_latest%3Dtrue&no_query_on_subscribe=1&flannel=3&lazy_channels=1&gateway_server="
+                     (slack-team-id team)
+                     "-4&batch_presence_aware=1"))))
     (slack-url-cookie-store team)
     (unless websocket-nowait-p
       (slack-ws-set-connect-timeout-timer ws
@@ -217,20 +218,20 @@ what is happening in your team."
 
 (defun slack-ws-ping (team-id)
   (let ((team (slack-team-find team-id)))
-    (with-slots (message-id ws) team
-      (let* ((time (number-to-string (time-to-seconds (current-time))))
-             (ping-message (list :id message-id
-                                 :type "ping"
-                                 :time time)))
-        (slack-team-send-message team ping-message)
-        (slack-log (format "Send PING: %s" time) team :level 'trace)
-        (slack-ws-set-ping-check-timer ws time
-                                       #'slack-ws-on-ping-timeout
-                                       (slack-team-id team))
-        (slack-log (format "Set PING timeout timer. timeout in %s sec"
-                           (oref ws check-ping-timeout-sec))
-                   team :level 'trace)
-        ))))
+    (when (and team (slack-team-id team))
+      (with-slots (message-id ws) team
+        (let* ((time (number-to-string (time-to-seconds (current-time))))
+               (ping-message (list :id message-id
+                                   :type "ping"
+                                   :time time)))
+          (slack-team-send-message team ping-message)
+          (slack-log (format "Send PING: %s" time) team :level 'trace)
+          (slack-ws-set-ping-check-timer ws time
+                                         #'slack-ws-on-ping-timeout
+                                         (slack-team-id team))
+          (slack-log (format "Set PING timeout timer. timeout in %s sec"
+                             (oref ws check-ping-timeout-sec))
+                     team :level 'trace))))))
 
 (defvar slack-disconnected-timer nil)
 (defun slack-notify-abandon-reconnect (team)
@@ -424,7 +425,8 @@ This also closes unnecessary buffers and refresh message buffer contents."
 Uses exponential backoff: delay doubles each attempt (capped at
 `reconnect-after-sec-max'), resets on successful reconnection.
 TEAM is one of `slack-teams'."
-  (unless (oref ws inhibit-reconnection)
+  (unless (or (oref ws inhibit-reconnection)
+              (null (slack-team-id team)))
     (let ((delay (slack-ws-reconnect-backoff ws)))
       (slack-log (format "Scheduling reconnect in %s seconds" delay)
                  team :level 'info)
@@ -638,7 +640,7 @@ The app_mention payload is structurally identical to a message event."
         (oset message pinned-to (cl-remove-if #'(lambda (e) (string= channel-id e))
                                               (oref message pinned-to))))))
 
-(cl-defmethod slack-ws-handle-reconnect-url ((ws slack-team-ws) payload team)
+(cl-defmethod slack-ws-handle-reconnect-url ((ws slack-team-ws) payload _team)
   (oset ws reconnect-url (plist-get payload :url)))
 
 (defun slack-ws-handle-user-typing (payload team)

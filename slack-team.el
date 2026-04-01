@@ -30,6 +30,7 @@
 (require 's)
 
 (declare-function emojify-create-emojify-emojis "emojify")
+(defvar emojify--user-emojis-regexp)
 
 (defvar slack-current-team nil)
 (defvar slack-completing-read-function)
@@ -51,15 +52,15 @@ use `slack-change-current-team' to change `slack-current-team'"
    (new-threads-count :initform 0 :type number)))
 
 (defclass slack-team ()
-  ((id :initarg :id)
+  ((id :initarg :id :initform nil)
    (token :initarg :token :initform nil)
    (enterprise-token :initarg :enterprise-token :initform nil)
    (cookie :initarg :cookie :initform nil)
    (name :initarg :name :initform nil)
-   (domain :initarg :domain)
-   (self :initarg :self)
-   (self-id :initarg :self-id)
-   (self-name :initarg :self-name)
+   (domain :initarg :domain :initform nil)
+   (self :initarg :self :initform nil)
+   (self-id :initarg :self-id :initform nil)
+   (self-name :initarg :self-name :initform nil)
    (channels :initarg :channels :initform (make-hash-table :test 'equal))
    (groups :initarg :groups :initform (make-hash-table :test 'equal))
    (ims :initarg :ims :initform (make-hash-table :test 'equal))
@@ -127,8 +128,8 @@ use `slack-change-current-team' to change `slack-current-team'"
     team))
 
 (cl-defmethod slack-equalp ((this slack-team) other)
-  (and (slot-boundp this 'id)
-       (slot-boundp other 'id)
+  (and (oref this id)
+       (oref other id)
        (string= (oref this id) (oref other id))))
 
 (cl-defmethod slack-team-set-ws-url ((this slack-team) url)

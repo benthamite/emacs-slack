@@ -34,6 +34,8 @@
 (require 'slack-mrkdwn)
 (require 'slack-room)
 
+(declare-function language-detection-string "language-detection")
+
 (defcustom slack-block-highlight-source nil
   "If non-nil, highlight source blocks in messages.
 You need to install `language-detection' for this to work."
@@ -113,10 +115,10 @@ You need to install `language-detection' for this to work.")
    (text :initarg :text :type slack-text-message-composition-object)
    ))
 
-(cl-defmethod slack-block-to-string ((this slack-layout-header-block) &optional option)
+(cl-defmethod slack-block-to-string ((this slack-layout-header-block) &optional _option)
   (propertize (slack-block-to-string (oref this text)) 'face '(:weight bold :height 1.2)))
 
-(cl-defmethod slack-block-to-mrkdwn ((this slack-layout-header-block) &optional option)
+(cl-defmethod slack-block-to-mrkdwn ((this slack-layout-header-block) &optional _option)
   (format "# %s" (slack-block-to-string (oref this text))))
 
 (defun slack-create-layout-header-block (payload)

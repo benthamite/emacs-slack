@@ -40,7 +40,7 @@
   :group 'slack)
 
 (defcustom slack-modeline-formatter #'slack-default-modeline-formatter
-  "Format modeline with Arg '((team-name . (has-unreads . mention-count)))."
+  "Format modeline with Arg `((team-name . (has-unreads . cnt)))'."
   :type 'function
   :group 'slack)
 
@@ -60,7 +60,9 @@
   :group 'slack)
 
 (defun slack-default-modeline-formatter (alist)
-  "Element in ALIST is  '((team-name . ((thread . (has-unreads . mention-count)) (channel . (has-unreads . mention-count)))))"
+  "Format ALIST where each element is a team summary.
+Each entry is (team-name . ((thread . (unreads . count))
+\(channel . (unreads . count))))."
   (mapconcat #'(lambda (e)
                  (let* ((team-name (car e))
                         (summary (cdr e))

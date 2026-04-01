@@ -608,7 +608,7 @@ and forces recomputation of load-more placeholders next time.
                               (slack-if-let* ((buffer slack-current-buffer)
                                               (team (slack-buffer-team buffer)))
                                   (slack-log (format "Image too big to animate. metadata: %s"
-                                                     metadata)
+                                                     data)
                                              team :level 'debug))
                             (image-animate image nil t))))))))
 
@@ -1136,8 +1136,9 @@ A way to use that is to select the right point of the buffer."
   )
 
 (defun slack-open-message (team room ts thread-ts &optional goto-ts)
-  "Open message or thread buffer from TEAM, ROOM, TS and THREAD-TS (the latter can be nil).
-When GOTO-TS is non-nil, navigate to that timestamp instead of the default."
+  "Open message or thread buffer for TEAM ROOM TS THREAD-TS.
+THREAD-TS can be nil.  When GOTO-TS is non-nil, navigate to that
+timestamp instead of the default."
   (cl-labels ((go-to-link-position ()
                 (slack-buffer-goto (or goto-ts thread-ts ts))
                 (when (and

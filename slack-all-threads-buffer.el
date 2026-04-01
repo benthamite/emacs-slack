@@ -29,6 +29,8 @@
 (require 'slack-create-message)
 (require 'slack-message-buffer)
 
+(declare-function emojify-redisplay-emojis-in-region "emojify")
+
 (defconst slack-subscriptions-thread-get-view-url "https://slack.com/api/subscriptions.thread.getView")
 (defconst slack-subscriptions-thread-clear-all-url "https://slack.com/api/subscriptions.thread.clearAll")
 

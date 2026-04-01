@@ -27,6 +27,8 @@
 (require 'eieio)
 (require 'slack-util)
 (require 'slack-team)
+
+(declare-function slack-star-item-file "slack-star")
 (require 'slack-buffer)
 (require 'slack-message-buffer)
 (require 'slack-star)

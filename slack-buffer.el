@@ -507,9 +507,9 @@ their previous buffer."
 
 (defun slack-buffer-show-typing-p (buffer)
   (cl-case slack-typing-visibility
-    ('frame (slack-buffer-in-current-frame buffer))
-    ('buffer (slack-buffer-current-p buffer))
-    ('never nil)))
+    (frame (slack-buffer-in-current-frame buffer))
+    (buffer (slack-buffer-current-p buffer))
+    (never nil)))
 
 (defun slack-buffer-current-p (buffer)
   (if buffer
@@ -885,7 +885,7 @@ Default to the current buffer."
 
 ;; support drag and drop
 (defun slack--dnd-upload (uri action)
-  "Upload dropped file to current Slack buffer; return 'copy when handled."
+  "Upload dropped file to current Slack buffer; return `copy' when handled."
   (ignore action)
   (when (and (boundp 'slack-current-buffer) slack-current-buffer)
     (let* ((path (dnd-get-local-file-name uri t)))
