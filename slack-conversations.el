@@ -34,7 +34,8 @@
 (require 'dash)
 
 (defcustom slack-exclude-archived-channels t
-  "If t, filter out archived channels for listing and selection. If nil, include archived channels."
+  "If t, filter out archived channels for listing and selection.
+If nil, include archived channels."
   :type 'boolean
   :group 'slack)
 
@@ -353,7 +354,8 @@ Run SUCCESS-CALLBACK on success. Also limit to conversation TYPES when provided.
 Run SUCCESS-CALLBACK on success.
 
 This is an optimized call for rate limiting:
-it does a call for each type and `slack-conversation-list' doesn't do more than 20 api calls."
+it does a call for each type and `slack-conversation-list' doesn't do
+more than 20 api calls."
   (slack-conversations-list
    team
    (lambda (channels groups ims)
@@ -408,7 +410,7 @@ it does a call for each type and `slack-conversation-list' doesn't do more than 
      :params (list (cons "channel" channel-id))
      :success #'success)))
 
-(cl-defun slack-conversations-replies (room ts team &key after-success (cursor nil) (oldest nil) (limit nil) (latest nil) (inclusive nil) (sync nil))
+(cl-defun slack-conversations-replies (room ts team &key after-success (cursor nil) (oldest nil) (_limit nil) (latest nil) (inclusive nil) (sync nil))
   (let ((channel (oref room id)))
     (cl-labels
         ((create-message (payload)

@@ -20,6 +20,8 @@
 (require 'dash)
 (require 's)
 
+(declare-function uuidgen "uuidgen")
+
 ;; Internal API Endpoints
 (defvar slack-drafts-create-url "https://slack.com/api/drafts.create")
 (defvar slack-drafts-list-url "https://slack.com/api/drafts.list")
@@ -46,7 +48,7 @@
 (defun slack-schedule-message-request (team channel-id text post-at after-success)
   "Create a scheduled draft with TEXT for CHANNEL-ID in TEAM at POST-AT time."
   (let ((data-parts
-         `(("token" . ,(oref team :token))
+         `(("token" . ,(oref team token))
            ("blocks" . ,(format "[{\"type\":\"rich_text\",\"elements\":[{\"type\":\"rich_text_section\",\"elements\":[{\"type\":\"text\",\"text\":\"%s\"}]}]}]" text))
            ("destinations" . ,(format "[{\"channel_id\": \"%s\"}]" channel-id))
            ("date_scheduled" . ,post-at)
@@ -70,7 +72,7 @@
 (defun slack-list-scheduled-messages-request (team after-success)
   "Request a list of scheduled drafts for TEAM."
   (let ((data-parts
-         `(("token" . ,(oref team :token))
+         `(("token" . ,(oref team token))
            ("is_active" . "true")
            ("limit" . "100")
            ("_x_reason" . "client-v2-boot-team")
@@ -87,7 +89,7 @@
 (defun slack-delete-scheduled-message-request (team draft-id last-updated-ts after-success)
   "Delete a scheduled draft with DRAFT-ID in TEAM."
   (let ((data-parts
-         `(("token" . ,(oref team :token))
+         `(("token" . ,(oref team token))
            ("draft_id" . ,draft-id)
            ("_x_reason" . "DeleteDraftModal")
            ("_x_mode" . "online")
@@ -130,7 +132,7 @@
 (cl-defmethod slack-buffer-key ((_class slack-scheduled-messages-buffer))
   "scheduled-messages")
 
-(cl-defmethod slack-buffer-key ((_class slack-scheduled-messages-buffer) &rest x)
+(cl-defmethod slack-buffer-key ((_class slack-scheduled-messages-buffer) &rest _x)
   "scheduled-messages")
 
 (cl-defmethod slack-team-buffer-key ((_class slack-scheduled-messages-buffer))

@@ -151,7 +151,6 @@ completed (or immediately if all messages are cached)."
     (dolist (entry items)
       (let* ((ts (nth 0 entry))
              (channel (nth 1 entry))
-             (thread-ts (nth 2 entry))
              (room (slack-room-find channel team)))
         (when (and room
                    (not (equal ts "0"))
@@ -281,7 +280,7 @@ many rooms.  The room is resolved from text properties at or near
 point, searching the current line first, then backward/forward."
   (let* ((team (slack-buffer-team this))
          (room-id (or (get-text-property (point) 'room-id)
-                      (cl-loop for i from (point-at-bol) to (point-at-eol)
+                      (cl-loop for i from (pos-bol) to (pos-eol)
                                for rid = (get-text-property i 'room-id)
                                if rid return rid)
                       (let ((prev (previous-single-property-change
@@ -305,7 +304,7 @@ point, searching the current line first, then backward/forward."
 (cl-defmethod slack-buffer-key ((_class (subclass slack-activity-feed-buffer)))
   "activity feed")
 
-(cl-defmethod slack-buffer-key ((this slack-activity-feed-buffer))
+(cl-defmethod slack-buffer-key ((_this slack-activity-feed-buffer))
   (slack-buffer-key 'slack-activity-feed-buffer))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-activity-feed-buffer)))
@@ -450,12 +449,12 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                       (let ((end (next-single-property-change new-pos 'ts nil (point-max))))
                         (emojify-redisplay-emojis-in-region new-pos end))))))))))))
 
-(cl-defmethod slack-message-replace-buffer :after ((_this slack-message) team)
+(cl-defmethod slack-message-replace-buffer :after ((this slack-message) team)
   "Also update the activity feed buffer when a message changes."
   (slack-if-let* ((af-buffer (slack-buffer-find 'slack-activity-feed-buffer team))
                   (buf (and (slot-boundp af-buffer 'buf) (oref af-buffer buf)))
                   (live (buffer-live-p buf)))
-      (slack-buffer--replace af-buffer (slack-ts _this))))
+      (slack-buffer--replace af-buffer (slack-ts this))))
 
 (cl-defmethod slack-buffer-insert ((this slack-activity-feed-buffer) activity &rest _args)
   (let* ((team (slack-buffer-team this))

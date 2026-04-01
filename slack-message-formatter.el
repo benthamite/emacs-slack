@@ -99,7 +99,7 @@
                                  (slack-message-to-string file ts team))
                              (oref m files)
                              "\n\n")))
-         (reactions (mapconcat #'(lambda (_r) (slack-reaction-to-string _r team))
+         (reactions (mapconcat #'(lambda (r) (slack-reaction-to-string r team))
                                (slack-message-reactions m)
                                " "))
          (thread (slack-thread-to-string m team)))

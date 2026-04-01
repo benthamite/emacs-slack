@@ -67,7 +67,7 @@
 (cl-defmethod slack-message-display-thread-sign-p ((_this slack-reply-broadcast-message) _team)
   nil)
 
-(cl-defmethod slack-message-body ((m slack-reply-broadcast-message) _team)
+(cl-defmethod slack-message-body ((_m slack-reply-broadcast-message) _team)
   (let ((s (cl-call-next-method)))
     (unless (slack-string-blankp s)
       (format "%s%s"

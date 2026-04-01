@@ -63,7 +63,9 @@
 
 (defun slack-download-emoji (team after-success)
   "Download TEAM emojis and run AFTER-SUCCESS on the downloaded paths.
-This runs asynchronously, splitting the emojis in batches of `slack-emoji-job-batch-size,' every `slack-emoji-job-interval' seconds."
+This runs asynchronously, splitting the emojis in batches of
+`slack-emoji-job-batch-size,' every `slack-emoji-job-interval'
+seconds."
   (when (and (require 'emojify nil t) (eq slack-emoji-jobs-to-run nil))
     ;; create slack image file directory if it doesn't exist, otherwise curl complains
     (ignore-errors (mkdir slack-image-file-directory 'parent-if-needed))

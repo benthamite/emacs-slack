@@ -70,7 +70,7 @@ If USER-NAMES provided, also create `slack-typing-user' instances."
   (oset this limit limit))
 
 (defun slack-typing-display (team-id)
-  "Display currentrly typing users according to TEAM and it's `slack-typing' instance."
+  "Display currently typing users for TEAM-ID."
   (let ((team (slack-team-find team-id)))
     (with-slots (typing typing-timer) team
       (let ((current (float-time)))

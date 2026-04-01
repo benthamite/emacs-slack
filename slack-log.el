@@ -40,7 +40,7 @@
 
 (defcustom slack-log-level 'info
   "Used in `slack-message-logger'.
-One of 'info, 'debug"
+One of \\='info, \\='debug"
   :type '(choice (const trace)
                  (const debug)
                  (const info)
@@ -86,7 +86,7 @@ One of 'info, 'debug"
 (cl-defun slack-log (msg team &key
                          (logger slack-log-logger)
                          (level 'debug))
-  "LEVEL is one of 'trace, 'debug, 'info, 'warn, 'error"
+  "LEVEL is one of `trace', `debug', `info', `warn', `error'."
   (when (functionp logger)
     (funcall logger msg level team))
   (when (slack-log--should-log? level)
