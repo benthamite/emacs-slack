@@ -127,7 +127,9 @@ use `slack-change-current-team' to change `slack-current-team'"
     team))
 
 (cl-defmethod slack-equalp ((this slack-team) other)
-  (string= (oref this id) (oref other id)))
+  (and (slot-boundp this 'id)
+       (slot-boundp other 'id)
+       (string= (oref this id) (oref other id))))
 
 (cl-defmethod slack-team-set-ws-url ((this slack-team) url)
   (with-slots (ws) this
