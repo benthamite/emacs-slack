@@ -941,7 +941,7 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer))
       (if (slack-thread-message-buffer-p buf)
-          (error "Already in thread")
+          (message "Already in thread")
         (slack-buffer-display-thread buf (slack-get-ts)))))
 
 (cl-defmethod slack-buffer-display-thread ((this slack-message-buffer) ts)
