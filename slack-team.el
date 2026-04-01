@@ -34,11 +34,6 @@
 
 (defvar slack-current-team nil)
 (defvar slack-completing-read-function)
-(defcustom slack-prefer-current-team nil
-  "If set to t, using `slack-current-team' for interactive function.
-use `slack-change-current-team' to change `slack-current-team'"
-  :type 'boolean
-  :group 'slack)
 
 (defcustom slack-modeline-count-only-subscribed-channel t
   "Count unread only subscribed channel."
@@ -184,37 +179,27 @@ use `slack-change-current-team' to change `slack-current-team'"
 (cl-defmethod slack-team-name ((team slack-team))
   (oref team name))
 
-(cl-defun slack-team-select (&optional no-default include-not-connected)
-  (cl-labels ((select-team ()
-                           (let* ((teams (if include-not-connected
-                                             (hash-table-values slack-teams-by-token)
-                                           (slack-team-connected-list)))
-                                  (alist (mapcar #'(lambda (team) (cons (slack-team-name team)
-                                                                        (oref team token)))
-                                                 teams))
-                                  (selected (funcall slack-completing-read-function "Select Team: " alist)))
-                             (slack-team-find-by-token (cdr (cl-assoc selected alist :test #'string=))))))
-    (let ((team (if (and slack-prefer-current-team
-                         slack-current-team
-                         (not no-default))
-                    slack-current-team
-                  (select-team))))
-      ;; (if (and slack-prefer-current-team
-      ;;          (not slack-current-team)
-      ;;          (not no-default))
-      ;;     (if (yes-or-no-p (format "Set %s to current-team?"
-      ;;                              (oref team name)))
-      ;;         (setq slack-current-team team)))
+(cl-defun slack-team-select (&optional no-default)
+  "Prompt the user to select a Slack team and return it.
+When `slack-current-team' is already set and NO-DEFAULT is nil,
+return it without prompting.  Otherwise prompt from all
+registered teams (including disconnected ones) and remember the
+selection in `slack-current-team'."
+  (if (and slack-current-team (not no-default))
+      slack-current-team
+    (let* ((teams (hash-table-values slack-teams-by-token))
+           (alist (mapcar (lambda (team)
+                            (cons (slack-team-name team) (oref team token)))
+                          teams))
+           (selected (funcall slack-completing-read-function
+                              "Select Team: " alist))
+           (team (slack-team-find-by-token
+                  (cdr (cl-assoc selected alist :test #'string=)))))
+      (setq slack-current-team team)
       team)))
 
 (cl-defmethod slack-team-connectedp ((team slack-team))
   (oref (oref team ws) connected))
-
-(defun slack-team-connected-list ()
-  (cl-remove-if #'null
-                (mapcar #'(lambda (team)
-                            (if (slack-team-connectedp team) team))
-                        (hash-table-values slack-teams-by-token))))
 
 (defun slack-team-modeline-enabledp (team)
   (oref team modeline-enabled))

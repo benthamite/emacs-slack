@@ -978,7 +978,7 @@ statement to get a message id the ws can respond to."
 
 (defun slack-team-delete ()
   (interactive)
-  (let ((selected (slack-team-select t t)))
+  (let ((selected (slack-team-select t)))
     (if (yes-or-no-p (format "Delete %s from `slack-teams'?"
                              (oref selected name)))
         (progn

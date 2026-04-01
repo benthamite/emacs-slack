@@ -247,8 +247,8 @@ Available options (property name, type, default value)
 :subscribed-channels [ list symbol ] nil
   notified when new message arrived in these channels.
 :default [boolean] nil
-  if `slack-prefer-current-team' is t,
-  some functions use this team without asking.
+  set this team as `slack-current-team' at registration time,
+  so interactive commands use it without prompting.
 :full-and-display-names [boolean] nil
   if t, use full name to display user name.
 :mark-as-read-immediately [boolean] these
