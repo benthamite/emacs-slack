@@ -155,30 +155,31 @@
 (cl-defmethod slack-message-event-update-modeline ((_this slack-message-event) message team)
   (slack-if-let* ((room (slack-room-find message team)))
       (progn
-        (when (and (not (slack-message-ephemeral-p message))
-                   (slack-message-visible-p message team))
-          (let* ((sender (slack-message-sender-id message))
-                 (not-self (and sender (not (string= sender (oref team self-id)))))
-                 (buf (slack-buffer-find 'slack-message-buffer team room))
-                 (buffer (and buf (slack-buffer-buffer buf)))
-                 (focused (and buffer (slack-buffer-in-current-frame buffer))))
-            ;; For MPIMs, only set has_unreads when message is not from
-            ;; self and the buffer is not currently focused. For other
-            ;; room types, preserve existing behavior.
-            (if (slack-mpim-p room)
-                (when (and not-self (not focused))
-                  (slack-room-set-has-unreads room t team))
-              (slack-room-set-has-unreads room t team))
-
-            ;; Increment mention count if explicitly mentioned, or for
-            ;; IM/MPIM messages from others.
-            (when (or (slack-message-mentioned-p message team)
-                      (and (slack-im-p room) not-self)
-                      (and (slack-mpim-p room) not-self))
-              (let* ((count (slack-room-mention-count room team))
-                     (next-count (+ count 1)))
-                (slack-room-set-mention-count room next-count team)))))
+        (let* ((sender (slack-message-sender-id message))
+               (not-self (and sender (not (string= sender (oref team self-id))))))
+          (when (and (not (slack-message-ephemeral-p message))
+                     (slack-message-visible-p message team))
+            (let* ((buf (slack-buffer-find 'slack-message-buffer team room))
+                   (buffer (and buf (slack-buffer-buffer buf)))
+                   (focused (and buffer (slack-buffer-in-current-frame buffer))))
+              (if (slack-mpim-p room)
+                  (when (and not-self (not focused))
+                    (slack-room-set-has-unreads room t team))
+                (slack-room-set-has-unreads room t team))
+              (when (or (slack-message-mentioned-p message team)
+                        (and (slack-im-p room) not-self)
+                        (and (slack-mpim-p room) not-self))
+                (slack-room-set-mention-count
+                 room (1+ (slack-room-mention-count room team)) team))))
+          (when (and not-self (slack-thread-message-p message))
+            (slack-message-event--mark-thread-unread team)))
         (slack-update-modeline))))
+
+(defun slack-message-event--mark-thread-unread (team)
+  "Set the thread-level has-unreads flag in TEAM counts."
+  (slack-if-let* ((counts (oref team counts)))
+      (unless (oref (oref counts threads) has-unreads)
+        (oset (oref counts threads) has-unreads t))))
 
 (cl-defmethod slack-message-event-update-modeline ((_this slack-message-changed-event) _message _team)
   (slack-update-modeline))
