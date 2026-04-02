@@ -71,6 +71,10 @@ completed (or immediately if all messages are cached)."
                    (when messages
                      (slack-room-set-messages room messages team))
                    (when (= 0 (cl-decf (car pending)))
+                     (funcall callback)))
+                 :on-error
+                 (lambda (&rest _)
+                   (when (= 0 (cl-decf (car pending)))
                      (funcall callback))))
               (error
                (message "slack-stars: prefetch error for %s: %S" ts err)

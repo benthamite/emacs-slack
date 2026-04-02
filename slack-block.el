@@ -323,7 +323,7 @@ You need to install `language-detection' for this to work.")
   (let ((text (mapconcat #'(lambda (element) (slack-block-to-mrkdwn element option))
                          (oref this elements)
                          "")))
-    (format "```\n%s\n\n```\n" text)))
+    (format "```%s```\n" text)))
 
 (defun slack-create-rich-text-preformatted (payload)
   (make-instance 'slack-rich-text-preformatted

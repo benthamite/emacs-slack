@@ -164,7 +164,7 @@ token for endpoints recorded in `slack-token-preference'."
   (with-slots (no-retry type retry-count) req
     (and (not no-retry)
          (or (zerop slack-request-max-retry)
-             (<= retry-count slack-request-max-retry))
+             (< retry-count slack-request-max-retry))
          (and (string= type "GET")
               (or (and error-thrown
                        (eq 'end-of-file (car error-thrown)))

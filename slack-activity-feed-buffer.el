@@ -70,6 +70,7 @@ object that lacks rooms or has an unbound id slot."
 
 (defvar slack-activity-feed-url "https://slack.com/api/activity.feed")
 (defvar slack-activity-feed-mode-show-only-unread nil "If non-nil, show only unread activity.")
+(defconst slack-activity-feed-multipart-boundary "----WebKitFormBoundaryh7x3DqJqAIvkEcie")
 
 (defun slack-activity-feed-toggle-unread ()
   "Toggle between showing all activity and only unread, then refresh."
@@ -84,6 +85,28 @@ object that lacks rooms or has an unbound id slot."
 (defun slack-activity-feed--jbool (jf)
   "Return nil if JF is JSON false, t otherwise."
   (not (eq jf :json-false)))
+
+(defun slack-activity-feed--request-data (token mode &optional cursor)
+  "Build multipart form data for the activity feed request."
+  (let ((fields (delq nil
+                      (list (cons "token" token)
+                            (cons "limit" "20")
+                            (cons "types" "thread_v2,dm,generic_system_alert,message_reaction,internal_channel_invite,list_record_edited,bot_dm_bundle,at_user,at_user_group,at_channel,at_everyone,keyword,list_record_assigned,list_user_mentioned,external_channel_invite,shared_workspace_invite,external_dm_invite")
+                            (cons "mode" mode)
+                            (and cursor (cons "cursor" cursor))
+                            (cons "_x_reason" "fetchActivityFeed")
+                            (cons "_x_mode" "online")
+                            (cons "_x_sonic" "true")
+                            (cons "_x_app_name" "client")))))
+    (concat
+     (mapconcat #'(lambda (field)
+                    (format "--%s\r\nContent-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n"
+                            slack-activity-feed-multipart-boundary
+                            (car field)
+                            (cdr field)))
+                fields
+                "")
+     (format "--%s--\r\n" slack-activity-feed-multipart-boundary))))
 
 (defun slack-activity-feed--parse-item (item-data)
   "Parse a single ITEM-DATA plist from the activity.feed API response."
@@ -183,6 +206,10 @@ completed (or immediately if all messages are cached)."
                          (when messages
                            (slack-room-set-messages room messages team))
                          (when (= 0 (cl-decf (car pending)))
+                           (funcall callback)))
+                       :on-error
+                       (lambda (&rest _)
+                         (when (= 0 (cl-decf (car pending)))
                            (funcall callback))))
                     (slack-conversations-history
                      room team
@@ -193,6 +220,10 @@ completed (or immediately if all messages are cached)."
                      (lambda (messages &rest _)
                        (when messages
                          (slack-room-set-messages room messages team))
+                       (when (= 0 (cl-decf (car pending)))
+                         (funcall callback)))
+                     :on-error
+                     (lambda (&rest _)
                        (when (= 0 (cl-decf (car pending)))
                          (funcall callback)))))
                 (error
@@ -226,6 +257,9 @@ every request completes, or immediately when all rooms are cached."
              channel-id team
              (lambda ()
                (when (= 0 (cl-decf (car pending)))
+                 (funcall callback)))
+             (lambda (&rest _)
+               (when (= 0 (cl-decf (car pending)))
                  (funcall callback))))
           (error
            (message "slack-activity-feed: room prefetch error for %s: %S"
@@ -250,10 +284,11 @@ Run an action on the data returned with AFTER-SUCCESS."
       :success #'on-success
       :data (let ((token (slack-select-token slack-activity-feed-url team))
                   (mode (if slack-activity-feed-mode-show-only-unread "priority_unreads_v1" "chrono_reads_and_unreads")))
-              (concat "------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"token\"\r\n\r\n" token "\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"limit\"\r\n\r\n20\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"types\"\r\n\r\nthread_v2,dm,generic_system_alert,message_reaction,internal_channel_invite,list_record_edited,bot_dm_bundle,at_user,at_user_group,at_channel,at_everyone,keyword,list_record_assigned,list_user_mentioned,external_channel_invite,shared_workspace_invite,external_dm_invite\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"mode\"\r\n\r\n" mode "\r\n" (if cursor (concat "------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"cursor\"\r\n\r\n" cursor "\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie--\r\n") "") "------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"_x_reason\"\r\n\r\nfetchActivityFeed\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"_x_mode\"\r\n\r\nonline\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"_x_sonic\"\r\n\r\ntrue\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie\r\nContent-Disposition: form-data; name=\"_x_app_name\"\r\n\r\nclient\r\n------WebKitFormBoundaryh7x3DqJqAIvkEcie--\r\n"))
+              (slack-activity-feed--request-data token mode cursor))
       :headers (list
                 (cons "content-type"
-                      "multipart/form-data; boundary=----WebKitFormBoundaryh7x3DqJqAIvkEcie"))))))
+                      (format "multipart/form-data; boundary=%s"
+                              slack-activity-feed-multipart-boundary)))))))
 
 (defclass slack-activity-feed ()
   ((activities :initarg :activities :initform nil :type (or null list))

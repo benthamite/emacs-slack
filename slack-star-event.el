@@ -32,10 +32,28 @@
 (cl-defmethod slack-event-update-buffer ((_this slack-star-event) message team)
   (slack-message-replace-buffer message team))
 
-(cl-defmethod slack-event-create-star-item ((this slack-star-event) team &optional file)
+(cl-defmethod slack-event-create-star-item ((this slack-star-event) _team &optional file)
   (let* ((payload (oref this payload))
-         (item (plist-get payload :item)))
-    (slack-create-star-item (plist-put item :file file) team)))
+         (item (plist-get payload :item))
+         (item-type (plist-get item :type))
+         (normalized
+          (cond
+           ((string= "message" item-type)
+            (list :item_id (plist-get item :channel)
+                  :item_type item-type
+                  :ts (plist-get (plist-get item :message) :ts)))
+           ((string= "file" item-type)
+            (list :item_id (or (when file (oref file id))
+                               (plist-get (plist-get item :file) :id)
+                               "")
+                  :item_type item-type
+                  :ts (or (when file (slack-ts file))
+                          (when-let ((created (plist-get (plist-get item :file) :created)))
+                            (number-to-string created))
+                          "")
+                  :file (or file (plist-get item :file))))
+           (t item))))
+    (slack-create-star-item normalized)))
 
 (cl-defmethod slack-event-update-star-item ((this slack-star-event) team &optional file)
   (let ((star-item (slack-event-create-star-item this team file)))

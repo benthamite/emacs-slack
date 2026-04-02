@@ -9,6 +9,12 @@
 (require 'slack-mrkdwn)
 (require 'slack-message-sender)
 (require 'slack-image)
+(require 'slack-message)
+(require 'slack-request)
+(require 'slack-star)
+(require 'slack-star-event)
+(require 'slack-stars-buffer)
+(require 'slack-activity-feed-buffer)
 
 (defvar slack-channel-button-keymap nil)
 (setq slack-render-image-p t)
@@ -990,7 +996,131 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
       (should (string= "https://google.com"
                        (slack-block-to-mrkdwn block))))))
 
+(ert-deftest slack-test-message-get-text-falls-back-to-plain-text ()
+  (slack-test-setup
+    (let ((message (make-instance 'slack-message
+                                  :type "message"
+                                  :ts "1.0"
+                                  :text "hello &lt;world&gt;"
+                                  :blocks nil)))
+      (should (equal "hello <world>"
+                     (slack-message-get-text message team))))))
+
+(ert-deftest slack-test-create-star-item-from-message-event ()
+  (slack-test-setup
+    (let* ((payload '(:type "star_added"
+                      :item (:type "message"
+                             :channel "C11111"
+                             :message (:ts "1710000000.000100"))))
+           (event (slack-create-star-event payload))
+           (item (slack-event-create-star-item event team)))
+      (should (string= "C11111" (oref item item-id)))
+      (should (string= "message" (oref item item-type)))
+      (should (string= "1710000000.000100" (oref item ts))))))
+
+(ert-deftest slack-test-activity-feed-request-data-keeps-fields-after-cursor ()
+  (let* ((body (slack-activity-feed--request-data "xoxc-token"
+                                                  "chrono_reads_and_unreads"
+                                                  "CURSOR123"))
+         (cursor-pos (string-match (regexp-quote "name=\"cursor\"") body))
+         (reason-pos (string-match (regexp-quote "name=\"_x_reason\"") body))
+         (closing-pos (string-match (regexp-quote (format "--%s--"
+                                                          slack-activity-feed-multipart-boundary))
+                                    body)))
+    (should cursor-pos)
+    (should reason-pos)
+    (should closing-pos)
+    (should (< cursor-pos reason-pos))
+    (should (< reason-pos closing-pos))
+    (should (equal 1
+                   (with-temp-buffer
+                     (insert body)
+                     (goto-char (point-min))
+                     (how-many (regexp-quote (format "--%s--"
+                                                     slack-activity-feed-multipart-boundary))
+                               (point-min)
+                               (point-max)))))))
+
+(ert-deftest slack-test-activity-feed-prefetch-messages-calls-back-on-error ()
+  (slack-test-setup
+    (let* ((activity (make-instance 'slack-activity
+                                    :is-unread t
+                                    :feed-ts "1"
+                                    :item (make-instance 'activity-item
+                                                         :type "dm"
+                                                         :message (make-instance 'activity-message
+                                                                                 :ts "1710000000.000100"
+                                                                                 :channel channel-id
+                                                                                 :is-broadcast nil
+                                                                                 :thread-ts nil
+                                                                                 :author-id nil)
+                                                         :reaction nil)))
+           (called nil))
+      (cl-letf (((symbol-function 'slack-conversations-history)
+                 (lambda (_room _team &rest args)
+                   (let ((on-error (plist-get args :on-error)))
+                     (when (functionp on-error)
+                       (funcall on-error :error-thrown '(error . "boom")))))))
+        (slack-activity-feed--prefetch-messages
+         (list activity)
+         team
+         (lambda ()
+           (setq called t))))
+      (should called))))
+
+(ert-deftest slack-test-activity-feed-prefetch-rooms-calls-back-on-error ()
+  (slack-test-setup
+    (let* ((activity (make-instance 'slack-activity
+                                    :is-unread t
+                                    :feed-ts "1"
+                                    :item (make-instance 'activity-item
+                                                         :type "dm"
+                                                         :message (make-instance 'activity-message
+                                                                                 :ts "1710000000.000100"
+                                                                                 :channel "C99999"
+                                                                                 :is-broadcast nil
+                                                                                 :thread-ts nil
+                                                                                 :author-id nil)
+                                                         :reaction nil)))
+           (called nil))
+      (cl-letf (((symbol-function 'slack-conversations-info)
+                 (lambda (_channel-id _team _after-success on-error)
+                   (when (functionp on-error)
+                     (funcall on-error "boom")))))
+        (slack-activity-feed--prefetch-rooms
+         (list activity)
+         team
+         (lambda ()
+           (setq called t))))
+      (should called))))
+
+(ert-deftest slack-test-stars-prefetch-messages-calls-back-on-error ()
+  (slack-test-setup
+    (let ((called nil)
+          (item (slack-create-star-item
+                 (list :item_id channel-id
+                       :item_type "message"
+                       :ts "1710000000.000100"))))
+      (cl-letf (((symbol-function 'slack-conversations-history)
+                 (lambda (_room _team &rest args)
+                   (let ((on-error (plist-get args :on-error)))
+                     (when (functionp on-error)
+                       (funcall on-error :error-thrown '(error . "boom")))))))
+        (slack-stars--prefetch-messages
+         (list item)
+         team
+         (lambda ()
+           (setq called t))))
+      (should called))))
+
+(ert-deftest slack-test-request-retry-respects-max-retries ()
+  (let ((req (slack-request-create "https://example.com"
+                                   nil
+                                   :type "GET"
+                                   :success #'ignore)))
+    (oset req retry-count slack-request-max-retry)
+    (should-not (slack-request-retry-failed-request-p req '(end-of-file) 'error))))
+
 (if noninteractive
     (ert-run-tests-batch-and-exit)
   (ert t))
-

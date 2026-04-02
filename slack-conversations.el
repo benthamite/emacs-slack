@@ -385,15 +385,20 @@ more than 20 api calls."
      )
    (list "private_channel")))
 
-(defun slack-conversations-info (channel-id team &optional after-success)
+(defun slack-conversations-info (channel-id team &optional after-success on-error)
   (slack-request
-   (slack-conversations-info-request channel-id team after-success)))
+   (slack-conversations-info-request channel-id team after-success on-error)))
 
-(defun slack-conversations-info-request (channel-id team &optional after-success)
+(defun slack-conversations-info-request (channel-id team &optional after-success on-error)
   (cl-labels
-      ((success (&key data &allow-other-keys)
+      ((fail (&rest args)
+         (when (functionp on-error)
+           (apply on-error args)))
+       (success (&key data &allow-other-keys)
                 (slack-request-handle-error
-                 (data "slack-conversations-info")
+                 (data "slack-conversations-info"
+                       #'(lambda (err)
+                           (fail err)))
                  (let* ((c (plist-get data :channel))
                         (new-room (slack-room-create
                                    c
@@ -408,12 +413,16 @@ more than 20 api calls."
      slack-conversations-info-url
      team
      :params (list (cons "channel" channel-id))
-     :success #'success)))
+     :success #'success
+     :error #'fail)))
 
-(cl-defun slack-conversations-replies (room ts team &key after-success (cursor nil) (oldest nil) (_limit nil) (latest nil) (inclusive nil) (sync nil))
+(cl-defun slack-conversations-replies (room ts team &key after-success on-error (cursor nil) (oldest nil) (_limit nil) (latest nil) (inclusive nil) (sync nil))
   (let ((channel (oref room id)))
     (cl-labels
-        ((create-message (payload)
+        ((fail (&rest args)
+           (when (functionp on-error)
+             (apply on-error args)))
+         (create-message (payload)
            (slack-message-create payload
                                  team
                                  room))
@@ -425,7 +434,9 @@ more than 20 api calls."
                       has-more)))
          (on-success (&key data &allow-other-keys)
            (slack-request-handle-error
-            (data "slack-conversations-replies")
+            (data "slack-conversations-replies"
+                  #'(lambda (err)
+                      (fail err)))
             (let* ((messages (mapcar #'create-message
                                      (plist-get data :messages)))
                    (meta (plist-get data :response_metadata))
@@ -453,6 +464,7 @@ more than 20 api calls."
                       (if cursor (cons "cursor" cursor)
                         (cons "oldest" oldest)))
         :success #'on-success
+        :error #'fail
         :sync sync)))))
 (defun slack-conversations-close (room team &optional after-success)
   (let ((channel (oref room id)))
@@ -484,6 +496,7 @@ more than 20 api calls."
 
 (cl-defun slack-conversations-history (room team &key
                                             (after-success nil)
+                                            (on-error nil)
                                             (cursor nil)
                                             (latest nil)
                                             (oldest nil)
@@ -492,25 +505,32 @@ more than 20 api calls."
                                             (sync nil))
   (let ((channel (oref room id)))
     (cl-labels
-        ((callback (messages next-cursor)
+        ((fail (&rest args)
+           (when (functionp on-error)
+             (apply on-error args)))
+         (callback (messages next-cursor)
            (when (functionp after-success)
              (funcall after-success
                       messages
                       next-cursor)))
          (success (data)
-           (let* ((meta (plist-get data :response_metadata))
-                  (next-cursor (or (plist-get meta :next_cursor) ""))
-                  (messages (cl-loop for e in (plist-get data :messages)
-                                     collect (slack-message-create e team room)))
-                  (user-ids (slack-team-missing-user-ids
-                             team (cl-loop for m in messages
-                                           nconc (slack-message-user-ids m)))))
-             (if (< 0 (length user-ids))
-                 (slack-user-info-request
-                  user-ids team
-                  :after-success #'(lambda ()
-                                     (callback messages next-cursor)))
-               (callback messages next-cursor)))))
+           (slack-request-handle-error
+            (data "slack-conversations-history"
+                  #'(lambda (err)
+                      (fail err)))
+            (let* ((meta (plist-get data :response_metadata))
+                   (next-cursor (or (plist-get meta :next_cursor) ""))
+                   (messages (cl-loop for e in (plist-get data :messages)
+                                      collect (slack-message-create e team room)))
+                   (user-ids (slack-team-missing-user-ids
+                              team (cl-loop for m in messages
+                                            nconc (slack-message-user-ids m)))))
+              (if (< 0 (length user-ids))
+                  (slack-user-info-request
+                   user-ids team
+                   :after-success #'(lambda ()
+                                      (callback messages next-cursor)))
+                (callback messages next-cursor))))))
       (slack-request
        (slack-request-create
         slack-conversations-history-url
@@ -522,8 +542,8 @@ more than 20 api calls."
                                 (and latest (cons "latest" latest))
                                 (and oldest (cons "oldest" oldest))
                                 (and inclusive (cons "inclusive" inclusive))))
-        :success (slack-conversations-success-handler
-                  team :on-success #'success)
+        :success #'success
+        :error #'fail
         :sync sync)))))
 
 (defun slack-conversations-members (room team &optional cursor after-success)
