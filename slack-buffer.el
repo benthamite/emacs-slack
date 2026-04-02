@@ -141,14 +141,14 @@
       (slack-file-download file team)))
 
 (cl-defmethod slack-team-set-buffer ((this slack-buffer))
-  (let* ((key (slack-buffer-key this))
-         (team (slack-buffer-team this))
-         (ht (or (let ((ht (slot-value team (slack-team-buffer-key this))))
-                   (and (hash-table-p ht) ht))
-                 (make-hash-table :test #'equal))))
-    (puthash key this ht)
-    (setf (slot-value team (slack-team-buffer-key this))
-          ht)))
+  (when-let ((team (slack-buffer-team this)))
+    (let* ((key (slack-buffer-key this))
+           (ht (or (let ((ht (slot-value team (slack-team-buffer-key this))))
+                     (and (hash-table-p ht) ht))
+                   (make-hash-table :test #'equal))))
+      (puthash key this ht)
+      (setf (slot-value team (slack-team-buffer-key this))
+            ht))))
 
 (cl-defmethod slack-buffer-buffer ((this slack-buffer))
   (or (let ((buf (and (slot-boundp this 'buf)
@@ -170,12 +170,11 @@
   (oref this buf))
 
 (cl-defmethod slack-buffer-init-buffer :after ((this slack-buffer))
-  (slack-if-let* ((buf (slack-buffer-buffer this)))
-      (progn
-        (with-current-buffer buf
-          (slack-buffer-enable-emojify)
-          (add-hook 'kill-buffer-hook (slack-buffer-create-kill-hook this) nil t))
-        buf)))
+  (slack-if-let* ((buf (and (slot-boundp this 'buf) (oref this buf)))
+                  (_live (buffer-live-p buf)))
+      (with-current-buffer buf
+        (slack-buffer-enable-emojify)
+        (add-hook 'kill-buffer-hook (slack-buffer-create-kill-hook this) nil t))))
 
 (cl-defmethod slack-buffer-kill-buffer-window ((this slack-buffer))
   "Kill the buffer for THIS and clean up its window.
@@ -206,7 +205,8 @@ their previous buffer."
     (condition-case err
         (funcall slack-buffer-function (slack-buffer-buffer this))
       (error (progn
-               (slack-if-let* ((buf (get-buffer (slack-buffer-name this))))
+               (slack-if-let* ((name (slack-buffer-name this))
+                               (buf (get-buffer name)))
                    (kill-buffer buf))
                (with-demoted-errors "slack-buffer-display swallowed error: %s"
                  (slack-log (format "Backtrace: %S" (with-output-to-string (backtrace)))

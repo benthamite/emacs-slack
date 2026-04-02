@@ -150,6 +150,9 @@
         (propertize str 'face 'slack-room-unread-face)
       str)))
 
+(cl-defmethod slack-room-name ((_room (eql nil)) _team)
+  nil)
+
 (cl-defmethod slack-room-name ((room slack-room) _team)
   (oref room name))
 

@@ -165,27 +165,25 @@ and forces recomputation of load-more placeholders next time.
   (slack-room-latest (slack-buffer-room this) (slack-buffer-team this)))
 
 (cl-defmethod slack-buffer-buffer ((this slack-message-buffer))
-  (let ((buffer-already-exists-p (get-buffer (slack-buffer-name this)))
-        (buffer (cl-call-next-method))
-        (last-read (slack-buffer-last-read this)))
-    (with-current-buffer buffer
-      (if (slack-team-mark-as-read-immediatelyp (slack-buffer-team this))
-          (progn
-            (unless buffer-already-exists-p
-              (goto-char (marker-position lui-input-marker)))
-            (and (slack-buffer-latest-ts this)
-                 (slack-buffer-update-mark-request this
-                                                   (slack-buffer-latest-ts this))))
-
-
-        (unless buffer-already-exists-p
-          (when (or (string= "0" last-read)
-                    (null (slack-buffer-goto last-read)))
-            (goto-char (point-max))))
-
-        (unless (string= "0" last-read)
-          (slack-buffer-update-marker-overlay this))))
-
+  (let* ((name (slack-buffer-name this))
+         (buffer-already-exists-p (and name (get-buffer name)))
+         (buffer (cl-call-next-method))
+         (last-read (slack-buffer-last-read this)))
+    (when buffer
+      (with-current-buffer buffer
+        (if (slack-team-mark-as-read-immediatelyp (slack-buffer-team this))
+            (progn
+              (unless buffer-already-exists-p
+                (goto-char (marker-position lui-input-marker)))
+              (and (slack-buffer-latest-ts this)
+                   (slack-buffer-update-mark-request this
+                                                     (slack-buffer-latest-ts this))))
+          (unless buffer-already-exists-p
+            (when (or (string= "0" last-read)
+                      (null (slack-buffer-goto last-read)))
+              (goto-char (point-max))))
+          (unless (string= "0" last-read)
+            (slack-buffer-update-marker-overlay this)))))
     buffer))
 
 (cl-defmethod slack-buffer-visible-message-p ((this slack-message-buffer) message)

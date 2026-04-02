@@ -54,12 +54,12 @@
                                  :thread-ts thread-ts)))
 
 (cl-defmethod slack-buffer-name ((this slack-thread-message-buffer))
-  (with-slots (thread-ts) this
-    (let ((team (slack-buffer-team this))
-          (room (slack-buffer-room this)))
+  (slack-if-let* ((team (slack-buffer-team this))
+                  (room (slack-buffer-room this))
+                  (room-name (slack-room-name room team)))
       (format "*slack-thread: %s - %s"
-              (slack-room-name room team)
-              thread-ts))))
+              room-name
+              (oref this thread-ts))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-thread-message-buffer)) _room ts)
   ts)
@@ -78,27 +78,28 @@
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-thread-message-buffer))
   (let* ((buf (cl-call-next-method)))
-    (with-current-buffer buf
-      (slack-thread-message-buffer-mode)
-      (slack-buffer-set-current-buffer this)
-      (goto-char lui-input-marker)
-      (with-slots (thread-ts) this
-        (slack-if-let* ((team (slack-buffer-team this))
-                        (room (slack-buffer-room this))
-                        (message (slack-room-find-message room thread-ts)))
-            (progn
-              (slack-buffer-insert this message t)
-              (let ((lui-time-stamp-position nil))
-                (lui-insert (format "%s\n" (make-string lui-fill-column ?=)) t))
-              (slack-if-let* ((messages (slack-message-replies message room))
-                              (latest-message (car (last messages))))
-                  (progn
-                    (cl-loop for m in messages
-                             do (slack-buffer-insert this m t))
-                    (slack-buffer-update-last-read this latest-message)
-                    (slack-buffer-update-mark this)))
-              (when (slack-buffer-has-next-page-p this)
-                (slack-buffer-insert-load-more this))))))
+    (when buf
+      (with-current-buffer buf
+        (slack-thread-message-buffer-mode)
+        (slack-buffer-set-current-buffer this)
+        (goto-char lui-input-marker)
+        (with-slots (thread-ts) this
+          (slack-if-let* ((team (slack-buffer-team this))
+                          (room (slack-buffer-room this))
+                          (message (slack-room-find-message room thread-ts)))
+              (progn
+                (slack-buffer-insert this message t)
+                (let ((lui-time-stamp-position nil))
+                  (lui-insert (format "%s\n" (make-string lui-fill-column ?=)) t))
+                (slack-if-let* ((messages (slack-message-replies message room))
+                                (latest-message (car (last messages))))
+                    (progn
+                      (cl-loop for m in messages
+                               do (slack-buffer-insert this m t))
+                      (slack-buffer-update-last-read this latest-message)
+                      (slack-buffer-update-mark this)))
+                (when (slack-buffer-has-next-page-p this)
+                  (slack-buffer-insert-load-more this)))))))
     buf))
 
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-thread-message-buffer))
