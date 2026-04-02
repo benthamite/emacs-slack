@@ -103,7 +103,7 @@
   (setq-local lui-fill-type nil))
 
 (defclass slack-buffer ()
-  ((team-id :initarg :team-id :type string)
+  ((team-id :initarg :team-id :type (or null string))
    (buf :initarg :buf :initform nil))
   :abstract t)
 
@@ -129,7 +129,8 @@
     (gethash key ht)))
 
 (cl-defmethod slack-buffer-team ((this slack-buffer))
-  (slack-team-find (oref this team-id)))
+  (when-let ((id (oref this team-id)))
+    (slack-team-find id)))
 
 (cl-defmethod slack-team-set-buffer ((this slack-buffer))
   (let* ((key (slack-buffer-key this))
