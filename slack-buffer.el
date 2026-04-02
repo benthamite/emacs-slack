@@ -161,9 +161,10 @@
 
 (cl-defmethod slack-buffer-init-buffer :before ((this slack-buffer))
   (slack-team-set-buffer this)
-  (let ((buf (generate-new-buffer (slack-buffer-name this))))
-    (oset this buf buf)
-    buf))
+  (slack-if-let* ((name (slack-buffer-name this)))
+      (let ((buf (generate-new-buffer name)))
+        (oset this buf buf)
+        buf)))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-buffer))
   (oref this buf))
