@@ -44,18 +44,6 @@
 (declare-function slack-message-replace-buffer "slack-message-buffer")
 (declare-function emojify-redisplay-emojis-in-region "emojify")
 
-(defun slack-team-id-safe (team)
-  "Return TEAM's id, falling back to reverse token lookup."
-  (or (condition-case nil (oref team id) (error nil))
-      (let ((token (condition-case nil (oref team token) (error nil))))
-        (when token
-          (let ((found nil))
-            (maphash (lambda (id tok)
-                       (when (equal tok token)
-                         (setq found id)))
-                     slack-tokens-by-id)
-            found)))))
-
 (defun slack-team-ensure-registered (team)
   "Ensure TEAM is the canonical object in the global lookup tables.
 Fixes the case where `slack-team-find' would return a stale team
@@ -374,7 +362,7 @@ point, searching the current line first, then backward/forward."
                   (emojify-redisplay-emojis-in-region (point-min) (point-max))))))
           existing)
       (make-instance 'slack-activity-feed-buffer
-                     :team-id (slack-team-id-safe team)
+                     :team-id (oref team id)
                      :room-id "__activity-feed__"
                      :cached-team team
                      :activity-feed activity-feed))))
@@ -429,7 +417,7 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                                   (slack-message-to-string fetched-msg team)
                                 "TODO"))
                       'ts ts
-                      'team-id (slack-team-id-safe team)
+                      'team-id (oref team id)
                       'room-id (oref room id)
                       'thread-ts thread-ts))
       (error

@@ -513,7 +513,7 @@ more than 20 api calls."
              (funcall after-success
                       messages
                       next-cursor)))
-         (success (data)
+         (success (&key data &allow-other-keys)
            (slack-request-handle-error
             (data "slack-conversations-history"
                   #'(lambda (err)
