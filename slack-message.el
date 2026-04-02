@@ -152,14 +152,16 @@
   (cons "timestamp" (slack-ts m)))
 
 (cl-defmethod slack-message-get-text ((m slack-message) team)
-  (or (mapconcat #'identity
-                 (cl-remove-if #'(lambda (block-message)
-                                   (< (length block-message) 1))
-                               (mapcar #'(lambda (bl)
-                                           (slack-block-to-mrkdwn bl (list :team team)))
-                                       (oref m blocks)))
-                 "\n\n")
-      (slack-unescape (oref m text) team)))
+  (let ((block-text (mapconcat #'identity
+                               (cl-remove-if #'(lambda (block-message)
+                                                 (< (length block-message) 1))
+                                             (mapcar #'(lambda (bl)
+                                                         (slack-block-to-mrkdwn bl (list :team team)))
+                                                     (oref m blocks)))
+                               "\n\n")))
+    (if (string-empty-p block-text)
+        (slack-unescape (or (oref m text) "") team)
+      block-text)))
 
 (cl-defmethod slack-thread-message-p ((this slack-message))
   (and (oref this thread-ts)
