@@ -1139,28 +1139,66 @@ THREAD-TS can be nil.  When GOTO-TS is non-nil, navigate to that
 timestamp instead of the default."
   (cl-labels ((go-to-link-position ()
                 (slack-buffer-goto (or goto-ts ts))
-                (when (and
-                       (not (equal ts (slack-get-ts)))
-                       (not (equal thread-ts (slack-get-ts)))
-                       slack-open-message-with-browser
-                       )
-                  (message "slack-open-message: message not available in emacs-slack buffer browsing permalink...")
-                  (browse-url
-                   (slack-info-to-permalink
-                    (list
-                     :team-domain (oref team name)
-                     :room-id (oref room id)
-                     :ts ts
-                     :thread-ts thread-ts)))))
-              (after-success () (slack-room-display room team #'go-to-link-position)))
-    (if-let ((thread-message (and (not (slack-im-p room)) (ignore-errors (slack-room-find-message room thread-ts)))))
-        ;; TODO handle missing ts also in threads: not sure where that would be: conversation.replies channel, thread-ts
-        (slack-thread-show-messages thread-message room team #'go-to-link-position)
-      (if (or (not slack-test-out-load-older-messages-p) (-contains-p (oref room message-ids) ts))
-          (slack-room-display room team #'go-to-link-position)
-        (slack-messages-before ts room team)
-        (slack-messages-after ts room team #'after-success))
-      )))
+                (slack-open-message--browser-fallback
+                 ts thread-ts team room))
+              (after-success ()
+                (slack-room-display room team #'go-to-link-position))
+              (open-thread (parent)
+                (slack-thread-show-messages
+                 parent room team #'go-to-link-position)))
+    (if thread-ts
+        (slack-open-message--open-thread
+         room thread-ts team #'go-to-link-position #'open-thread)
+      (slack-open-message--open-channel
+       ts room team #'go-to-link-position #'after-success))))
+
+(defun slack-open-message--browser-fallback (ts thread-ts team room)
+  "Open browser permalink when TS is not at point.
+Checks both TS and THREAD-TS against current position in TEAM ROOM."
+  (when (and (not (equal ts (slack-get-ts)))
+             (not (equal thread-ts (slack-get-ts)))
+             slack-open-message-with-browser)
+    (message "slack-open-message: message not available, browsing permalink")
+    (browse-url
+     (slack-info-to-permalink
+      (list :team-domain (oref team name)
+            :room-id (oref room id)
+            :ts ts
+            :thread-ts thread-ts)))))
+
+(defun slack-open-message--open-thread (room thread-ts team callback open-loaded)
+  "Open thread THREAD-TS in ROOM for TEAM.
+Try the loaded parent first via OPEN-LOADED.  When the parent is
+not loaded, fetch the thread from the API and display it, then
+call CALLBACK to navigate."
+  (if-let ((parent (ignore-errors
+                     (slack-room-find-message room thread-ts))))
+      (funcall open-loaded parent)
+    (slack-open-message--fetch-thread
+     room thread-ts team callback)))
+
+(defun slack-open-message--fetch-thread (room thread-ts team callback)
+  "Fetch thread THREAD-TS in ROOM for TEAM, then display it.
+Call CALLBACK after displaying the thread buffer."
+  (slack-conversations-replies
+   room thread-ts team
+   :after-success
+   (lambda (messages _next-cursor has-more)
+     (slack-room-set-messages room messages team)
+     (slack-message-set-replies room thread-ts messages)
+     (let ((buf (slack-create-thread-message-buffer
+                 room team thread-ts has-more)))
+       (slack-buffer-display buf)
+       (when (functionp callback) (funcall callback))))))
+
+(defun slack-open-message--open-channel (ts room team callback after-success)
+  "Open ROOM for TEAM at message TS.
+Use CALLBACK for direct display, AFTER-SUCCESS for fetch-then-display."
+  (if (or (not slack-test-out-load-older-messages-p)
+          (-contains-p (oref room message-ids) ts))
+      (slack-room-display room team callback)
+    (slack-messages-before ts room team)
+    (slack-messages-after ts room team after-success)))
 
 (defun slack-quote-and-reply (quote)
   "Prefix QUOTE to reply if region active on a slack message."
