@@ -179,6 +179,12 @@
 (cl-defmethod slack-team-name ((team slack-team))
   (oref team name))
 
+(defun slack-team-canonical (team)
+  "Return the canonical object for TEAM from `slack-teams-by-token'.
+Falls back to TEAM itself when the token is not found."
+  (or (gethash (oref team token) slack-teams-by-token)
+      team))
+
 (cl-defun slack-team-select (&optional no-default)
   "Prompt the user to select a Slack team and return it.
 When `slack-current-team' is already set and NO-DEFAULT is nil,
@@ -186,7 +192,7 @@ return it without prompting.  Otherwise prompt from all
 registered teams (including disconnected ones) and remember the
 selection in `slack-current-team'."
   (if (and slack-current-team (not no-default))
-      slack-current-team
+      (slack-team-canonical slack-current-team)
     (let* ((teams (hash-table-values slack-teams-by-token))
            (alist (mapcar (lambda (team)
                             (cons (slack-team-name team) (oref team token)))
