@@ -711,5 +711,41 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
 (define-key slack-activity-feed-buffer-mode-map (kbd "u") 'slack-activity-feed-toggle-unread)
 (define-key slack-activity-feed-buffer-mode-map (kbd "g") 'slack-activity-feed-show)
 
+(defun slack-activity-feed-refresh-unread-summary ()
+  "Update `slack-has-unreads' and `slack-unread-count' from Activity feed.
+Calls `activity.feed' in unread-only mode for each registered
+team, counts the items, and sets the global indicator variables.
+Works over HTTP and does not require an active WebSocket."
+  (let ((total-count 0)
+        (any-unreads nil)
+        (pending (list 0)))
+    (maphash
+     (lambda (_token team)
+       (cl-incf (car pending))
+       (slack-activity-feed--fetch-unread-count
+        team
+        (lambda (count)
+          (when (< 0 count)
+            (setq any-unreads t)
+            (cl-incf total-count count))
+          (when (= 0 (cl-decf (car pending)))
+            (setq slack-has-unreads any-unreads
+                  slack-unread-count total-count)
+            (force-mode-line-update)))))
+     slack-teams-by-token)
+    (when (= 0 (car pending))
+      (setq slack-has-unreads nil
+            slack-unread-count 0)
+      (force-mode-line-update))))
+
+(defun slack-activity-feed--fetch-unread-count (team callback)
+  "Fetch unread Activity item count for TEAM.
+CALLBACK receives a single integer argument."
+  (let ((slack-activity-feed-mode-show-only-unread t))
+    (slack-activity-feed-request
+     team
+     (lambda (data)
+       (funcall callback (length (plist-get data :items)))))))
+
 (provide 'slack-activity-feed-buffer)
 ;;; slack-activity-feed-buffer.el ends here

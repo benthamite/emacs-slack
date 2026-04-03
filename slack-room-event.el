@@ -232,7 +232,9 @@
   (let* ((type (plist-get payload :type))
          (klass (cond
                  ((string= "channel_marked" type) 'slack-channel-marked-event)
-                 ((string= "group_marked" type) 'slack-group-marked-event)
+                 ((or (string= "group_marked" type)
+                      (string= "mpim_marked" type))
+                  'slack-group-marked-event)
                  ((string= "im_marked" type) 'slack-im-marked-event))))
     (make-instance klass :payload payload)))
 

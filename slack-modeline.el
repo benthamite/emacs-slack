@@ -26,6 +26,9 @@
 (require 'slack-team)
 (require 'slack-counts)
 
+(declare-function slack-activity-feed-refresh-unread-summary
+                  "slack-activity-feed-buffer")
+
 (defvar slack-modeline nil)
 
 (defvar slack-has-unreads nil
@@ -43,6 +46,26 @@
   "Format modeline with Arg `((team-name . (has-unreads . cnt)))'."
   :type 'function
   :group 'slack)
+
+(defcustom slack-counts-refresh-interval 60
+  "Seconds between periodic count and Activity feed refreshes.
+Set to nil to disable.  The default is 60 seconds."
+  :type '(choice (const :tag "Disabled" nil)
+                 (integer :tag "Seconds"))
+  :group 'slack)
+
+(defcustom slack-activity-refresh-debounce 30
+  "Minimum seconds between Activity feed API calls.
+Prevents excessive calls when many WebSocket events arrive in
+quick succession.  The periodic timer bypasses this limit."
+  :type 'integer
+  :group 'slack)
+
+(defvar slack-counts-refresh-timer nil
+  "Timer for periodic counts refresh.")
+
+(defvar slack-activity-last-refresh-time 0
+  "Time of the last Activity feed refresh as `float-time'.")
 
 (defface slack-modeline-has-unreads-face
   '((t (:weight bold :foreground "#d33682")))
@@ -90,8 +113,10 @@ Each entry is (team-name . ((thread . (unreads . count))
              alist " "))
 
 (defun slack-enable-modeline ()
+  "Enable the Slack mode-line indicator and start periodic refresh."
   (when slack-enable-global-mode-string
-    (add-to-list 'global-mode-string '(:eval slack-modeline) t)))
+    (add-to-list 'global-mode-string '(:eval slack-modeline) t))
+  (slack-counts-start-refresh-timer))
 
 (defun slack-update-modeline ()
   "Recompute unread summary variables and refresh the mode line."
@@ -110,20 +135,16 @@ Each entry is (team-name . ((thread . (unreads . count))
   (force-mode-line-update))
 
 (defun slack-update-unread-summary ()
-  "Recompute `slack-has-unreads' and `slack-unread-count'.
-These variables aggregate raw counts across all connected teams,
-without filtering by notification importance."
-  (let ((has-unreads nil)
-        (mention-count 0))
-    (maphash
-     (lambda (_token team)
-       (when-let ((counts (oref team counts)))
-         (dolist (e (slack-counts-summary counts))
-           (when (cadr e) (setq has-unreads t))
-           (cl-incf mention-count (cddr e)))))
-     slack-teams-by-token)
-    (setq slack-has-unreads has-unreads
-          slack-unread-count mention-count)))
+  "Trigger a debounced Activity feed refresh.
+Updates `slack-has-unreads' and `slack-unread-count' from the
+`activity.feed' API, which matches Slack's Activity section
+exactly.  Skips the call if less than
+`slack-activity-refresh-debounce' seconds have elapsed."
+  (let ((now (float-time)))
+    (when (< slack-activity-refresh-debounce
+             (- now slack-activity-last-refresh-time))
+      (setq slack-activity-last-refresh-time now)
+      (slack-activity-feed-refresh-unread-summary))))
 
 (defun slack-team-counts-summary (team)
   (with-slots (counts) team
@@ -151,6 +172,30 @@ without filtering by notification importance."
                        #'(lambda (counts)
                            (oset team counts counts)
                            (slack-update-modeline))))
+
+(defun slack-counts-refresh-all ()
+  "Refresh counts and Activity state for all connected teams."
+  (maphash (lambda (_token team)
+             (when (slack-team-connectedp team)
+               (slack-counts-update team)))
+           slack-teams-by-token)
+  (setq slack-activity-last-refresh-time (float-time))
+  (slack-activity-feed-refresh-unread-summary))
+
+(defun slack-counts-start-refresh-timer ()
+  "Start the periodic counts refresh timer."
+  (slack-counts-stop-refresh-timer)
+  (when slack-counts-refresh-interval
+    (setq slack-counts-refresh-timer
+          (run-with-timer slack-counts-refresh-interval
+                          slack-counts-refresh-interval
+                          #'slack-counts-refresh-all))))
+
+(defun slack-counts-stop-refresh-timer ()
+  "Stop the periodic counts refresh timer."
+  (when (timerp slack-counts-refresh-timer)
+    (cancel-timer slack-counts-refresh-timer)
+    (setq slack-counts-refresh-timer nil)))
 
 (provide 'slack-modeline)
 ;;; slack-modeline.el ends here
