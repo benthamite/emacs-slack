@@ -140,6 +140,7 @@ what is happening in your team."
 
 (defun slack-ws-close ()
   (interactive)
+  (slack-counts-stop-refresh-timer)
   (mapc #'(lambda (team) (slack-ws--close (oref team ws) team t))
         (hash-table-values slack-teams-by-token))
   (slack-request-worker-quit))
@@ -536,7 +537,8 @@ TEAM is one of `slack-teams'."
           (slack-ws-handle-file-deleted decoded-payload team))
          ((or (string= type "im_marked")
               (string= type "channel_marked")
-              (string= type "group_marked"))
+              (string= type "group_marked")
+              (string= type "mpim_marked"))
           (slack-ws-handle-room-marked decoded-payload team))
          ((string= type "thread_marked")
           (slack-ws-handle-thread-marked decoded-payload team))
