@@ -208,7 +208,8 @@
   (oset this members-loaded-p t))
 
 (cl-defmethod slack-room-hidden-p ((this slack-group))
-  (not (slack-room-member-p this)))
+  (or (not (slack-room-member-p this))
+      (slack-room-archived-p this)))
 
 (cl-defmethod slack-room-member-p ((room slack-group))
   (oref room is-member))

@@ -489,13 +489,11 @@
 
 (ert-deftest slack-test-room-merge-preserves-messages ()
   (slack-test-setup
-    (oset channel created 1000)
     (let ((msg (make-instance 'slack-message :type "message" :ts "1.0")))
       (slack-room-push-message channel msg team)
       (let ((other (make-instance 'slack-channel
                                   :id channel-id
                                   :name "UpdatedName"
-                                  :created 2000
                                   :unread_count 5
                                   :last_read "99.0")))
         (slack-merge channel other)
@@ -505,15 +503,21 @@
 
 (ert-deftest slack-test-room-merge-skips-zero-last-read ()
   (slack-test-setup
-    (oset channel created 1000)
     (oset channel last-read "50.0")
     (let ((other (make-instance 'slack-channel
                                 :id channel-id
                                 :name channel-name
-                                :created 1000
                                 :last_read "0")))
       (slack-merge channel other)
       (should (string= "50.0" (oref channel last-read))))))
+
+(ert-deftest slack-test-room-merge-handles-nil-created ()
+  (slack-test-setup
+    (let ((other (make-instance 'slack-channel
+                                :id channel-id
+                                :name "Updated")))
+      (slack-merge channel other)
+      (should (null (oref channel created))))))
 
 ;;; ---- Team room management ----
 
@@ -527,11 +531,9 @@
 
 (ert-deftest slack-test-team-set-channels-merges-existing ()
   (slack-test-setup
-    (oset channel created 1000)
     (let ((updated (make-instance 'slack-channel
                                   :id channel-id
                                   :name "Updated"
-                                  :created 1000
                                   :unread_count 10)))
       (slack-team-set-channels team (list updated))
       (let ((stored (gethash channel-id (oref team channels))))
@@ -710,6 +712,18 @@
                                :id "G2" :name "joined"
                                :is_member t)))
     (should-not (slack-room-hidden-p member))))
+
+(ert-deftest slack-test-group-hidden-when-archived ()
+  (let ((archived-member (make-instance 'slack-group
+                                        :id "G1" :name "old"
+                                        :is_member t
+                                        :is_archived t)))
+    (should (slack-room-hidden-p archived-member)))
+  (let ((active-member (make-instance 'slack-group
+                                      :id "G2" :name "active"
+                                      :is_member t
+                                      :is_archived nil)))
+    (should-not (slack-room-hidden-p active-member))))
 
 (ert-deftest slack-test-channel-hidden-when-archived ()
   (let ((archived (make-instance 'slack-channel

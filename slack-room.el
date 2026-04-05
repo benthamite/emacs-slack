@@ -45,7 +45,7 @@
 
 (defclass slack-room ()
   ((id :initarg :id)
-   (created :initarg :created)
+   (created :initarg :created :initform nil)
    (unread-count :initarg :unread_count :initform 0 :type integer)
    (unread-count-display :initarg :unread_count_display :initform 0 :type integer)
    (message-ids :initform '() :type list)
