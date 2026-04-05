@@ -367,7 +367,7 @@ or not."
                                   (not (string-equal ts thread-ts)))
                              ;; When TS belongs to a thread reply, fetch via replies
                              ;; using THREAD-TS (parent) to anchor.
-                             (slack-conversations-replies room ts team
+                             (slack-conversations-replies room thread-ts team
                                                           :inclusive "true"
                                                           :limit "1"
                                                           :sync t)

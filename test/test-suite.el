@@ -22,6 +22,10 @@
 (require 'slack-request)
 
 (defvar slack-channel-button-keymap nil)
+(defvar slack-before-quit-hook nil)
+
+(declare-function slack-register-team "slack")
+(declare-function slack-stop "slack")
 
 (defmacro slack-test-setup (&rest body)
   (declare (indent 0) (debug t))
@@ -163,6 +167,24 @@
   (let ((msg (make-instance 'slack-message :type "message" :ts "1.0")))
     (should (null (slack-message-edited-at msg)))))
 
+(ert-deftest slack-test-message-get-or-fetch-thread-replies-use-thread-ts ()
+  (slack-test-setup
+    (let (replies-ts history-called)
+      (cl-letf (((symbol-function 'slack-conversations-replies)
+                 (lambda (_room arg-ts _team &rest _args)
+                   (setq replies-ts arg-ts)
+                   nil))
+                ((symbol-function 'slack-conversations-history)
+                 (lambda (&rest _args)
+                   (setq history-called t)
+                   nil)))
+        (should-not (slack-message-get-or-fetch "111.222"
+                                                channel-id
+                                                team
+                                                "100.000")))
+      (should (string= "100.000" replies-ts))
+      (should-not history-called))))
+
 ;;; ---- Room message storage ----
 
 (ert-deftest slack-test-room-push-and-find-message ()
@@ -255,6 +277,25 @@
       (slack-room-push-message channel msg team)
       (slack-room-trim-messages channel 100)
       (should (eq 1 (length (oref channel message-ids)))))))
+
+(ert-deftest slack-test-stop-force-resets-team-registries ()
+  (require 'slack)
+  (let ((slack-current-team nil)
+        (slack-before-quit-hook nil)
+        (slack-teams-by-token (make-hash-table :test 'equal))
+        (slack-tokens-by-id (make-hash-table :test 'equal)))
+    (puthash "old-token"
+             (slack-create-team '(:id "TOLD" :name "Old" :token "old-token"))
+             slack-teams-by-token)
+    (setq slack-current-team (gethash "old-token" slack-teams-by-token))
+    (cl-letf (((symbol-function 'slack-ws-close) #'ignore)
+              ((symbol-function 'slack-user-prefs-update) #'ignore))
+      (slack-stop t)
+      (should (hash-table-p slack-teams-by-token))
+      (should (hash-table-p slack-tokens-by-id))
+      (should (null slack-current-team))
+      (slack-register-team :name "New" :token "new-token")
+      (should (slack-team-find-by-token "new-token")))))
 
 ;;; ---- Reaction operations ----
 

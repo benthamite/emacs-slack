@@ -235,7 +235,8 @@ You can add it to append custom instructions that depend on context."
   (when force
     ;; needed as fallback when refreshing credentials to cleanup old ones from local state
     (message "Deleted all teams from cache: you need to redefine them." )
-    (setq slack-teams-by-token (make-hash-table :test 'equal)
+    (setq slack-current-team nil
+          slack-teams-by-token (make-hash-table :test 'equal)
           slack-tokens-by-id (make-hash-table :test 'equal)))
   (run-hooks 'slack-before-quit-hook)
   (message "Slack stopped"))

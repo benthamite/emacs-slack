@@ -14,6 +14,7 @@
 (require 'slack-star)
 (require 'slack-star-event)
 (require 'slack-stars-buffer)
+(require 'slack-scheduled-messages-buffer)
 (require 'slack-activity-feed-buffer)
 
 (defvar slack-channel-button-keymap nil)
@@ -1112,6 +1113,42 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
          (lambda ()
            (setq called t))))
       (should called))))
+
+(ert-deftest slack-test-scheduled-message-blocks-json-escapes-text ()
+  (let* ((text "hello \"team\"\npath\\value")
+         (payload (json-parse-string
+                   (slack-scheduled-messages--draft-blocks-json text)
+                   :object-type 'plist
+                   :array-type 'list)))
+    (should (string= text
+                     (plist-get
+                      (car (plist-get
+                            (car (plist-get
+                                  (car payload)
+                                  :elements))
+                            :elements))
+                      :text)))))
+
+(ert-deftest slack-test-scheduled-messages-show-keeps-request-team ()
+  (let* ((team1 (slack-create-team '(:id "T1" :name "One" :token "xoxb-one")))
+         (team2 (slack-create-team '(:id "T2" :name "Two" :token "xoxb-two")))
+         (slack-current-team team1)
+         captured-buffer)
+    (cl-letf (((symbol-function 'slack-list-scheduled-messages-request)
+               (lambda (_team after-success)
+                 (setq slack-current-team team2)
+                 (funcall after-success
+                          :data
+                          '(:drafts ((:id "D1"
+                                     :date_scheduled 1710000000
+                                     :last_updated_ts "1710000000.001"
+                                     :blocks ((:elements ((:elements ((:text "hello"))))))
+                                     :destinations ((:channel_id "C11111"))))))))
+              ((symbol-function 'slack-buffer-display)
+               (lambda (buffer)
+                 (setq captured-buffer buffer))))
+      (slack-scheduled-messages-show team1))
+    (should (string= "T1" (oref captured-buffer team-id)))))
 
 (ert-deftest slack-test-request-retry-respects-max-retries ()
   (let ((req (slack-request-create "https://example.com"

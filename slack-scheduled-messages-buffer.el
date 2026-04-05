@@ -13,6 +13,7 @@
 ;;; Code:
 
 (require 'eieio)
+(require 'json)
 (require 'slack-util)
 (require 'slack-buffer)
 (require 'slack-team)
@@ -33,6 +34,27 @@
 
 ;;; API Request Functions
 
+(defun slack-scheduled-messages--team (&optional team)
+  "Return TEAM, `slack-current-team', or prompt for a team."
+  (or team
+      slack-current-team
+      (slack-team-select)))
+
+(defun slack-scheduled-messages--draft-blocks-json (text)
+  "Encode scheduled draft TEXT blocks as JSON."
+  (json-encode
+   (vector
+    `((type . "rich_text")
+      (elements . [((type . "rich_text_section")
+                    (elements . [((type . "text")
+                                  (text . ,text))]))])))))
+
+(defun slack-scheduled-messages--destinations-json (channel-id)
+  "Encode CHANNEL-ID destinations as JSON."
+  (json-encode
+   (vector
+    `((channel_id . ,channel-id)))))
+
 (defun slack--build-multipart-part (name value)
   "Helper to build one part of a multipart/form-data body."
   (format "Content-Disposition: form-data; name=\"%s\"\r\n\r\n%s" name value))
@@ -49,8 +71,8 @@
   "Create a scheduled draft with TEXT for CHANNEL-ID in TEAM at POST-AT time."
   (let ((data-parts
          `(("token" . ,(oref team token))
-           ("blocks" . ,(format "[{\"type\":\"rich_text\",\"elements\":[{\"type\":\"rich_text_section\",\"elements\":[{\"type\":\"text\",\"text\":\"%s\"}]}]}]" text))
-           ("destinations" . ,(format "[{\"channel_id\": \"%s\"}]" channel-id))
+           ("blocks" . ,(slack-scheduled-messages--draft-blocks-json text))
+           ("destinations" . ,(slack-scheduled-messages--destinations-json channel-id))
            ("date_scheduled" . ,post-at)
            ("is_from_composer" . "true")
            ("_x_reason" . "schedule-draft")
@@ -188,15 +210,15 @@
 
 (cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-scheduled-messages-buffer)))
 
-(cl-defmethod slack-buffer-insert--history ((_this slack-activity-feed-buffer)))
+(cl-defmethod slack-buffer-insert--history ((_this slack-scheduled-messages-buffer)))
 
 
 ;;; Interactive Functions
 
-(defun slack-scheduled-messages-show ()
-  "Show scheduled messages (drafts) in a dedicated buffer."
+(defun slack-scheduled-messages-show (&optional team)
+  "Show scheduled messages (drafts) for TEAM in a dedicated buffer."
   (interactive)
-  (let ((team slack-current-team))
+  (let ((team (slack-scheduled-messages--team team)))
     (slack-list-scheduled-messages-request
      team
      (lambda (&rest data)
@@ -219,28 +241,27 @@
                                             :text text)))
                          all-drafts))
               (buffer-obj (make-instance 'slack-scheduled-messages-buffer
-                                         :team-id (oref slack-current-team id) ;; TODO fix reference
+                                         :team-id (oref team id)
                                          :messages (sort messages (lambda (a b) (< (oref a post-at) (oref b post-at)))))))
-         ;; (when-let ((old-buf (slack-buffer-find 'slack-scheduled-messages-buffer slack-current-team))) ;; TODO fix this
+         ;; (when-let ((old-buf (slack-buffer-find 'slack-scheduled-messages-buffer team))) ;; TODO fix this
          ;;   (kill-buffer (oref old-buf buf)))
          (slack-buffer-display buffer-obj))))))
 
 
-(defun slack-schedule-message (channel-id text minutes-from-now)
-  "Schedule TEXT to CHANNEL-ID in MINUTES-FROM-NOW as a draft."
+(defun slack-schedule-message (channel-id text minutes-from-now &optional team)
+  "Schedule TEXT to CHANNEL-ID in MINUTES-FROM-NOW as a draft for TEAM."
   (interactive
-   (list
-    (oref (let ((team slack-current-team)) ;; TODO don't use slack-current-team in this buffer!
-            (slack-room-select
-             (cl-loop for team in (list team)
-                      append (append (slack-team-ims team)
-                                     (slack-team-groups team)
-                                     (slack-team-channels team)))
-             team))
-          id)
-    (read-string "Message: ")
-    (read-number "Minutes from now: " 30)))
-  (let* ((team slack-current-team)
+   (let* ((team (slack-scheduled-messages--team))
+          (room (slack-room-select
+                 (append (slack-team-ims team)
+                         (slack-team-groups team)
+                         (slack-team-channels team))
+                 team)))
+     (list (oref room id)
+           (read-string "Message: ")
+           (read-number "Minutes from now: " 30)
+           team)))
+  (let* ((team (slack-scheduled-messages--team team))
          (post-at (format "%d" (floor (+ (float-time) (* minutes-from-now 60))))))
     (slack-schedule-message-request
      team
@@ -253,7 +274,7 @@
              (message "Message scheduled for %s" (format-time-string "%H:%M:%S" (seconds-to-time (string-to-number post-at))))
              (when (and (derived-mode-p 'slack-scheduled-messages-buffer-mode)
                         (y-or-n-p "Refresh scheduled messages list? "))
-               (slack-scheduled-messages-show)))
+               (slack-scheduled-messages-show team)))
          (message "Failed to schedule message: %S" data))))))
 
 (defun slack-scheduled-messages-delete-at-point ()
@@ -270,7 +291,7 @@
            (if (not (plist-get (plist-get data :data) :error))
                (progn
                  (message "Scheduled message deleted.")
-                 (slack-scheduled-messages-show))
+                 (slack-scheduled-messages-show team))
              (message "Failed to delete message: %S" data)))))
     (message "No scheduled message at point.")))
 
