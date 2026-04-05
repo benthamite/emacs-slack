@@ -120,6 +120,7 @@ You need to install `language-detection' for this to work.")
    ))
 
 (cl-defmethod slack-block-to-string ((this slack-layout-header-block) &optional _option)
+  ;; 1.2x height matches Slack's header block styling
   (propertize (slack-block-to-string (oref this text)) 'face '(:weight bold :height 1.2)))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-layout-header-block) &optional _option)
@@ -1089,6 +1090,7 @@ You need to install `language-detection' for this to work.")
                       image-width
                       image-height
                       slack-image-max-height)))
+      ;; Use SI kB (1000) not KiB (1024), matching Slack's web UI
       (slack-format-message (format "%s (%s kB)" alt-text (round (/ image-bytes 1000.0)))
                             (slack-image-string spec)))))
 
@@ -1133,6 +1135,7 @@ You need to install `language-detection' for this to work.")
 (cl-defmethod slack-block-to-string ((this slack-context-layout-block) &optional _option)
   (with-slots (elements) this
     (mapconcat #'identity
+               ;; Context block images are small inline thumbnails (30px cap)
                (mapcar #'(lambda (e) (slack-block-to-string e '(:max-image-height 30 :max-image-width 30)))
                        elements)
                " ")))

@@ -80,7 +80,7 @@
   ((oldest :initform nil :type (or null string))
    (latest :initform nil :type (or null string))
    (marker-overlay :initform nil)
-   (update-mark-timer :initform '(nil . nil)) ;; (timestamp . timer)
+   (update-mark-timer :initform '(nil . nil) :documentation "(TIMESTAMP . TIMER) cons: debounces mark-as-read API calls.")
    (cursor-event-prev-ts :initform nil :type (or null string))
    (cursor :initarg :cursor :initform "" :type string)
    ))
@@ -179,6 +179,7 @@ and forces recomputation of load-more placeholders next time.
                    (slack-buffer-update-mark-request this
                                                      (slack-buffer-latest-ts this))))
           (unless buffer-already-exists-p
+            ;; "0" is the Slack API sentinel for "no messages read yet"
             (when (or (string= "0" last-read)
                       (null (slack-buffer-goto last-read)))
               (goto-char (point-max))))
@@ -602,6 +603,8 @@ and forces recomputation of load-more placeholders next time.
                       (slack-if-let* ((data (and image (image-multi-frame-p image)))
                                       (count (car data))
                                       (delay (cdr data)))
+                          ;; GIFs with >200 frames are too expensive to animate
+                          ;; in Emacs (blocks the UI); show them as stills.
                           (if (< 200 count)
                               (slack-if-let* ((buffer slack-current-buffer)
                                               (team (slack-buffer-team buffer)))

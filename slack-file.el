@@ -134,7 +134,7 @@ When nil, save directly to `slack-file-dir' using the file's original name."
                              ("mhtml" . "MHTML")
                              ("mkv" . "Matroska video")
                              ("mov" . "QuickTime video")
-                             ("mp3" . "mp4")
+                             ("mp3" . "MPEG 3 audio")
                              ("mp4" . "MPEG 4 video")
                              ("mpg" . "MPEG video")
                              ("mumps" . "MUMPS")

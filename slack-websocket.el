@@ -241,7 +241,10 @@ Set when SLACK-EMIT-PERIODIC-PRESENCE-P is set.")
                      team :level 'trace))))))
 
 (defvar slack-disconnected-timer nil)
-(defun slack-notify-abandon-reconnect (team)
+(defun slack-schedule-abandon-reconnect-notice (team)
+  "Schedule a recurring idle-timer warning that reconnection was abandoned.
+The timer fires every 5 seconds of idle time so the user sees the
+message when they return to Emacs."
   (unless slack-disconnected-timer
     (setq slack-disconnected-timer
           (run-with-idle-timer 5 t
@@ -250,7 +253,8 @@ Set when SLACK-EMIT-PERIODIC-PRESENCE-P is set.")
                                     "Reconnect Count Exceeded. Manually invoke `slack-start'."
                                     team :level 'error))))))
 
-(defun slack-cancel-notify-adandon-reconnect ()
+(defun slack-cancel-abandon-reconnect-notice ()
+  "Cancel the recurring disconnection warning timer."
   (if (and slack-disconnected-timer
            (timerp slack-disconnected-timer))
       (progn
@@ -282,7 +286,7 @@ Provide AFTER-SUCCESS to run a side effect."
 (defun slack-ws-abort-reconnect (team-id)
   (let* ((team (slack-team-find team-id))
          (ws (oref team ws)))
-    (slack-notify-abandon-reconnect team)
+    (slack-schedule-abandon-reconnect-notice team)
     (slack-ws--close ws team t)))
 
 (defun slack-ws-reconnect-with-reconnect-url (team-id)
@@ -308,6 +312,9 @@ Locking the operation via `slack--lock-user-list-update' to avoid
   (unless slack--lock-user-list-update
     (slack-user-list-update team)
     (setq slack--lock-user-list-update t)
+    ;; 45s cooldown: users.list is tier-2 (~20 req/min) and this
+    ;; request is large; spacing it out avoids rate-limiting the token
+    ;; for other concurrent requests.
     (run-with-timer 45 nil #'slack--lock-user-list-update-release)))
 
 (defcustom slack-prefetch-channel-messages-p t
@@ -363,10 +370,10 @@ This also closes unnecessary buffers and refresh message buffer contents."
   (let* ((team (slack-team-find team-id)))
     (slack-conversations-list-update team)
     (slack-counts-update team)
-    ;; attempt at updating the user list in a delayed manner so to not hit user limit
+    ;; Delay 3s: let conversations-list and counts finish first, since
+    ;; user-list is large and would compete for the same rate-limit budget.
     (run-with-timer 3 nil #'slack--update-user-list-with-lock
                     team)
-    ;; we don't care if our user list is stale at this point, we try to sub and query presence
     (slack-team-presence-query-and-subscribe team)
     (slack-dnd-status-team-info team)
     (when (hash-table-p (oref team slack-message-buffer))
@@ -383,7 +390,8 @@ This also closes unnecessary buffers and refresh message buffer contents."
                     slack-room-message-compose-buffer
                     slack-search-result-buffer-mode
                     slack-pinned-items-buffer-mode))
-    ;; Prefetch messages for unread channels after counts arrive
+    ;; Delay 5s: counts-update must complete first so we know which
+    ;; channels have unreads; also avoids piling onto the rate limit.
     (run-with-timer 5 nil #'slack-prefetch-unread-channels team)))
 
 (defun slack-ws--reconnect (team-id &optional force)
@@ -1013,11 +1021,13 @@ statement to get a message id the ws can respond to."
 499 is the maximum number supported by the websocket. The
 query (subscription is limited) should rather be batched to cover
 all users, but for simplicity we take the first users."
+  ;; 499 is the websocket protocol maximum for presence_sub/presence_query
   (let ((first-499-users-ids (--> (oref team users)
                                   hash-table-values
                                   (--map (plist-get it :id) it)
                                   (append
-                                   ;; let's give priority to im conversations
+                                   ;; Prioritize IM users: DM presence is most
+                                   ;; visible in the UI (online dot in sidebar).
                                    (--keep
                                     (and
                                      (slack-room-open-p it)

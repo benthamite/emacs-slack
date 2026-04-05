@@ -59,6 +59,11 @@
       slack-image-file-directory))))
 
 (defun slack-image-slice (image)
+  "Slice IMAGE into horizontal strips for inline display.
+Each strip is ~1/5 of the image height, at least 70px, so tall
+images don't blow out the line spacing.  The 1.0001 divisor
+guards against floating-point rounding leaving a 1-pixel gap at
+the bottom."
   (when image
     (let* ((height (or (plist-get (cdr image) :height)
                        (cdr (image-size image t))))

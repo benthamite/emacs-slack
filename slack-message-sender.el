@@ -54,13 +54,15 @@ In this context an indentation level is a pair of spaces."
     (floor (/ space-count 2))))
 
 (cl-defun slack-message-send-internal (message room team &key (on-success nil) (on-error nil) (payload nil) (files nil) (joined nil))
+  "Send MESSAGE to ROOM on TEAM, joining the channel first if needed.
+FILES is a list of file paths to upload.  JOINED prevents infinite
+recursion when the join/open callback re-invokes this function."
   (when (slack-string-blankp message)
     (error "Empty message"))
+  ;; Phase 1: ensure membership (mpim rooms can report is-member=false
+  ;; even when the user is a member; conversations.open fixes this)
   (if (and (slack-channel-p room)
            (not (oref room is-member))
-           ;; it happened that mpim rooms can be mislabelled as is-member false, but you have to `slack-conversations-open' them to respond.
-           ;;
-           ;; added this joined input to avoid an infinite loop
            (not joined))
       (if (or (oref room is-mpim) (oref room is-im))
           (slack-conversations-open
@@ -86,6 +88,7 @@ In this context an indentation level is a pair of spaces."
                                                         :files files
                                                         :joined t
                                                         ))))
+    ;; Phase 2: send (upload files first if present, then post message)
     (if files
         (slack-message-upload-files team
                                     files
@@ -278,6 +281,8 @@ properties region (default 1)."
   (slack-mark-inline-format slack-mrkdwn-regex-strike 'strike))
 
 (defun slack-mark-code ()
+  ;; Group 2: the code regex captures the opening backtick in group 1
+  ;; (boundary char) and the content starts at group 2.
   (slack-mark-inline-format slack-mrkdwn-regex-code 'code 2))
 
 (defun slack-mark-code-block ()
@@ -286,7 +291,7 @@ properties region (default 1)."
     (slack-put-section-block-props (match-beginning 0)
                                    (match-end 0)
                                    (list :section-type 'code-block
-                                         :end (+ 3 (match-end 0))
+                                         :end (+ 3 (match-end 0)) ;; skip closing ``` (3 chars)
                                          :element-beg (match-beginning 2)
                                          :element-end (match-end 2)))))
 

@@ -39,7 +39,10 @@
 
 (defclass slack-room-async-event () () :abstract t)
 (cl-defmethod slack-event-save-room ((_this slack-room-async-event) _room _team _cb))
-(cl-defmethod slack-event-update ((this slack-room-async-event) team) ;; TODO so this doesn't get picked because
+;; This method is defined on `slack-room-async-event' (not the base
+;; `slack-room-event') so that events requiring an async save step
+;; dispatch here instead of to the synchronous base implementation.
+(cl-defmethod slack-event-update ((this slack-room-async-event) team)
   (slack-if-let* ((room (slack-event-find-room this team)))
       (slack-event-save-room this room team
                              #'(lambda ()

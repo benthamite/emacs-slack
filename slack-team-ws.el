@@ -32,21 +32,23 @@
    (conn :initarg :conn :initform nil)
    (ping-timer :initform nil)
    (check-ping-timeout-timer :initform nil)
-   (check-ping-timeout-sec :initarg :check-ping-timeout-sec :initform 20)
+   (check-ping-timeout-sec :initarg :check-ping-timeout-sec :initform 20) ;; seconds before declaring a ping lost
    (connected :initform nil)
    (reconnect-auto :initarg :reconnect-auto :initform t)
    (reconnect-timer :initform nil)
    (reconnect-after-sec :initform 2)
-   (reconnect-after-sec-base :initform 2)
-   (reconnect-after-sec-max :initform 120)
+   (reconnect-after-sec-base :initform 2) ;; initial backoff; doubles each attempt via `slack-ws-reconnect-backoff'
+   (reconnect-after-sec-max :initform 120) ;; 2-minute cap on exponential backoff
    (reconnect-count :initform 0)
-   (reconnect-count-max :initarg :reconnect-count-max :initform 360)
+   (reconnect-count-max :initarg :reconnect-count-max :initform 360) ;; ~12 hours at max backoff before giving up
    (last-pong :initform nil)
    (waiting-send :initform nil)
    (ping-check-timers :initform (make-hash-table :test 'equal))
    (reconnect-url :initform "" :type string)
    (connect-timeout-timer :initform nil)
-   (connect-timeout-sec :type number :initform 20) ;; websocket url is valid for 30 seconds.
+   ;; Slack's RTM URL expires after 30 seconds; we timeout at 20 to
+   ;; leave margin for the reconnect attempt before expiry.
+   (connect-timeout-sec :type number :initform 20)
    (inhibit-reconnection :initform nil)
    (websocket-nowait :initarg :websocket-nowait :initform nil)
    ))

@@ -206,6 +206,8 @@ you can remove by clearing
                     (buffer-substring-no-properties (point-min)
                                                     (point-max))))
             (user-name (slack-message-sender-name message team)))
+        ;; The `notifier' alert style interprets leading [, {, <, (
+        ;; as formatting directives; escape them with a backslash.
         (if (and (eq alert-default-style 'notifier)
                  (slack-im-p room)
                  (or (eq (aref text 0) ?\[)

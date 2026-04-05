@@ -49,8 +49,8 @@
    (unread-count :initarg :unread_count :initform 0 :type integer)
    (unread-count-display :initarg :unread_count_display :initform 0 :type integer)
    (message-ids :initform '() :type list)
-   (messages :initform (make-hash-table :test 'equal :size 300))
-   (last-read :initarg :last_read :type string :initform "0")
+   (messages :initform (make-hash-table :test 'equal :size 300)) ;; pre-sized for typical active-channel history
+   (last-read :initarg :last_read :type string :initform "0") ;; "0" = Slack API sentinel for "no messages read"
    (topic :initarg :topic :initform nil)))
 
 (cl-defgeneric slack-room-name (room team))
@@ -192,6 +192,8 @@
     (puthash ts message (oref this messages))
     (cl-pushnew ts (oref this message-ids)
                 :test #'string=)
+    ;; Slack timestamps (e.g. "1680000000.000100") sort correctly
+    ;; as strings, keeping message-ids in chronological order.
     (oset this message-ids
           (cl-sort (oref this message-ids) #'string<))
 
