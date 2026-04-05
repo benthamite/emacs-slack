@@ -737,5 +737,12 @@ seconds to wait if the rate limit for this tier would be exceeded."
   "Reset the rate limit counter for TIER."
   (remhash tier slack-rate-limit-counters))
 
+(defun slack-native-emoji-p ()
+  "Return non-nil when Emacs has native emoji rendering.
+Emacs 29 introduced built-in Unicode emoji display and the
+`emoji-search'/`emoji-insert' commands, making the external
+`emojify' package unnecessary."
+  (>= emacs-major-version 29))
+
 (provide 'slack-util)
 ;;; slack-util.el ends here

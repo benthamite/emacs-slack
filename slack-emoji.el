@@ -148,28 +148,86 @@ seconds."
         team
         :success #'on-success)))))
 
+(defun slack-select-emoji--affixation (candidates)
+  "Add Unicode emoji glyphs as prefixes for CANDIDATES.
+Pads each glyph to a uniform column width so names align."
+  (mapcar (lambda (name)
+            (let* ((glyph (gethash name slack-emoji-master))
+                   (display (if (stringp glyph) glyph " "))
+                   (width (string-width display))
+                   (padding (make-string (max 1 (- 3 width)) ?\s)))
+              (list name (concat display padding) "")))
+          candidates))
+
+(defun slack-select-emoji--candidates (team)
+  "Build the emoji candidate list for TEAM.
+Merges standard emoji shortcodes from `slack-emoji-master' with
+TEAM-specific custom emoji shortcodes.  Candidates are bare
+shortcode names (no colons) so the return value needs no
+post-processing."
+  (let ((candidates (hash-table-keys slack-emoji-master)))
+    (maphash (lambda (k _v) (cl-pushnew k candidates :test #'equal))
+             (oref team emoji-master))
+    (sort candidates #'string<)))
+
 (defun slack-select-emoji (team)
-  "Select emoji for TEAM."
-  (unless (< 0 (hash-table-count slack-emoji-master)) (slack-emoji-fetch-master-data (car (hash-table-values slack-teams-by-token))))
-  (if (and (fboundp 'emojify-completing-read)
-           (fboundp 'emojify-download-emoji-maybe))
-      (progn (emojify-download-emoji-maybe)
-             (cl-labels
-                 ((select ()
-                    (emojify-completing-read "Select Emoji: "
-                                             #'(lambda (data &rest args)
-                                                 (unless (null args)
-                                                   (slack-log (format "Invalid completing arguments: %s, %s" data args)
-                                                              team :level 'debug))
-                                                 (let ((emoji (car (split-string data " "))))
-                                                   (or (gethash emoji
-                                                                slack-emoji-master
-                                                                nil)
-                                                       (gethash emoji
-                                                                (oref team emoji-master)
-                                                                nil)))))))
-               (select)))
-    (completing-read "Emoji: " (hash-table-keys slack-emoji-master))))
+  "Select emoji for TEAM.
+On Emacs 29+, use `completing-read' with glyph-prefixed display.
+On older versions, use `emojify-completing-read' when available."
+  (unless (< 0 (hash-table-count slack-emoji-master))
+    (slack-emoji-fetch-master-data
+     (car (hash-table-values slack-teams-by-token))))
+  (if (or (slack-native-emoji-p)
+          (not (fboundp 'emojify-completing-read))
+          (not (fboundp 'emojify-download-emoji-maybe)))
+      (let ((completion-extra-properties
+             '(:affixation-function
+               slack-select-emoji--affixation)))
+        (completing-read "Emoji: "
+                         (slack-select-emoji--candidates team)))
+    (emojify-download-emoji-maybe)
+    (cl-labels
+        ((select ()
+           (emojify-completing-read
+            "Select Emoji: "
+            (lambda (data &rest args)
+              (unless (null args)
+                (slack-log
+                 (format "Invalid completing arguments: %s, %s"
+                         data args)
+                 team :level 'debug))
+              (let ((emoji (car (split-string data " "))))
+                (or (gethash emoji slack-emoji-master nil)
+                    (gethash emoji (oref team emoji-master) nil)))))))
+      (select))))
+
+(defun slack-fetch-team-emojis (team)
+  "Fetch custom emoji shortcodes for TEAM without downloading images.
+Populates TEAM's `emoji-master' hash table for use with the
+emoji picker on Emacs 29+ where native rendering is available."
+  (cl-labels
+      ((on-success (&key data &allow-other-keys)
+         (slack-request-handle-error
+          (data "slack-fetch-team-emojis")
+          (cl-loop for (name _url) on (plist-get data :emoji)
+                   by #'cddr
+                   do (puthash (format "%s:" name) t
+                               (oref team emoji-master))))))
+    (slack-request
+     (slack-request-create
+      slack-emoji-list
+      team
+      :success #'on-success))))
+
+(defun slack-emoji--unified-to-string (unified)
+  "Convert UNIFIED hex codepoints to a Unicode string.
+UNIFIED is a dash-separated string like \"1F600\" or
+\"1F1FA-1F1F8\"."
+  (condition-case nil
+      (apply #'string
+             (mapcar (lambda (hex) (string-to-number hex 16))
+                     (split-string unified "-")))
+    (error nil)))
 
 (defun slack-emoji-fetch-default-emojis-data (team)
   (slack-request
@@ -181,18 +239,33 @@ seconds."
     :sync t
     )))
 
+(defun slack-emoji--store-master-data (data)
+  "Populate `slack-emoji-master' from DATA.
+DATA is the parsed JSON list from the iamcal/emoji-data
+repository.  Each entry maps a shortcode like \":smile:\" to its
+Unicode string, or to t when the character cannot be decoded."
+  (cl-loop
+   for emoji in data
+   do (let ((short-names (plist-get emoji :short_names))
+            (char (slack-emoji--unified-to-string
+                   (plist-get emoji :unified))))
+        (when short-names
+          (cl-loop
+           for name in short-names
+           do (puthash (format ":%s:" name)
+                       (or char t)
+                       slack-emoji-master))))))
+
 (defun slack-emoji-fetch-master-data (team)
+  "Fetch the master emoji list synchronously and populate `slack-emoji-master'.
+TEAM is used for the HTTP request context.  Blocks until the data
+is downloaded; use `slack-emoji-fetch-master-data-async' during
+startup to avoid freezing Emacs."
   (cl-labels
       ((success (&key data &allow-other-keys)
          (slack-request-handle-error
           (data "slack-emoji-fetch-master-data")
-          (cl-loop for emoji in data
-                   do (let ((short-names (plist-get emoji :short_names)))
-                        (when short-names
-                          (cl-loop for name in short-names
-                                   do (puthash (format ":%s:" name)
-                                               t
-                                               slack-emoji-master))))))))
+          (slack-emoji--store-master-data data))))
     (slack-request
      (slack-request-create
       slack-emoji-master-data-url
@@ -200,8 +273,24 @@ seconds."
       :type "GET"
       :success #'success
       :without-auth t
-      :sync t
-      ))))
+      :sync t))))
+
+(defun slack-emoji-fetch-master-data-async (team)
+  "Fetch the master emoji list asynchronously.
+Like `slack-emoji-fetch-master-data' but does not block.  TEAM is
+used for the HTTP request context."
+  (cl-labels
+      ((success (&key data &allow-other-keys)
+         (slack-request-handle-error
+          (data "slack-emoji-fetch-master-data-async")
+          (slack-emoji--store-master-data data))))
+    (slack-request
+     (slack-request-create
+      slack-emoji-master-data-url
+      team
+      :type "GET"
+      :success #'success
+      :without-auth t))))
 
 (defun slack-insert-emoji ()
   "Insert emoji in slack buffer."

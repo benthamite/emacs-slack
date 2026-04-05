@@ -90,17 +90,29 @@
       reaction)))
 
 (defun slack-message-reaction-add (reaction ts room team)
+  "Add REACTION to the message at TS in ROOM for TEAM.
+On success, locally update the message and refresh all relevant
+buffers so the UI reflects the change immediately, without
+depending on a websocket event."
   (slack-if-let* ((message (slack-room-find-message room ts)))
       (let ((params (list (cons "channel" (oref room id))
                           (slack-message-get-param-for-reaction message)
                           (cons "name" reaction))))
-        (slack-message-reaction-add-request params team))))
+        (slack-message-reaction-add-request
+         params team message reaction)))
+  nil)
 
-(defun slack-message-reaction-add-request (params team)
-  (cl-labels ((on-reaction-add
-               (&key data &allow-other-keys)
-               (slack-request-handle-error
-                (data "slack-message-reaction-add-request"))))
+(defun slack-message-reaction-add-request (params team message reaction-name)
+  "Send a reactions.add request with PARAMS for TEAM.
+On success, add REACTION-NAME to MESSAGE locally and call
+`slack-message-replace-buffer' to refresh all relevant buffers."
+  (cl-labels
+      ((on-reaction-add
+        (&key data &allow-other-keys)
+        (slack-request-handle-error
+         (data "slack-message-reaction-add-request")
+         (slack-message-reaction--update-local
+          message reaction-name team))))
     (slack-request
      (slack-request-create
       slack-message-reaction-add-url
@@ -108,6 +120,18 @@
       :type "POST"
       :params params
       :success #'on-reaction-add))))
+
+(defun slack-message-reaction--update-local (message reaction-name team)
+  "Add REACTION-NAME to MESSAGE locally and refresh buffers.
+Mirrors what the websocket `reaction_added' handler does, so
+the UI updates immediately without waiting for a websocket event."
+  (let ((reaction (slack-reaction :name reaction-name
+                                  :count 1
+                                  :users (list (oref team self-id)))))
+    (slack-if-let* ((existing (slack-reaction-find message reaction)))
+        (slack-reaction-join existing reaction)
+      (slack-reaction-push message reaction)))
+  (slack-message-replace-buffer message team))
 
 (defun slack-message-reaction-remove (reaction ts room team)
   (slack-if-let* ((message (slack-room-find-message room ts)))

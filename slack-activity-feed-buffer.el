@@ -42,8 +42,6 @@
 (declare-function slack-message-create "slack-create-message")
 (declare-function slack-select-token "slack-request")
 (declare-function slack-message-replace-buffer "slack-message-buffer")
-(declare-function emojify-redisplay-emojis-in-region "emojify")
-(declare-function slack-buffer--emojify-chunked "slack-buffer")
 
 (defun slack-team-ensure-registered (team)
   "Ensure TEAM is the canonical object in the global lookup tables.
@@ -287,8 +285,9 @@ Run an action on the data returned with AFTER-SUCCESS."
 (define-derived-mode slack-activity-feed-buffer-mode slack-buffer-mode "Slack Activity Feed"
   (add-hook 'lui-pre-output-hook 'slack-mrkdwn-add-face nil t)
   (add-hook 'lui-pre-output-hook 'slack-display-inline-action t t)
-  (cursor-sensor-mode)
-  (slack-buffer-enable-emojify))
+  (add-hook 'post-command-hook
+            'slack-activity-feed--maybe-load-more nil t)
+  (cursor-sensor-mode))
 
 (defclass slack-activity-feed-buffer (slack-room-buffer)
   ((activity-feed :initarg :activity-feed :type slack-activity-feed)
@@ -302,21 +301,40 @@ Run an action on the data returned with AFTER-SUCCESS."
   "Return the room for the message at point.
 Unlike single-room buffers, the activity feed shows messages from
 many rooms.  The room is resolved from text properties at or near
-point, searching the current line first, then backward/forward."
+point.  As a last resort, the TS at point is matched against the
+cached activity list to recover the channel."
   (let* ((team (slack-buffer-team this))
-         (room-id (or (get-text-property (point) 'room-id)
-                      (cl-loop for i from (pos-bol) to (pos-eol)
-                               for rid = (get-text-property i 'room-id)
-                               if rid return rid)
-                      (let ((prev (previous-single-property-change
-                                   (point) 'room-id)))
-                        (and prev (> prev (point-min))
-                             (get-text-property (1- prev) 'room-id)))
-                      (let ((next (next-single-property-change
-                                   (point) 'room-id)))
-                        (and next (get-text-property next 'room-id))))))
+         (room-id (or (slack-activity-feed--room-id-at (point))
+                      (slack-activity-feed--room-id-from-ts
+                       this (get-text-property (point) 'ts)))))
     (when room-id
       (slack-room-find room-id team))))
+
+(defun slack-activity-feed--room-id-at (pos)
+  "Return room-id from text properties at or near POS.
+Checks POS itself, the current line, then searches backward and
+forward by property boundaries."
+  (or (get-text-property pos 'room-id)
+      (save-excursion
+        (goto-char pos)
+        (cl-loop for i from (pos-bol) to (pos-eol)
+                 for rid = (get-text-property i 'room-id)
+                 if rid return rid))
+      (let ((prev (previous-single-property-change pos 'room-id)))
+        (and prev (> prev (point-min))
+             (get-text-property (1- prev) 'room-id)))
+      (let ((next (next-single-property-change pos 'room-id)))
+        (and next (get-text-property next 'room-id)))))
+
+(defun slack-activity-feed--room-id-from-ts (buffer ts)
+  "Look up the channel for TS from BUFFER's cached activity list.
+Falls back to the activity feed data structure when text
+properties are unreliable."
+  (when ts
+    (cl-loop for activity in (oref (oref buffer activity-feed) activities)
+             for msg = (oref (oref activity item) message)
+             when (equal (oref msg ts) ts)
+             return (oref msg channel))))
 
 (cl-defmethod slack-buffer-name ((_class (subclass slack-activity-feed-buffer)) team)
   (format "*slack: %s Activity Feed*"
@@ -359,9 +377,7 @@ point, searching the current line first, then backward/forward."
                            do (slack-buffer-insert existing m)))
                 (let ((lui-time-stamp-position nil))
                   (if (slack-buffer-has-next-page-p existing)
-                      (slack-buffer-insert-load-more existing))))
-              (when (bound-and-true-p emojify-mode)
-                (slack-buffer--emojify-chunked (point-min) (point-max)))))
+                      (slack-buffer-insert-load-more existing))))))
           existing)
       (make-instance 'slack-activity-feed-buffer
                      :team-id (oref team id)
@@ -458,28 +474,31 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
     (format "%s %s" (if is-unread "*" " ") (slack-activity-item-to-string item team))))
 
 (cl-defmethod slack-buffer--replace ((this slack-activity-feed-buffer) ts)
+  "Replace the message with TS in the activity feed buffer.
+Resolves the room from text properties at the TS position,
+falling back to nearby positions if needed."
   (slack-if-let* ((team (slack-buffer-team this))
                   (buf (slack-buffer-buffer this)))
     (with-current-buffer buf
       (let ((pos (text-property-any (point-min) (point-max) 'ts ts)))
         (when pos
-          (slack-if-let* ((room-id (get-text-property pos 'room-id))
+          (slack-if-let* ((room-id (slack-activity-feed--room-id-at pos))
                           (room (slack-room-find room-id team))
                           (message (slack-room-find-message room ts)))
-              (progn
-                (slack-buffer-replace this message)
-                (when (bound-and-true-p emojify-mode)
-                  (let ((new-pos (text-property-any (point-min) (point-max) 'ts ts)))
-                    (when new-pos
-                      (let ((end (next-single-property-change new-pos 'ts nil (point-max))))
-                        (emojify-redisplay-emojis-in-region new-pos end))))))))))))
+              (slack-buffer-replace this message)))))))
 
 (cl-defmethod slack-message-replace-buffer :after ((this slack-message) team)
-  "Also update the activity feed buffer when a message changes."
+  "Also update the activity feed buffer when a message changes.
+Resolves the room from the message's channel slot rather than
+relying on buffer text properties."
   (slack-if-let* ((af-buffer (slack-buffer-find 'slack-activity-feed-buffer team))
                   (buf (and (slot-boundp af-buffer 'buf) (oref af-buffer buf)))
-                  (live (buffer-live-p buf)))
-      (slack-buffer--replace af-buffer (slack-ts this))))
+                  (live (buffer-live-p buf))
+                  (channel (oref this channel))
+                  (room (slack-room-find channel team))
+                  (message (slack-room-find-message room (slack-ts this))))
+      (with-current-buffer buf
+        (slack-buffer-replace af-buffer message))))
 
 (cl-defmethod slack-buffer-insert ((this slack-activity-feed-buffer) activity &rest _args)
   (let* ((team (slack-buffer-team this))
@@ -616,21 +635,40 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                 (slack-buffer-insert-load-more this))))))
     buffer))
 
-(cl-defmethod slack-buffer-loading-message-end-point ((_this slack-activity-feed-buffer))
-  (previous-single-property-change (point-max)
-                                   'loading-message))
+(defvar-local slack-activity-feed--loading-p nil
+  "Non-nil while an async load-more request is in flight.")
 
-(cl-defmethod slack-buffer-delete-load-more-string ((this slack-activity-feed-buffer))
-  (let* ((inhibit-read-only t)
-         (loading-message-end
-          (slack-buffer-loading-message-end-point this))
-         (loading-message-start
-          (previous-single-property-change loading-message-end
-                                           'loading-message)))
-    (delete-region loading-message-start
-                   loading-message-end)))
+(defun slack-activity-feed--maybe-load-more ()
+  "Load more activity when point is near the end of the buffer."
+  (when (and slack-current-buffer
+             (not slack-activity-feed--loading-p)
+             (slack-buffer-has-next-page-p slack-current-buffer)
+             (>= (point) (- (point-max) 2)))
+    (slack-buffer-load-more slack-current-buffer)))
+
+(cl-defmethod slack-buffer-insert-load-more ((_this slack-activity-feed-buffer))
+  "No-op: the activity feed uses infinite scroll instead.")
+
+(cl-defmethod slack-buffer-loading-message-end-point ((_this slack-activity-feed-buffer))
+  nil)
+
+(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-activity-feed-buffer))
+  "No-op: the activity feed has no load-more placeholder.")
 
 (cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-activity-feed-buffer)))
+
+(cl-defmethod slack-buffer-load-more ((this slack-activity-feed-buffer))
+  "Load and append the next page of activity feed results."
+  (when (and (slack-buffer-has-next-page-p this)
+             (not slack-activity-feed--loading-p))
+    (setq slack-activity-feed--loading-p t)
+    (cl-labels
+        ((after-success
+          ()
+          (with-current-buffer (slack-buffer-buffer this)
+            (slack-buffer-insert--history this)
+            (setq slack-activity-feed--loading-p nil))))
+      (slack-buffer-request-history this #'after-success))))
 
 (cl-defmethod slack-buffer-insert--history ((this slack-activity-feed-buffer))
   (slack-buffer-insert-history this)

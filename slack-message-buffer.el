@@ -844,13 +844,16 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
       (slack-buffer-pins-remove buf (slack-get-ts))))
 
 (defun slack-message-add-reaction ()
+  "Add an emoji reaction to the message at point."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer)
                   (team (slack-buffer-team buf))
                   (reaction (slack-message-reaction-input team)))
-      (slack-buffer-add-reaction-to-message buf
-                                            reaction
-                                            (slack-get-ts))))
+      (progn
+        (slack-buffer-add-reaction-to-message buf
+                                              reaction
+                                              (slack-get-ts))
+        nil)))
 
 (defun slack-message-remove-reaction ()
   (interactive)

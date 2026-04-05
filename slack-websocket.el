@@ -38,6 +38,9 @@
 (require 'slack-bot)
 (require 'slack-usergroup)
 (require 'slack-slash-commands)
+(declare-function slack-download-emoji "slack-emoji")
+(declare-function slack-fetch-team-emojis "slack-emoji")
+(declare-function slack-emoji-fetch-master-data-async "slack-emoji")
 (require 'slack-star)
 (require 'slack-message-notification)
 (require 'slack-room-buffer)
@@ -1089,7 +1092,11 @@ represent activity."
                        ;; (slack-user-list-update team)
                        (slack-dnd-status-team-info team)
                        (when slack-buffer-emojify
-                         (slack-download-emoji team #'on-emoji-download))
+                         (if (slack-native-emoji-p)
+                             (progn
+                               (slack-emoji-fetch-master-data-async team)
+                               (slack-fetch-team-emojis team))
+                           (slack-download-emoji team #'on-emoji-download)))
                        (slack-command-list-update team)
                        (slack-usergroup-list-update team)
                        (slack-update-modeline)

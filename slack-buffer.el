@@ -127,8 +127,8 @@ saved hooks run once over the full inserted region."
   (add-hook 'lui-post-output-hook 'slack-display-image t t)
   (add-hook 'lui-pre-output-hook 'slack-handle-lazy-user-name nil t)
   (add-hook 'lui-pre-output-hook 'slack-handle-lazy-conversation-name nil t)
+  (slack-buffer-enable-emojify)
   (lui-set-prompt " ")
-  ;; don't adjust indentation of messages
   (setq-local lui-fill-type nil))
 
 (defclass slack-buffer ()
@@ -202,9 +202,6 @@ saved hooks run once over the full inserted region."
   (slack-if-let* ((buf (and (slot-boundp this 'buf) (oref this buf)))
                   (_live (buffer-live-p buf)))
       (with-current-buffer buf
-        (slack-buffer-enable-emojify)
-        (when (bound-and-true-p emojify-mode)
-          (slack-buffer--emojify-chunked (point-min) (point-max)))
         (add-hook 'kill-buffer-hook (slack-buffer-create-kill-hook this) nil t))))
 
 (cl-defmethod slack-buffer-kill-buffer-window ((this slack-buffer))
@@ -252,6 +249,25 @@ their previous buffer."
               'face '(:underline (:style line :color "gray50"))
               'slack-separator t))
 
+(defvar slack-emoji-master)
+
+(defun slack-buffer--render-native-emoji (beg end)
+  "Set display properties to render :shortcode: as Unicode emoji.
+Scans between BEG and END for patterns matching entries in
+`slack-emoji-master' and overlays a `display' property so the
+shortcode renders as its Unicode glyph.  The underlying buffer
+text remains unchanged."
+  (when (and (boundp 'slack-emoji-master)
+             (< 0 (hash-table-count slack-emoji-master)))
+    (let ((inhibit-read-only t))
+      (save-excursion
+        (goto-char beg)
+        (while (re-search-forward ":\\([a-zA-Z0-9_+-]+\\):" end t)
+          (let ((char (gethash (match-string 0) slack-emoji-master)))
+            (when (stringp char)
+              (put-text-property (match-beginning 0) (match-end 0)
+                                 'display char))))))))
+
 (defun slack-buffer--emojify-chunked (beg end)
   "Redisplay emojis between BEG and END in chunks.
 `emojify-redisplay-emojis-in-region' silently skips regions
@@ -277,8 +293,7 @@ line-aligned strides to stay under that limit."
      'ts (slack-ts message)
      'slack-last-ts lui-time-stamp-last
      'cursor-sensor-functions '(slack-buffer-subscribe-cursor-event))
-    (lui-insert "" t)
-    ))
+    (lui-insert "" t)))
 
 (defun slack-load-more-message ()
   (interactive)
@@ -467,12 +482,26 @@ line-aligned strides to stay under that limit."
         (when (eq type 'left)
           (remove-hook 'post-command-hook 'slack-reaction-echo-description t)))))
 
+(defun slack-buffer--post-output-render-emoji ()
+  "Render :shortcode: as native emoji after lui output.
+Intended as a `lui-post-output-hook' entry.  The buffer is
+narrowed to the just-inserted region when this runs."
+  (slack-buffer--render-native-emoji (point-min) (point-max)))
+
 (defun slack-buffer-enable-emojify ()
-  (if slack-buffer-emojify
+  "Enable emoji rendering in the current buffer.
+On Emacs 29+, add a `lui-post-output-hook' entry so that every
+`lui-insert' or `lui-replace-message' automatically gets native
+Unicode emoji display properties.  On older Emacs, activate
+`emojify-mode' when `slack-buffer-emojify' is set."
+  (when slack-buffer-emojify
+    (if (slack-native-emoji-p)
+        (add-hook 'lui-post-output-hook
+                  #'slack-buffer--post-output-render-emoji nil t)
       (let ((emojify (require 'emojify nil t)))
         (unless emojify
           (error "Emojify is not installed"))
-        (emojify-mode t))))
+        (emojify-mode t)))))
 
 (defun slack-buffer-goto (ts)
   (let ((point (slack-buffer-ts-eq (point-min) (point-max) ts)))
