@@ -240,10 +240,14 @@ the URL."
               new-items team
               (lambda ()
                 (with-current-buffer (slack-buffer-buffer this)
-                  (let ((inhibit-read-only t))
+                  (let ((inhibit-read-only t)
+                        (start (point-max)))
                     (slack-buffer-delete-load-more-string this)
+                    (setq start (point-max))
                     (slack-stars--insert-items this new-items)
-                    (slack-stars--insert-tail this)))))))))
+                    (slack-stars--insert-tail this)
+                    (when (bound-and-true-p emojify-mode)
+                      (slack-buffer--emojify-chunked start (point-max)))))))))))
     (message "No more items.")))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-stars-buffer))
@@ -261,6 +265,8 @@ the URL."
          (let ((inhibit-read-only t))
            (slack-stars--insert-items this items)
            (slack-stars--insert-tail this))
+         (when (bound-and-true-p emojify-mode)
+           (slack-buffer--emojify-chunked (point-min) (point-max)))
          (goto-char (point-min)))))
     buf))
 
