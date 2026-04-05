@@ -65,33 +65,95 @@ completed (or immediately if all messages are cached)."
          (is-reply (and thread-ts (not (string-equal ts thread-ts)))))
     (when (and room (not (slack-room-find-message room ts)))
       (condition-case err
-          (let ((done (lambda (messages &rest _)
-                        (when messages
-                          (slack-room-set-messages room messages team))
-                        (when (= 0 (cl-decf (car pending)))
-                          (funcall callback))))
-                (fail (lambda (&rest _)
+          (let ((fail (lambda (&rest _)
                         (when (= 0 (cl-decf (car pending)))
                           (funcall callback)))))
             (if is-reply
-                (slack-conversations-replies
-                 room thread-ts team
-                 :oldest ts
-                 :inclusive "true"
-                 :limit "1"
-                 :after-success done
-                 :on-error fail)
-              (slack-conversations-history
-               room team
-               :latest ts
-               :inclusive "true"
-               :limit "1"
-               :after-success done
-               :on-error fail)))
+                (slack-stars--prefetch-reply room ts thread-ts team pending callback fail)
+              (slack-stars--prefetch-from-history room ts team pending callback fail)))
         (error
          (message "slack-stars: prefetch error for %s: %S" ts err)
          (when (= 0 (cl-decf (car pending)))
            (funcall callback)))))))
+
+(defun slack-stars--prefetch-done (room team pending callback)
+  "Return a callback that stores MESSAGES in ROOM for TEAM.
+Calls CALLBACK when PENDING reaches zero."
+  (lambda (messages &rest _)
+    (when messages
+      (slack-room-set-messages room messages team))
+    (when (= 0 (cl-decf (car pending)))
+      (funcall callback))))
+
+(defun slack-stars--prefetch-reply (room ts thread-ts team pending callback fail)
+  "Prefetch reply at TS in thread THREAD-TS from ROOM for TEAM.
+Decrement PENDING and call CALLBACK when done, or FAIL on error."
+  (slack-conversations-replies
+   room thread-ts team
+   :oldest ts
+   :inclusive "true"
+   :limit "1"
+   :after-success (slack-stars--prefetch-done room team pending callback)
+   :on-error fail))
+
+(defun slack-stars--prefetch-from-history (room ts team pending callback fail)
+  "Prefetch message at TS from ROOM history for TEAM.
+If the returned message has a different timestamp, the saved item
+is a thread reply whose thread-ts was not provided by the API.
+In that case, resolve the real thread parent via
+`chat.getPermalink' and retry with `conversations.replies'.
+Decrement PENDING and call CALLBACK when done, or FAIL on error."
+  (slack-conversations-history
+   room team
+   :latest ts
+   :inclusive "true"
+   :limit "1"
+   :after-success
+   (lambda (messages &rest _)
+     (let ((got (and messages (car messages))))
+       (if (or (null got) (string-equal ts (slack-ts got)))
+           (progn
+             (when messages
+               (slack-room-set-messages room messages team))
+             (when (= 0 (cl-decf (car pending)))
+               (funcall callback)))
+         (slack-stars--resolve-thread-and-prefetch
+          room ts team pending callback fail))))
+   :on-error fail))
+
+(defconst slack-stars--permalink-url "https://slack.com/api/chat.getPermalink")
+
+(defun slack-stars--resolve-thread-and-prefetch (room ts team pending callback fail)
+  "Resolve the thread parent of reply TS in ROOM via permalink, then prefetch.
+Uses a synchronous permalink request because chained async
+requests do not complete reliably in the `request' library.
+TEAM, PENDING, CALLBACK, and FAIL are forwarded to the prefetch."
+  (let ((thread-ts (slack-stars--permalink-thread-ts room ts team)))
+    (if thread-ts
+        (slack-stars--prefetch-reply
+         room ts thread-ts team pending callback fail)
+      (funcall fail))))
+
+(defun slack-stars--permalink-thread-ts (room ts team)
+  "Return the thread-ts for message TS in ROOM for TEAM, or nil.
+Fetches the permalink synchronously and extracts thread_ts from
+the URL."
+  (condition-case nil
+      (let* ((resp (slack-request
+                    (slack-request-create
+                     slack-stars--permalink-url team
+                     :params (list (cons "channel" (oref room id))
+                                   (cons "message_ts" ts))
+                     :sync t)))
+             (data (and resp (request-response-data (oref resp response)))))
+        (slack-stars--extract-thread-ts (plist-get data :permalink)))
+    (error nil)))
+
+(defun slack-stars--extract-thread-ts (permalink)
+  "Extract thread_ts from a Slack PERMALINK URL, or nil."
+  (when (and permalink
+             (string-match "thread_ts=\\([0-9.]+\\)" permalink))
+    (match-string 1 permalink)))
 
 (cl-defmethod slack-buffer-name ((this slack-stars-buffer))
   (let ((team (slack-buffer-team this)))
