@@ -187,7 +187,8 @@ completed (or immediately if all messages are cached)."
               (condition-case err
                   (if is-reply
                       (slack-conversations-replies
-                       room ts team
+                       room thread-ts team
+                       :oldest ts
                        :inclusive "true"
                        :limit "1"
                        :after-success
@@ -352,12 +353,13 @@ point, searching the current line first, then backward/forward."
             (when (markerp lui-input-marker)
               (set-marker lui-input-marker (point-max)))
             (with-slots (activity-feed) existing
-              (let* ((activities (oref activity-feed activities)))
-                (cl-loop for m in activities
-                         do (slack-buffer-insert existing m)))
-              (let ((lui-time-stamp-position nil))
-                (if (slack-buffer-has-next-page-p existing)
-                    (slack-buffer-insert-load-more existing)))
+              (slack-buffer-with-deferred-hooks
+                (let* ((activities (oref activity-feed activities)))
+                  (cl-loop for m in activities
+                           do (slack-buffer-insert existing m)))
+                (let ((lui-time-stamp-position nil))
+                  (if (slack-buffer-has-next-page-p existing)
+                      (slack-buffer-insert-load-more existing))))
               (when (bound-and-true-p emojify-mode)
                 (slack-buffer--emojify-chunked (point-min) (point-max)))))
           existing)
@@ -605,12 +607,13 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
       (slack-activity-feed-buffer-mode)
       (slack-buffer-set-current-buffer this)
       (with-slots (activity-feed) this
-        (let* ((activities (oref activity-feed activities)))
-          (cl-loop for m in activities
-                   do (slack-buffer-insert this m)))
-        (let ((lui-time-stamp-position nil))
-          (if (slack-buffer-has-next-page-p this)
-              (slack-buffer-insert-load-more this)))))
+        (slack-buffer-with-deferred-hooks
+          (let* ((activities (oref activity-feed activities)))
+            (cl-loop for m in activities
+                     do (slack-buffer-insert this m)))
+          (let ((lui-time-stamp-position nil))
+            (if (slack-buffer-has-next-page-p this)
+                (slack-buffer-insert-load-more this))))))
     buffer))
 
 (cl-defmethod slack-buffer-loading-message-end-point ((_this slack-activity-feed-buffer))

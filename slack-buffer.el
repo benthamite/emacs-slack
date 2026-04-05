@@ -92,6 +92,34 @@
        (widen)
        ,@body)))
 
+(defmacro slack-buffer-with-deferred-hooks (&rest body)
+  "Execute BODY with lui output hooks deferred, then apply once.
+Temporarily disables `lui-pre-output-hook' and
+`lui-post-output-hook' during BODY so that bulk `lui-insert'
+calls avoid per-insert hook overhead.  After BODY completes, the
+saved hooks run once over the full inserted region."
+  (declare (indent 0) (debug t))
+  `(let ((slack--saved-pre lui-pre-output-hook)
+         (slack--saved-post lui-post-output-hook)
+         (slack--start (marker-position lui-output-marker)))
+     (setq-local lui-pre-output-hook nil)
+     (setq-local lui-post-output-hook nil)
+     (unwind-protect
+         (progn ,@body)
+       (setq-local lui-pre-output-hook slack--saved-pre)
+       (setq-local lui-post-output-hook slack--saved-post)
+       (slack-buffer--run-deferred-hooks slack--start))))
+
+(defun slack-buffer--run-deferred-hooks (start)
+  "Run saved lui output hooks once over the region from START to point-max."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (narrow-to-region start (point-max))
+      (goto-char (point-min))
+      (run-hooks 'lui-pre-output-hook)
+      (run-hooks 'lui-post-output-hook))))
+
 (define-derived-mode slack-buffer-mode lui-mode "Slack Buffer"
   (setq-local default-directory slack-default-directory)
   (add-hook 'lui-pre-output-hook 'slack-buffer-buttonize-link nil t)
