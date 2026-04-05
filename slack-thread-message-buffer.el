@@ -90,7 +90,7 @@
               (progn
                 (slack-buffer-insert this message t)
                 (let ((lui-time-stamp-position nil))
-                  (lui-insert (format "%s\n" (make-string lui-fill-column ?=)) t))
+                  (lui-insert (slack-buffer-separator) t))
                 (slack-if-let* ((messages (slack-message-replies message room))
                                 (latest-message (car (last messages))))
                     (progn

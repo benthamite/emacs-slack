@@ -161,9 +161,7 @@ Adds `room-id' property so `slack-feed-open-at-point' can find the channel."
            (channel (oref root-msg channel))
            (room (slack-room-find channel team))
            (prefix (or (and (slack-im-p room) "@") "#")))
-      (lui-insert (format "%s\n"
-                          (make-string lui-fill-column ?=))
-                  t)
+      (lui-insert (slack-buffer-separator) t)
       (lui-insert (propertize (format "%s%s"
                                       prefix
                                       (slack-room-name room team))

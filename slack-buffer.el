@@ -245,6 +245,13 @@ their previous buffer."
                             :level 'error))
                (signal (car err) (cdr err)))))))
 
+(defun slack-buffer-separator ()
+  "Return a propertized string that renders as a thin horizontal rule."
+  (propertize " \n"
+              'display '(space :width text :height (1))
+              'face '(:underline (:style line :color "gray50"))
+              'slack-separator t))
+
 (defun slack-buffer--emojify-chunked (beg end)
   "Redisplay emojis between BEG and END in chunks.
 `emojify-redisplay-emojis-in-region' silently skips regions
