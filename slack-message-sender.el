@@ -255,41 +255,30 @@ In this context an indentation level is a pair of spaces."
 (defun slack-put-section-block-props (beg end value)
   (put-text-property beg end 'slack-section-block-props value))
 
+(defun slack-mark-inline-format (regex type &optional beg-group)
+  "Mark inline formatting matches for REGEX with TYPE.
+BEG-GROUP is the match group for the beginning of the block
+properties region (default 1)."
+  (let ((beg-group (or beg-group 1)))
+    (goto-char (point-min))
+    (while (re-search-forward regex (point-max) t)
+      (unless (slack-mark-inside-code-p (match-beginning 1))
+        (slack-put-block-props (match-beginning beg-group)
+                               (match-end 4)
+                               (list :type type
+                                     :text (match-string 3)))))))
+
 (defun slack-mark-bold ()
-  (goto-char (point-min))
-  (while (re-search-forward slack-mrkdwn-regex-bold (point-max) t)
-    (unless (slack-mark-inside-code-p (match-beginning 1))
-      (slack-put-block-props (match-beginning 1)
-                             (match-end 4)
-                             (list :type 'bold
-                                   :text (match-string 3))))))
+  (slack-mark-inline-format slack-mrkdwn-regex-bold 'bold))
 
 (defun slack-mark-italic ()
-  (goto-char (point-min))
-  (while (re-search-forward slack-mrkdwn-regex-italic (point-max) t)
-    (unless (slack-mark-inside-code-p (match-beginning 1))
-      (slack-put-block-props (match-beginning 1)
-                             (match-end 4)
-                             (list :type 'italic
-                                   :text (match-string 3))))))
+  (slack-mark-inline-format slack-mrkdwn-regex-italic 'italic))
 
 (defun slack-mark-strike ()
-  (goto-char (point-min))
-  (while (re-search-forward slack-mrkdwn-regex-strike (point-max) t)
-    (unless (slack-mark-inside-code-p (match-beginning 1))
-      (slack-put-block-props (match-beginning 1)
-                             (match-end 4)
-                             (list :type 'strike
-                                   :text (match-string 3))))))
+  (slack-mark-inline-format slack-mrkdwn-regex-strike 'strike))
 
 (defun slack-mark-code ()
-  (goto-char (point-min))
-  (while (re-search-forward slack-mrkdwn-regex-code (point-max) t)
-    (unless (slack-mark-inside-code-p (match-beginning 1))
-      (slack-put-block-props (match-beginning 2)
-                             (match-end 4)
-                             (list :type 'code
-                                   :text (match-string 3))))))
+  (slack-mark-inline-format slack-mrkdwn-regex-code 'code 2))
 
 (defun slack-mark-code-block ()
   (goto-char (point-min))

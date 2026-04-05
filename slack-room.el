@@ -295,26 +295,21 @@ Defaults to 100. Used to reduce memory after closing buffers."
     (slack-group (slack-team-set-groups this (list room)))
     (slack-im (slack-team-set-ims this (list room)))))
 
+(defun slack-team--merge-into-table (table items)
+  "Merge ITEMS into TABLE, updating existing entries or inserting new ones."
+  (cl-loop for item in items
+           do (slack-if-let* ((old (gethash (oref item id) table)))
+                  (slack-merge old item)
+                (puthash (oref item id) item table))))
+
 (cl-defmethod slack-team-set-channels ((this slack-team) channels)
-  (let ((table (oref this channels)))
-    (cl-loop for channel in channels
-             do (slack-if-let* ((old (gethash (oref channel id) table)))
-                    (slack-merge old channel)
-                  (puthash (oref channel id) channel table)))))
+  (slack-team--merge-into-table (oref this channels) channels))
 
 (cl-defmethod slack-team-set-groups ((this slack-team) groups)
-  (let ((table (oref this groups)))
-    (cl-loop for group in groups
-             do (slack-if-let* ((old (gethash (oref group id) table)))
-                    (slack-merge old group)
-                  (puthash (oref group id) group table)))))
+  (slack-team--merge-into-table (oref this groups) groups))
 
 (cl-defmethod slack-team-set-ims ((this slack-team) ims)
-  (let ((table (oref this ims)))
-    (cl-loop for im in ims
-             do (slack-if-let* ((old (gethash (oref im id) table)))
-                    (slack-merge old im)
-                  (puthash (oref im id) im table)))))
+  (slack-team--merge-into-table (oref this ims) ims))
 
 (provide 'slack-room)
 ;;; slack-room.el ends here

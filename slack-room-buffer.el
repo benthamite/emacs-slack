@@ -613,90 +613,78 @@ Execute this function when cursor is on some message."
                   (action-id (cdr-safe (assoc-string "action_id" action-payload))))
       (slack-block-find-action bl action-id)))
 
-(cl-defmethod slack-buffer-execute-button-block-action ((this slack-room-buffer))
-  (slack-if-let* ((cur-point (point))
-                  (ts (slack-get-ts))
-                  (room (slack-buffer-room this))
-                  (team (slack-buffer-team this))
-                  (message (slack-room-find-message room ts))
-                  (action (get-text-property cur-point
-                                             'slack-action-payload))
-                  (button (slack-block-find-action-from-payload action message)))
+(defmacro slack-with-block-action (buffer &rest body)
+  "Execute BODY with block action context from BUFFER.
+Binds ROOM, TEAM, MESSAGE, ACTION, and BLOCK-ELEMENT from the
+text property at point."
+  (declare (indent 1) (debug t))
+  `(slack-if-let* ((cur-point (point))
+                   (ts (slack-get-ts))
+                   (room (slack-buffer-room ,buffer))
+                   (team (slack-buffer-team ,buffer))
+                   (message (slack-room-find-message room ts))
+                   (action (get-text-property cur-point 'slack-action-payload))
+                   (block-element (slack-block-find-action-from-payload action message)))
+     ,@body))
 
-      (when (slack-block-handle-confirm button)
-        (slack-if-let* ((url (oref button url)))
-            (browse-url url)
-          (let ((container (slack-buffer-block-action-container this message))
-                (service-id (slack-message-block-action-service-id message)))
-            (slack-block-action-execute service-id
-                                        (list action)
-                                        container
-                                        team))))))
+(defun slack-block-action--execute-with-selection (buffer message action team &optional selected-pair)
+  "Execute a block action for MESSAGE in BUFFER.
+ACTION is the action payload, TEAM is the workspace.
+SELECTED-PAIR, when non-nil, is a cons cell appended to ACTION."
+  (slack-block-action-execute
+   (slack-message-block-action-service-id message)
+   (list (if selected-pair
+             (append action (list selected-pair))
+           action))
+   (slack-buffer-block-action-container buffer message)
+   team))
+
+(defun slack-block-action--option-payload (selected-option)
+  "Build a selected_option payload cons from SELECTED-OPTION."
+  (with-slots (text value) selected-option
+    (cons "selected_option"
+          (list (cons "text" (slack-block-action-payload text))
+                (cons "value" value)))))
+
+(cl-defmethod slack-buffer-execute-button-block-action ((this slack-room-buffer))
+  (slack-with-block-action this
+    (when (slack-block-handle-confirm block-element)
+      (slack-if-let* ((url (oref block-element url)))
+          (browse-url url)
+        (slack-block-action--execute-with-selection this message action team)))))
 
 (cl-defmethod slack-buffer-execute-conversation-select-block-action ((this slack-room-buffer))
-  (slack-if-let* ((cur-point (point))
-                  (ts (slack-get-ts))
-                  (room (slack-buffer-room this))
-                  (team (slack-buffer-team this))
-                  (message (slack-room-find-message room ts))
-                  (action (get-text-property cur-point
-                                             'slack-action-payload))
-                  (select (slack-block-find-action-from-payload action message))
-                  (selected-conversation (slack-room-select (append (slack-team-channels team)
-                                                                    (slack-team-groups team)
-                                                                    (slack-team-ims team))
-                                                            team)))
-      (when (slack-block-handle-confirm select)
-        (slack-block-action-execute
-         (slack-message-block-action-service-id message)
-         (list (append action (list (cons "selected_conversation" (oref selected-conversation id)))))
-         (slack-buffer-block-action-container this message)
-         team))))
+  (slack-with-block-action this
+    (slack-if-let* ((selected (slack-room-select (append (slack-team-channels team)
+                                                         (slack-team-groups team)
+                                                         (slack-team-ims team))
+                                                 team)))
+        (when (slack-block-handle-confirm block-element)
+          (slack-block-action--execute-with-selection
+           this message action team
+           (cons "selected_conversation" (oref selected id)))))))
 
 (cl-defmethod slack-buffer-execute-channel-select-block-action ((this slack-room-buffer))
-  (slack-if-let* ((cur-point (point))
-                  (ts (slack-get-ts))
-                  (room (slack-buffer-room this))
-                  (team (slack-buffer-team this))
-                  (message (slack-room-find-message room ts))
-                  (action (get-text-property cur-point
-                                             'slack-action-payload))
-                  (select (slack-block-find-action-from-payload action message))
-                  (selected-channel (slack-room-select
-                                     (append (slack-team-channels team)
-                                             nil)
-                                     team)))
-      (when (slack-block-handle-confirm select)
-        (slack-block-action-execute
-         (slack-message-block-action-service-id message)
-         (list (append action (list (cons "selected_channel"
-                                          (oref selected-channel id)))))
-         (slack-buffer-block-action-container this message)
-         team))))
+  (slack-with-block-action this
+    (slack-if-let* ((selected (slack-room-select (append (slack-team-channels team) nil) team)))
+        (when (slack-block-handle-confirm block-element)
+          (slack-block-action--execute-with-selection
+           this message action team
+           (cons "selected_channel" (oref selected id)))))))
 
 (cl-defmethod slack-buffer-execute-user-select-block-action ((this slack-room-buffer))
-  (slack-if-let* ((cur-point (point))
-                  (ts (slack-get-ts))
-                  (room (slack-buffer-room this))
-                  (team (slack-buffer-team this))
-                  (message (slack-room-find-message room ts))
-                  (action (get-text-property cur-point
-                                             'slack-action-payload))
-                  (select (slack-block-find-action-from-payload action message))
-                  (selected-user (slack-select-from-list
-                                     ((slack-user-name-alist
-                                       team :filter #'(lambda (users)
-                                                        (cl-remove-if
-                                                         #'slack-user-hidden-p
-                                                         users)))
-                                      "Select User: "))))
-      (when (slack-block-handle-confirm select)
-        (slack-block-action-execute
-         (slack-message-block-action-service-id message)
-         (list (append action (list (cons "selected_user"
-                                          (plist-get selected-user :id)))))
-         (slack-buffer-block-action-container this message)
-         team))))
+  (slack-with-block-action this
+    (slack-if-let* ((selected (slack-select-from-list
+                                  ((slack-user-name-alist
+                                    team :filter #'(lambda (users)
+                                                     (cl-remove-if
+                                                      #'slack-user-hidden-p
+                                                      users)))
+                                   "Select User: "))))
+        (when (slack-block-handle-confirm block-element)
+          (slack-block-action--execute-with-selection
+           this message action team
+           (cons "selected_user" (plist-get selected :id)))))))
 
 (cl-defmethod slack-message-find-block ((this slack-message) block-id)
   (with-slots (blocks) this
@@ -705,92 +693,48 @@ Execute this function when cursor is on some message."
                 blocks)))
 
 (cl-defmethod slack-buffer-execute-static-select-block-action ((this slack-room-buffer))
-  (slack-if-let* ((cur-point (point))
-                  (ts (slack-get-ts))
-                  (room (slack-buffer-room this))
-                  (team (slack-buffer-team this))
-                  (message (slack-room-find-message room ts))
-                  (action (get-text-property cur-point
-                                             'slack-action-payload))
-                  (select (slack-block-find-action-from-payload action message))
-                  (selected-option (slack-block-select-option select)))
-      (when (slack-block-handle-confirm select)
-        (slack-block-action-execute
-         (slack-message-block-action-service-id message)
-         (list (append action (list (cons "selected_option"
-                                          (with-slots (text value) selected-option
-                                            (list (cons "text" (slack-block-action-payload text))
-                                                  (cons "value" value)))))))
-         (slack-buffer-block-action-container this message)
-         team))))
+  (slack-with-block-action this
+    (slack-if-let* ((selected (slack-block-select-option block-element)))
+        (when (slack-block-handle-confirm block-element)
+          (slack-block-action--execute-with-selection
+           this message action team
+           (slack-block-action--option-payload selected))))))
 
 (cl-defmethod slack-buffer-execute-external-select-block-action ((this slack-room-buffer))
-  (slack-if-let* ((cur-point (point))
-                  (ts (slack-get-ts))
-                  (room (slack-buffer-room this))
-                  (team (slack-buffer-team this))
-                  (message (slack-room-find-message room ts))
-                  (action (get-text-property cur-point
-                                             'slack-action-payload))
-                  (select (slack-block-find-action-from-payload action message)))
-      (cl-labels
-          ((success (options option-groups)
-                    (slack-if-let* ((selected-option (if options
-                                                         (slack-block-select-from-options select options)
-                                                       (slack-block-select-from-option-groups select option-groups))))
-                        (when (slack-block-handle-confirm select)
-                          (slack-block-action-execute
-                           (slack-message-block-action-service-id message)
-                           (list (append action (list (cons "selected_option"
-                                                            (with-slots (text value) selected-option
-                                                              (list (cons "text" (slack-block-action-payload text))
-                                                                    (cons "value" value)))))))
-                           (slack-buffer-block-action-container this message)
-                           team)))))
-        (slack-block-fetch-suggestions
-         select
-         (slack-message-block-action-service-id message)
-         (slack-buffer-block-action-container this message)
-         team
-         #'success))))
+  (slack-with-block-action this
+    (cl-labels
+        ((success (options option-groups)
+                  (slack-if-let* ((selected (if options
+                                                (slack-block-select-from-options block-element options)
+                                              (slack-block-select-from-option-groups block-element option-groups))))
+                      (when (slack-block-handle-confirm block-element)
+                        (slack-block-action--execute-with-selection
+                         this message action team
+                         (slack-block-action--option-payload selected))))))
+      (slack-block-fetch-suggestions
+       block-element
+       (slack-message-block-action-service-id message)
+       (slack-buffer-block-action-container this message)
+       team
+       #'success))))
 
 (cl-defmethod slack-buffer-execute-overflow-menu-block-action ((this slack-room-buffer))
-  (slack-if-let* ((cur-point (point))
-                  (ts (slack-get-ts))
-                  (room (slack-buffer-room this))
-                  (team (slack-buffer-team this))
-                  (message (slack-room-find-message room ts))
-                  (action (get-text-property cur-point
-                                             'slack-action-payload))
-                  (overflow (slack-block-find-action-from-payload action message))
-                  (options (oref overflow options))
-                  (selected-option (slack-block-select-from-options overflow options)))
-      (when (slack-block-handle-confirm overflow)
-        (slack-block-action-execute
-         (slack-message-block-action-service-id message)
-         (list (append action (list (cons "selected_option"
-                                          (with-slots (text value) selected-option
-                                            (list (cons "text" (slack-block-action-payload text))
-                                                  (cons "value" value)))))))
-         (slack-buffer-block-action-container this message)
-         team))))
+  (slack-with-block-action this
+    (slack-if-let* ((options (oref block-element options))
+                    (selected (slack-block-select-from-options block-element options)))
+        (when (slack-block-handle-confirm block-element)
+          (slack-block-action--execute-with-selection
+           this message action team
+           (slack-block-action--option-payload selected))))))
 
 (cl-defmethod slack-buffer-execute-datepicker-block-action ((this slack-room-buffer))
-  (slack-if-let* ((cur-point (point))
-                  (ts (slack-get-ts))
-                  (room (slack-buffer-room this))
-                  (team (slack-buffer-team this))
-                  (message (slack-room-find-message room ts))
-                  (action (get-text-property cur-point
-                                             'slack-action-payload))
-                  (datepicker (slack-block-find-action-from-payload action message))
-                  (selected-date (read-from-minibuffer "Date (YYYY-MM-DD): " (oref datepicker initial-date))))
-      (when (slack-block-handle-confirm datepicker)
-        (slack-block-action-execute
-         (slack-message-block-action-service-id message)
-         (list (append action (list (cons "selected_date" selected-date))))
-         (slack-buffer-block-action-container this message)
-         team))))
+  (slack-with-block-action this
+    (slack-if-let* ((selected-date (read-from-minibuffer "Date (YYYY-MM-DD): "
+                                                         (oref block-element initial-date))))
+        (when (slack-block-handle-confirm block-element)
+          (slack-block-action--execute-with-selection
+           this message action team
+           (cons "selected_date" selected-date))))))
 
 (provide 'slack-room-buffer)
 ;;; slack-room-buffer.el ends here
