@@ -34,10 +34,8 @@
 (defconst slack-share-url "https://slack.com/api/chat.shareMessage")
 (defvar slack-completing-read-function)
 (defvar slack-buffer-function)
-(defvar slack-target-ts)
-(make-local-variable 'slack-target-ts)
-(defvar slack-message-edit-buffer-type)
-(make-local-variable 'slack-message-edit-buffer-type)
+(defvar-local slack-target-ts nil)
+(defvar-local slack-message-edit-buffer-type nil)
 
 (defvar slack-edit-message-mode-map
   (let ((keymap (make-sparse-keymap)))

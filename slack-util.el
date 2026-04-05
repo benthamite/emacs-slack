@@ -441,10 +441,11 @@
 (defmacro slack-plist-each (plist &rest body)
   (declare (indent 2) (debug t))
   (let ((dup (cl-gensym)))
-    `(let* ((,dup (copy-sequence ,plist))
-            (key  (pop ,dup))
-            (value (pop ,dup)))
-       ,@body)))
+    `(let ((,dup (copy-sequence ,plist)))
+       (while ,dup
+         (let ((key (pop ,dup))
+               (value (pop ,dup)))
+           ,@body)))))
 
 (defun slack-seq-to-list (seq)
   (if (listp seq) seq (append seq nil)))
@@ -490,9 +491,16 @@ if you need them all use `slack-get-positions-by-ts'."
                return ts))))
 
 (defun slack-get-positions-by-ts ()
-  "Make a alist ts - point for a slack buffer."
+  "Make an alist of (TS POINT) entries for a slack buffer."
   (save-excursion
-    (--keep (when-let ((ts (get-text-property it 'ts))) (list ts it)) (-iota (point-max) 1))))
+    (let ((pos 1)
+          (max (point-max))
+          result)
+      (while (< pos max)
+        (when-let ((ts (get-text-property pos 'ts)))
+          (push (list ts pos) result))
+        (setq pos (next-single-property-change pos 'ts nil max)))
+      (nreverse result))))
 
 
 (defun slack-linkfy (text link)
@@ -676,15 +684,16 @@ Note the input timestamp must drop the last 6 digits.
 => \"https://clojurians.slack.com/archives/C099W16KZ/\
 p1730182493679269?thread_ts=1730182493.679269&cid=C099W16KZ\""
   (with-demoted-errors "slack-permalink-to-info: failed with %S"
-    (format
-     "https://%s.slack.com/archives/%s/p%s%s&cid=%s"
-     (plist-get info :team-domain)
-     (plist-get info :room-id)
-     (s-replace "." "" (plist-get info :ts))
-     (if (plist-get info :thread-ts)
-         (concat "?thread_ts=" (plist-get info :thread-ts))
-       "")
-     (plist-get info :room-id))))
+    (let ((thread-ts (plist-get info :thread-ts)))
+      (format
+       "https://%s.slack.com/archives/%s/p%s%s"
+       (plist-get info :team-domain)
+       (plist-get info :room-id)
+       (s-replace "." "" (plist-get info :ts))
+       (if thread-ts
+           (format "?thread_ts=%s&cid=%s"
+                   thread-ts (plist-get info :room-id))
+         "")))))
 
 ;;; Rate limiting
 

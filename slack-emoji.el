@@ -70,19 +70,21 @@ seconds."
     ;; create slack image file directory if it doesn't exist, otherwise curl complains
     (ignore-errors (mkdir slack-image-file-directory 'parent-if-needed))
     (cl-labels
-        ((handle-alias (name)
-           (let* ((raw-url (plist-get slack-emoji-all name))
-                  (alias (if (string-prefix-p "alias:" raw-url)
+        ((handle-alias (name &optional depth)
+           (let* ((depth (or depth 0))
+                  (raw-url (plist-get slack-emoji-all name))
+                  (alias (if (and raw-url (string-prefix-p "alias:" raw-url))
                              (intern (format ":%s" (cadr (split-string raw-url ":")))))))
-             (or
-              (and (not raw-url) (handle-alias (intern ":slack"))) ;some aliases are b0rked
-              (and (string-prefix-p "alias:" raw-url) ;recursive alias
-                   (handle-alias (intern (replace-regexp-in-string "alias" "" raw-url))))
-              (and alias (or (plist-get slack-emoji-all alias)
-                             (let ((emoji (emojify-get-emoji (format "%s:" alias))))
-                               (if emoji
-                                   (concat (emojify-image-dir) "/" (gethash "image" emoji))))))
-              raw-url)))
+             (if (> depth 10) nil
+               (or
+                (and (not raw-url) (handle-alias (intern ":slack") (1+ depth)))
+                (and raw-url (string-prefix-p "alias:" raw-url)
+                     (handle-alias (intern (replace-regexp-in-string "alias" "" raw-url)) (1+ depth)))
+                (and alias (or (plist-get slack-emoji-all alias)
+                               (let ((emoji (emojify-get-emoji (format "%s:" alias))))
+                                 (if emoji
+                                     (concat (emojify-image-dir) "/" (gethash "image" emoji))))))
+                raw-url))))
          (push-new-emoji (emoji)
            (puthash (car emoji) t (oref team emoji-master))
            (cl-pushnew emoji emojify-user-emojis

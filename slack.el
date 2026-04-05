@@ -209,7 +209,8 @@ You can add it to append custom instructions that depend on context."
     slack-current-team))
   (cl-labels ((start
                 (team)
-                (delete-file (request--curl-cookie-jar))
+                (when (file-exists-p (request--curl-cookie-jar))
+                  (delete-file (request--curl-cookie-jar)))
                 (slack-url-cookie-store team)
                 (slack-team-kill-buffers team)
                 (slack-if-let* ((ws (and (slot-boundp team 'ws)
@@ -231,6 +232,7 @@ You can add it to append custom instructions that depend on context."
 (defun slack-stop (force)
   "Quit all slack teams."
   (interactive "P")
+  (run-hooks 'slack-before-quit-hook)
   (slack-ws-close)
   (when force
     ;; needed as fallback when refreshing credentials to cleanup old ones from local state
@@ -238,7 +240,6 @@ You can add it to append custom instructions that depend on context."
     (setq slack-current-team nil
           slack-teams-by-token (make-hash-table :test 'equal)
           slack-tokens-by-id (make-hash-table :test 'equal)))
-  (run-hooks 'slack-before-quit-hook)
   (message "Slack stopped"))
 
 ;;;###autoload
@@ -346,7 +347,7 @@ Available options (property name, type, default value)
       (insert "- Name :: " (or (ignore-errors (oref channel name)) "Not available") "\n")
       (insert "- Topic :: " (format "%s" (oref channel topic)) "\n")
       (insert "- Purpose :: " (format "%s" (or (ignore-errors (oref channel purpose)) "Not available")) "\n")
-      (insert "- Archived :: " (or (ignore-errors (oref channel is-archived)) "Not available") "\n")
+      (insert "- Archived :: " (format "%s" (or (ignore-errors (oref channel is-archived)) "Not available")) "\n")
       (insert "- Creator :: " (or (ignore-errors (oref channel creator)) "Not available") "\n")
       ;; TODO add other slack-group properties AND format properly
       )))
@@ -373,7 +374,11 @@ Available options (property name, type, default value)
                   'bury-buffer))
                (--each it
                  (with-current-buffer b
-                   (insert (format "- [[%s][%s]]\n" (plist-get it :link) (plist-get it :title))))))))))
+                   (let ((link (or (plist-get it :link) ""))
+                         (title (or (plist-get it :title) "untitled")))
+                     (insert (format "- [[%s][%s]]\n"
+                                     (replace-regexp-in-string "\\]\\]" "]​]" link)
+                                     (replace-regexp-in-string "\\]\\]" "]​]" title))))))))))
     (user-error "Not in a Slack channel buffer")))
 
 ;;; Slack URL interception

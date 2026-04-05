@@ -31,7 +31,6 @@
 (require 'request)
 (require 'slack-util)
 (require 'slack-log)
-(require 'slack-log)
 (require 'slack-defcustoms)
 
 (defconst slack-request-max-retry 3
@@ -87,7 +86,8 @@ token for endpoints recorded in `slack-token-preference'."
   :group 'slack)
 
 (defun slack-need-cookie-p (token)
-  (string= "xoxc" (substring token 0 4)))
+  (and token (>= (length token) 4)
+       (string= "xoxc" (substring token 0 4))))
 
 (defun slack-url-cookie-store (team)
   "Store required cookies for websocket connection for given TEAM."
@@ -209,14 +209,18 @@ token for endpoints recorded in `slack-token-preference'."
                team :level 'trace)))
 
 (cl-defmethod slack-request ((req slack-request-request) &key (on-success nil) (on-error nil))
-  (let (;; we don't want to save cookies because they break switching teams using the trick from  https://github.com/tkf/emacs-request/issues/155
-        (request-curl-options slack-request-curl-options)
-        (request--curl-cookie-jar
-         (if (oref req sync) request--curl-cookie-jar (expand-file-name (make-temp-name "my-cookie-")
-                                                                        temporary-file-directory)))
-        (team (oref req team)))
+  (let* (;; we don't want to save cookies because they break switching teams using the trick from  https://github.com/tkf/emacs-request/issues/155
+         (request-curl-options slack-request-curl-options)
+         (temp-cookie (unless (oref req sync)
+                        (expand-file-name (make-temp-name "my-cookie-")
+                                          temporary-file-directory)))
+         (request--curl-cookie-jar (or temp-cookie request--curl-cookie-jar))
+         (team (oref req team)))
     (cl-labels
-        ((-on-success (&key data &allow-other-keys)
+        ((cleanup-temp-cookie ()
+           (when (and temp-cookie (file-exists-p temp-cookie))
+             (delete-file temp-cookie)))
+         (-on-success (&key data &allow-other-keys)
            (let ((err (and (eq (plist-get data :ok) :json-false)
                            (plist-get data :error))))
              (if (and err
@@ -238,6 +242,7 @@ token for endpoints recorded in `slack-token-preference'."
                    (progn
                      (funcall (oref req success) :data data)
                      (slack-request-log-success req data))
+                 (cleanup-temp-cookie)
                  (when (functionp on-success)
                    (funcall on-success))))))
          (-on-error (&key error-thrown symbol-status response data)
@@ -259,6 +264,7 @@ token for endpoints recorded in `slack-token-preference'."
                                 :symbol-status symbol-status
                                 :response response
                                 :data data)))))
+             (cleanup-temp-cookie)
              (when (functionp on-error)
                (funcall on-error)))))
       (with-slots (url type params data parser sync files headers timeout without-auth) req
@@ -321,8 +327,9 @@ token for endpoints recorded in `slack-token-preference'."
 
 (defun slack-request-worker-on-timeout ()
   (slack-request-worker-execute)
-  (when (timerp slack-request-worker-instance)
-    (cancel-timer slack-request-worker-instance)
+  (when (and slack-request-worker-instance
+             (timerp (oref slack-request-worker-instance timer)))
+    (cancel-timer (oref slack-request-worker-instance timer))
     (oset slack-request-worker-instance timer nil))
   (slack-request-worker-set-timer))
 

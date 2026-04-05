@@ -116,7 +116,8 @@
 
 (cl-defmethod slack-search-paging-next-page ((this slack-search-pagination))
   (with-slots (page-count page) this
-    (min (1+ page) page-count)))
+    (when (< page page-count)
+      (1+ page))))
 
 (defun slack-search-create-message-channel (payload)
   (and payload
