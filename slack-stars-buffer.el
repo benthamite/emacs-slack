@@ -37,7 +37,7 @@
 (define-derived-mode slack-stars-buffer-mode slack-buffer-mode "Slack Saved Items")
 
 (defclass slack-stars-buffer (slack-buffer)
-  ((oldest :type string :initform "")))
+  ())
 
 (defun slack-stars--prefetch-messages (star-items team callback)
   "Prefetch uncached messages for STAR-ITEMS in parallel, then call CALLBACK.
@@ -45,7 +45,6 @@ Fires async API requests for all messages not already in cache,
 and invokes CALLBACK (with no arguments) once every request has
 completed (or immediately if all messages are cached)."
   (let ((pending (list 0)))
-    ;; Count how many need fetching
     (dolist (item star-items)
       (let* ((ts (oref item ts))
              (room-id (oref item item-id))
@@ -54,32 +53,45 @@ completed (or immediately if all messages are cached)."
           (cl-incf (car pending)))))
     (if (= 0 (car pending))
         (funcall callback)
-      ;; Fire parallel async requests
       (dolist (item star-items)
-        (let* ((ts (oref item ts))
-               (room-id (oref item item-id))
-               (room (slack-room-find room-id team)))
-          (when (and room (not (slack-room-find-message room ts)))
-            (condition-case err
-                (slack-conversations-history
-                 room team
-                 :latest ts
+        (slack-stars--prefetch-single item team pending callback)))))
+
+(defun slack-stars--prefetch-single (item team pending callback)
+  "Prefetch a single ITEM for TEAM, decrementing PENDING and calling CALLBACK."
+  (let* ((ts (oref item ts))
+         (thread-ts (oref item thread-ts))
+         (room-id (oref item item-id))
+         (room (slack-room-find room-id team))
+         (is-reply (and thread-ts (not (string-equal ts thread-ts)))))
+    (when (and room (not (slack-room-find-message room ts)))
+      (condition-case err
+          (let ((done (lambda (messages &rest _)
+                        (when messages
+                          (slack-room-set-messages room messages team))
+                        (when (= 0 (cl-decf (car pending)))
+                          (funcall callback))))
+                (fail (lambda (&rest _)
+                        (when (= 0 (cl-decf (car pending)))
+                          (funcall callback)))))
+            (if is-reply
+                (slack-conversations-replies
+                 room thread-ts team
+                 :oldest ts
                  :inclusive "true"
                  :limit "1"
-                 :after-success
-                 (lambda (messages &rest _)
-                   (when messages
-                     (slack-room-set-messages room messages team))
-                   (when (= 0 (cl-decf (car pending)))
-                     (funcall callback)))
-                 :on-error
-                 (lambda (&rest _)
-                   (when (= 0 (cl-decf (car pending)))
-                     (funcall callback))))
-              (error
-               (message "slack-stars: prefetch error for %s: %S" ts err)
-               (when (= 0 (cl-decf (car pending)))
-                 (funcall callback))))))))))
+                 :after-success done
+                 :on-error fail)
+              (slack-conversations-history
+               room team
+               :latest ts
+               :inclusive "true"
+               :limit "1"
+               :after-success done
+               :on-error fail)))
+        (error
+         (message "slack-stars: prefetch error for %s: %S" ts err)
+         (when (= 0 (cl-decf (car pending)))
+           (funcall callback)))))))
 
 (cl-defmethod slack-buffer-name ((this slack-stars-buffer))
   (let ((team (slack-buffer-team this)))
@@ -123,64 +135,71 @@ completed (or immediately if all messages are cached)."
   (let ((team (slack-buffer-team this)))
     (slack-star-has-next-page-p (oref team star))))
 
-(cl-defmethod slack-buffer-insert-history ((this slack-stars-buffer))
-  (let* ((team (slack-buffer-team this))
-         (star-items (slack-star-items (oref team star)))
-         (before-oldest (oref this oldest)))
-    (slack-stars--prefetch-messages
-     star-items team
-     (lambda ()
-       (let ((items (cl-loop for i in star-items
-                             for room = (slack-room-find (oref i item-id) team)
-                             for msg = (and room (slack-room-find-message room (oref i ts)))
-                             when msg collect msg)))
-         (when items
-           (oset this oldest (slack-ts (car items))))
-         (cl-loop for item in items
-                  do (and (string< (slack-ts item) before-oldest)
-                          (slack-buffer-insert this item t)))
-         (slack-if-let* ((point (slack-buffer-ts-eq (point-min)
-                                                    (point-max)
-                                                    before-oldest)))
-             (goto-char point)))))))
+(cl-defmethod slack-buffer-loading-message-end-point ((_this slack-stars-buffer))
+  (previous-single-property-change (point-max)
+                                   'loading-message))
 
-(cl-defmethod slack-buffer-request-history ((this slack-stars-buffer) after-success)
+(cl-defmethod slack-buffer-delete-load-more-string ((this slack-stars-buffer))
+  (let* ((inhibit-read-only t)
+         (loading-message-end
+          (slack-buffer-loading-message-end-point this))
+         (loading-message-start
+          (previous-single-property-change loading-message-end
+                                           'loading-message)))
+    (delete-region loading-message-start
+                   loading-message-end)))
+
+(cl-defmethod slack-stars--insert-items ((this slack-stars-buffer) star-items)
+  "Insert messages for STAR-ITEMS into THIS buffer."
   (let ((team (slack-buffer-team this)))
-    (slack-stars-list-request team
-                              (oref (oref team star) cursor)
-                              after-success)))
+    (cl-loop for i in star-items
+             for room = (slack-room-find (oref i item-id) team)
+             for m = (and room (slack-room-find-message room (oref i ts)))
+             when m do (slack-buffer-insert this m))))
 
-(cl-defmethod slack-buffer-update-oldest ((this slack-stars-buffer) star-item)
-  "Update oldest tracked timestamp from STAR-ITEM if it is newer.
-Reads from cache only (messages should be prefetched beforehand)."
-  (let* ((team (slack-buffer-team this))
-         (room (slack-room-find (oref star-item item-id) team))
-         (item (and room (slack-room-find-message room (oref star-item ts)))))
-    (when (and item (string< (oref this oldest) (slack-ts item)))
-      (oset this oldest (slack-ts item)))))
+(cl-defmethod slack-stars--insert-tail ((this slack-stars-buffer))
+  "Insert load-more or end-of-list marker at the bottom of THIS buffer."
+  (let ((lui-time-stamp-position nil))
+    (if (slack-buffer-has-next-page-p this)
+        (slack-buffer-insert-load-more this)
+      (lui-insert "(no more items)\n" t))))
+
+(cl-defmethod slack-buffer-load-more ((this slack-stars-buffer))
+  "Load the next page of saved items and append at the bottom."
+  (if (slack-buffer-has-next-page-p this)
+      (let* ((team (slack-buffer-team this))
+             (star (oref team star))
+             (old-count (length (slack-star-items star))))
+        (slack-stars-list-request
+         team (oref star cursor)
+         (lambda ()
+           (let ((new-items (nthcdr old-count (slack-star-items star))))
+             (slack-stars--prefetch-messages
+              new-items team
+              (lambda ()
+                (with-current-buffer (slack-buffer-buffer this)
+                  (let ((inhibit-read-only t))
+                    (slack-buffer-delete-load-more-string this)
+                    (slack-stars--insert-items this new-items)
+                    (slack-stars--insert-tail this)))))))))
+    (message "No more items.")))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-stars-buffer))
   (let* ((buf (cl-call-next-method))
          (team (slack-buffer-team this))
          (star (oref team star))
-         (items (slack-star-items star))
-         (oldest-message (car items)))
+         (items (slack-star-items star)))
     (with-current-buffer buf
       (slack-stars-buffer-mode)
-      (slack-buffer-set-current-buffer this)
-      (slack-buffer-insert-load-more this))
+      (slack-buffer-set-current-buffer this))
     (slack-stars--prefetch-messages
      items team
      (lambda ()
-       (when oldest-message
-         (slack-buffer-update-oldest this oldest-message))
        (with-current-buffer buf
          (let ((inhibit-read-only t))
-           (cl-loop for i in items
-                    for room = (slack-room-find (oref i item-id) team)
-                    for m = (and room (slack-room-find-message room (oref i ts)))
-                    when m do (slack-buffer-insert this m)))
-         (goto-char (point-max)))))
+           (slack-stars--insert-items this items)
+           (slack-stars--insert-tail this))
+         (goto-char (point-min)))))
     buf))
 
 (defun slack-create-stars-buffer (team)
@@ -217,8 +236,9 @@ Reads from cache only (messages should be prefetched beforehand)."
                            (string= (get-text-property (point) 'ts)
                                     ts))))))))
 
-(defun slack-stars-list ()
-  "Show the buffer with the saved for later messages."
+;;;###autoload
+(defun slack-saved-items ()
+  "Show the saved items buffer."
   (interactive)
   (let* ((team (slack-team-select))
          (buf (slack-buffer-find 'slack-stars-buffer team)))
@@ -227,8 +247,11 @@ Reads from cache only (messages should be prefetched beforehand)."
        team nil
        #'(lambda () (slack-buffer-display (slack-create-stars-buffer team)))))))
 
-(defun slack-stars-open-message ()
-  "Open message at point of activity-feed."
+;;;###autoload
+(defalias 'slack-stars-list 'slack-saved-items)
+
+(defun slack-saved-items-open-message ()
+  "Open the message at point in its channel or thread buffer."
   (interactive)
   (if-let* ((ts (get-text-property (point) 'ts))
             (team-id (get-text-property (point) 'team-id))
@@ -239,19 +262,29 @@ Reads from cache only (messages should be prefetched beforehand)."
        team
        (slack-room-find room-id team)
        (--find (s-matches-p "[0-9]" it) (list ts))
-       ;; found out that when a ts is nil, it comes "nil"
        (--find (s-matches-p "[0-9]" it) (list thread-ts)))
     (error "Not possible to jump to message")))
-(define-key slack-stars-buffer-mode-map (kbd "RET") 'slack-stars-open-message)
 
-(define-key slack-stars-buffer-mode-map (kbd "K") 'slack-message-remove-star)
+(defalias 'slack-stars-open-message 'slack-saved-items-open-message)
+(define-key slack-stars-buffer-mode-map (kbd "RET") 'slack-saved-items-open-message)
 
-(defun slack-stars-refresh-buffer ()
-  "Close and reopen star buffer to refresh contents."
+(defun slack-message-remove-from-saved ()
+  "Remove the saved item at point."
+  (interactive)
+  (slack-if-let* ((buffer slack-current-buffer))
+      (slack-buffer-remove-star buffer (slack-get-ts))))
+
+(defalias 'slack-message-remove-star 'slack-message-remove-from-saved)
+(define-key slack-stars-buffer-mode-map (kbd "K") 'slack-message-remove-from-saved)
+
+(defun slack-saved-items-refresh-buffer ()
+  "Close and reopen saved items buffer to refresh contents."
   (interactive)
   (kill-buffer)
-  (slack-stars-list))
-(define-key slack-stars-buffer-mode-map (kbd "G") 'slack-stars-refresh-buffer)
+  (slack-saved-items))
+
+(defalias 'slack-stars-refresh-buffer 'slack-saved-items-refresh-buffer)
+(define-key slack-stars-buffer-mode-map (kbd "G") 'slack-saved-items-refresh-buffer)
 
 (provide 'slack-stars-buffer)
 ;;; slack-stars-buffer.el ends here

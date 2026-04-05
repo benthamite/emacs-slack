@@ -49,6 +49,7 @@
    (is-archived :initarg :is-archived :type boolean)
    (date-snoozed-until :initarg :date-snoozed-until :type integer)
    (ts :initarg :ts :type string)
+   (thread-ts :initarg :thread-ts :type (or null string) :initform nil)
    (state :initarg :state :type string)
    (file :initarg :file :type (or null slack-file) :initform nil)))
 
@@ -66,10 +67,10 @@
   (oref this items))
 
 (cl-defmethod slack-merge ((old slack-star) new)
-  "Add OLD star items to NEW ones. We keep the newer cursor."
+  "Append NEW page of saved items to OLD, updating cursor."
   (with-slots (cursor items) old
     (setq cursor (oref new cursor))
-    (setq items (append (oref new items) items))))
+    (setq items (append items (oref new items)))))
 
 (defun slack-create-star-items (payload)
   (mapcar #'(lambda (e) (slack-create-star-item e))
@@ -103,6 +104,9 @@
                              (when-let ((created (plist-get file :created)))
                                (number-to-string created))))
                          "")
+                 :thread-ts (or (plist-get payload :thread_ts)
+                                (when-let ((message (plist-get payload :message)))
+                                  (plist-get message :thread_ts)))
                  :state (or (plist-get payload :state) "")
                  :file (when-let ((file (plist-get payload :file)))
                          (if (eieio-object-p file)
@@ -120,7 +124,7 @@
   (let ((items (slack-create-star-items (plist-get payload :saved_items)))
         (cursor (plist-get (plist-get payload :response_metadata) :next_cursor)))
     (make-instance 'slack-star
-                   :items (reverse items)
+                   :items items
                    :cursor cursor)))
 
 (defun slack-stars-list-request (team &optional cursor after-success)

@@ -825,15 +825,13 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
   (slack-if-let* ((buffer (slack-buffer-find 'slack-file-list-buffer team)))
       (slack-buffer-update buffer this :replace t)))
 
-(defun slack-message-remove-star ()
-  (interactive)
-  (slack-if-let* ((buffer slack-current-buffer))
-      (slack-buffer-remove-star buffer (slack-get-ts))))
-
-(defun slack-message-add-star ()
+(defun slack-message-save-for-later ()
+  "Save the message at point for later."
   (interactive)
   (slack-if-let* ((buffer slack-current-buffer))
       (slack-buffer-add-star buffer (slack-get-ts))))
+
+(defalias 'slack-message-add-star 'slack-message-save-for-later)
 
 (defun slack-message-pins-add ()
   (interactive)
