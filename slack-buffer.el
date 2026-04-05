@@ -34,6 +34,7 @@
 (require 'slack-message-formatter)
 (require 'dash)
 (declare-function emojify-mode "emojify")
+(declare-function emojify-redisplay-emojis-in-region "emojify")
 (declare-function slack-open-message "slack-message-buffer")
 
 (defvar slack-buffer-function)
@@ -174,6 +175,8 @@
                   (_live (buffer-live-p buf)))
       (with-current-buffer buf
         (slack-buffer-enable-emojify)
+        (when (bound-and-true-p emojify-mode)
+          (slack-buffer--emojify-chunked (point-min) (point-max)))
         (add-hook 'kill-buffer-hook (slack-buffer-create-kill-hook this) nil t))))
 
 (cl-defmethod slack-buffer-kill-buffer-window ((this slack-buffer))
@@ -213,6 +216,21 @@ their previous buffer."
                             (slack-buffer-team this)
                             :level 'error))
                (signal (car err) (cdr err)))))))
+
+(defun slack-buffer--emojify-chunked (beg end)
+  "Redisplay emojis between BEG and END in chunks.
+`emojify-redisplay-emojis-in-region' silently skips regions
+larger than 5000 characters, so we walk the buffer in
+line-aligned strides to stay under that limit."
+  (save-excursion
+    (goto-char beg)
+    (while (< (point) end)
+      (let* ((chunk-start (point))
+             (chunk-end (min end (+ chunk-start 4000))))
+        (goto-char chunk-end)
+        (unless (eobp) (forward-line 1))
+        (with-demoted-errors "emojify redisplay: %S"
+          (emojify-redisplay-emojis-in-region chunk-start (point)))))))
 
 (cl-defmethod slack-buffer-insert ((this slack-buffer) message &optional not-tracked-p)
   (let ((lui-time-stamp-format "[%Y-%m-%d %H:%M] ")

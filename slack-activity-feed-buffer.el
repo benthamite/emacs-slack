@@ -43,6 +43,7 @@
 (declare-function slack-select-token "slack-request")
 (declare-function slack-message-replace-buffer "slack-message-buffer")
 (declare-function emojify-redisplay-emojis-in-region "emojify")
+(declare-function slack-buffer--emojify-chunked "slack-buffer")
 
 (defun slack-team-ensure-registered (team)
   "Ensure TEAM is the canonical object in the global lookup tables.
@@ -358,8 +359,7 @@ point, searching the current line first, then backward/forward."
                 (if (slack-buffer-has-next-page-p existing)
                     (slack-buffer-insert-load-more existing)))
               (when (bound-and-true-p emojify-mode)
-                (with-demoted-errors "emojify redisplay: %S"
-                  (emojify-redisplay-emojis-in-region (point-min) (point-max))))))
+                (slack-buffer--emojify-chunked (point-min) (point-max)))))
           existing)
       (make-instance 'slack-activity-feed-buffer
                      :team-id (oref team id)
@@ -610,10 +610,7 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                    do (slack-buffer-insert this m)))
         (let ((lui-time-stamp-position nil))
           (if (slack-buffer-has-next-page-p this)
-              (slack-buffer-insert-load-more this))))
-      (when (bound-and-true-p emojify-mode)
-        (with-demoted-errors "emojify redisplay: %S"
-          (emojify-redisplay-emojis-in-region (point-min) (point-max)))))
+              (slack-buffer-insert-load-more this)))))
     buffer))
 
 (cl-defmethod slack-buffer-loading-message-end-point ((_this slack-activity-feed-buffer))

@@ -378,7 +378,7 @@ Available options (property name, type, default value)
                          (title (or (plist-get it :title) "untitled")))
                      (insert (format "- [[%s][%s]]\n"
                                      (replace-regexp-in-string "\\]\\]" "]​]" link)
-                                     (replace-regexp-in-string "\\]\\]" "]​]" title))))))))))
+                                     (replace-regexp-in-string "\\]\\]" "]​]" title)))))))))))
     (user-error "Not in a Slack channel buffer")))
 
 ;;; Slack URL interception
