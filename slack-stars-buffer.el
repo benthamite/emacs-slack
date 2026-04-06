@@ -286,19 +286,23 @@ the URL."
           (delete-region beg end)))))
 
 (cl-defmethod slack-buffer--replace ((this slack-stars-buffer) ts)
+  "Replace the message at TS in the stars buffer.
+Locates the message by its `ts' text property rather than
+`lui-replace', which cannot navigate backward past separator
+lines inserted by `slack-buffer-insert'."
   (let ((team (slack-buffer-team this)))
     (with-slots (star) team
-      (let* ((star-items (slack-star-items star))
-             (star-item (cl-find-if (lambda (i) (string= (oref i ts) ts))
-                                    star-items))
-             (room (and star-item
-                        (slack-room-find (oref star-item item-id) team)))
-             (item (and room (slack-room-find-message room ts))))
-        (when item
-          (lui-replace (slack-message-to-string item team)
-                       #'(lambda ()
-                           (string= (get-text-property (point) 'ts)
-                                    ts))))))))
+      (slack-if-let*
+          ((star-items (slack-star-items star))
+           (star-item (cl-find-if (lambda (i) (string= (oref i ts) ts))
+                                  star-items))
+           (room (slack-room-find (oref star-item item-id) team))
+           (item (slack-room-find-message room ts))
+           (pos (slack-buffer-ts-eq (point-min) (point-max) ts)))
+          (save-excursion
+            (goto-char pos)
+            (lui-replace-message
+             (slack-message-to-string item team)))))))
 
 ;;;###autoload
 (defun slack-saved-items ()

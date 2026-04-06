@@ -651,11 +651,7 @@ produces a newline with `not-tracked-p'."
 ;;; ---- 9. Stars buffer replace ----
 
 (ert-deftest slack-test-stars-buffer-replace-updates-text ()
-  "Replacing a message in stars buffer changes its body text.
-Known failure: `lui-replace' does not find the message in the
-buffer during batch testing because the star-item/room lookup
-chain requires a fully initialized buffer environment."
-  :expected-result :failed
+  "Replacing a message in stars buffer changes its body text."
   (slack-test-setup
     (slack-test--register-team team)
     (unwind-protect
