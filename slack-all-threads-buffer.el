@@ -325,28 +325,51 @@ Adds `room-id' property so `slack-feed-open-at-point' can find the channel."
         :params (list (cons "current_ts" current-ts))
         :success #'success)))))
 
+(cl-defmethod slack-all-threads-buffer-find-thread ((buf slack-all-threads-buffer) ts)
+  "Find the `slack-thread-view' containing TS in BUF.
+TS may belong to a root message or any reply within a thread."
+  (cl-find-if
+   (lambda (thr)
+     (or (string= ts (slack-ts (oref thr root-msg)))
+         (cl-find ts (oref thr latest-replies)
+                  :key #'slack-ts :test #'string=)
+         (cl-find ts (oref thr unread-replies)
+                  :key #'slack-ts :test #'string=)))
+   (oref buf threads)))
+
 (cl-defmethod slack-feed--open ((buf slack-all-threads-buffer) ts)
   "Open the thread containing TS in all-threads buffer BUF.
 TS may belong to a root message or any reply within a thread."
-  (with-slots (threads) buf
-    ;; Find the thread that contains this ts (root or reply)
-    (let ((thread
-           (cl-find-if
-            (lambda (thr)
-              (or (string= ts (slack-ts (oref thr root-msg)))
-                  (cl-find ts (oref thr latest-replies)
-                           :key #'slack-ts :test #'string=)
-                  (cl-find ts (oref thr unread-replies)
-                           :key #'slack-ts :test #'string=)))
-            threads)))
-      (if thread
-          (slack-buffer-display-thread buf (slack-ts (oref thread root-msg)))
-        (message "Thread not found for ts %s" ts)))))
+  (if-let* ((thread (slack-all-threads-buffer-find-thread buf ts)))
+      (slack-buffer-display-thread buf (slack-ts (oref thread root-msg)))
+    (message "Thread not found for ts %s" ts)))
+
+(defun slack-all-threads-unfollow-at-point ()
+  "Unfollow the thread at point."
+  (interactive)
+  (if-let* ((ts (get-text-property (point) 'ts))
+            (buf slack-current-buffer)
+            (thread (slack-all-threads-buffer-find-thread buf ts))
+            (root (oref thread root-msg))
+            (team (slack-buffer-team buf))
+            (room (slack-room-find (oref root channel) team)))
+      (slack-all-threads-unfollow-thread room root team)
+    (message "No thread at point")))
+
+(defun slack-all-threads-unfollow-thread (room root team)
+  "Unfollow thread with root message ROOT in ROOM on TEAM."
+  (cl-labels
+      ((after-success ()
+                      (slack-log "Unfollowed thread" team :level 'info)
+                      (message "Unfollowed thread")))
+    (slack-subscriptions-thread-remove room (slack-ts root) team
+                                       #'after-success)))
 
 (define-key slack-all-threads-buffer-mode-map (kbd "RET") 'slack-feed-open-at-point)
 (define-key slack-all-threads-buffer-mode-map (kbd "n") 'slack-feed-goto-next)
 (define-key slack-all-threads-buffer-mode-map (kbd "p") 'slack-feed-goto-prev)
 (define-key slack-all-threads-buffer-mode-map (kbd "g") 'slack-all-threads)
+(define-key slack-all-threads-buffer-mode-map (kbd "U") 'slack-all-threads-unfollow-at-point)
 
 (provide 'slack-all-threads-buffer)
 ;;; slack-all-threads-buffer.el ends here

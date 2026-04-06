@@ -247,5 +247,43 @@
       (slack-room-display room team)
     (user-error "Can't determine the room")))
 
+(defun slack-thread-toggle-subscription ()
+  "Toggle follow/unfollow for the current thread.
+Queries the subscription status and then adds or removes the
+subscription accordingly."
+  (interactive)
+  (unless (derived-mode-p 'slack-thread-message-buffer-mode)
+    (user-error "Not in a thread buffer"))
+  (slack-if-let* ((buf slack-current-buffer)
+                  (team (slack-buffer-team buf))
+                  (room (slack-buffer-room buf))
+                  (ts (oref buf thread-ts)))
+      (slack-thread-toggle-subscription-1 room ts team)))
+
+(defun slack-thread-toggle-subscription-1 (room ts team)
+  "Toggle thread subscription for ROOM, TS, and TEAM."
+  (cl-labels
+      ((on-subscribed ()
+                      (slack-log "Followed thread" team :level 'info)
+                      (message "Followed thread"))
+       (on-unsubscribed ()
+                        (slack-log "Unfollowed thread" team :level 'info)
+                        (message "Unfollowed thread"))
+       (on-success (subscriptions)
+                   (if (cl-find ts subscriptions :test #'string=)
+                       (slack-subscriptions-thread-remove
+                        room ts team #'on-unsubscribed)
+                     (slack-subscriptions-thread-add
+                      room ts team #'on-subscribed)))
+       (on-error (_err)
+                 (slack-subscriptions-thread-add
+                  room ts team #'on-subscribed)))
+    (slack-subscriptions-thread-get room ts team #'on-success #'on-error)))
+
+(define-key slack-thread-message-buffer-mode-map
+            (kbd "C-c C-s") #'slack-thread-toggle-subscription)
+(define-key slack-thread-message-buffer-mode-map
+            (kbd "C-c C-o") #'slack-thread-message-buffer-jump-to-channel-buffer)
+
 (provide 'slack-thread-message-buffer)
 ;;; slack-thread-message-buffer.el ends here
