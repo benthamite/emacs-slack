@@ -183,13 +183,13 @@ the URL."
   (let ((lui-time-stamp-format "[%Y-%m-%d %H:%M] ")
         (lui-time-stamp-time (seconds-to-time
                               (string-to-number
-                               (slack-ts
-                                message)))))
+                               (slack-ts message)))))
     (lui-insert-with-text-properties
      (slack-message-to-string message (slack-buffer-team this))
      'ts (slack-ts message)
      'team-id (oref (slack-buffer-team this) id)
      'room-id (oref message channel)
+     'thread-ts (oref message thread-ts)
      'not-tracked-p not-tracked-p)
     (lui-insert "" t)))
 

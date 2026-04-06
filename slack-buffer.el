@@ -68,8 +68,8 @@
   (setq-local default-directory slack-default-directory)
   (lui-set-prompt lui-prompt-string)
   (setq lui-input-function 'slack-message--send)
-  ;; don't adjust indentation of messages
-  (setq-local lui-fill-type nil))
+  (setq-local lui-fill-type nil)
+  (slack-buffer--setup-timestamps))
 
 (define-derived-mode slack-info-mode lui-mode "Slack Info"
   ""
@@ -129,7 +129,13 @@ saved hooks run once over the full inserted region."
   (add-hook 'lui-pre-output-hook 'slack-handle-lazy-conversation-name nil t)
   (slack-buffer-enable-emojify)
   (lui-set-prompt " ")
-  (setq-local lui-fill-type nil))
+  (setq-local lui-fill-type nil)
+  (slack-buffer--setup-timestamps))
+
+(defun slack-buffer--setup-timestamps ()
+  "Configure right-margin timestamps for all slack buffers."
+  (setq-local lui-time-stamp-position 'right-margin)
+  (setq-local right-margin-width 20))
 
 (defclass slack-buffer ()
   ((team-id :initarg :team-id :type (or null string))
