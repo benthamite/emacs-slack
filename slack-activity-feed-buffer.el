@@ -364,12 +364,11 @@ properties are unreliable."
           (with-current-buffer (oref existing buf)
             (let ((inhibit-read-only t))
               (erase-buffer))
-            ;; Reset lui markers after erase to avoid args-out-of-range
-            ;; in lui-recover-output-marker when "load more" fires.
             (when (markerp lui-output-marker)
               (set-marker lui-output-marker (point-max)))
             (when (markerp lui-input-marker)
               (set-marker lui-input-marker (point-max)))
+            (lui-set-prompt " ")
             (with-slots (activity-feed) existing
               (slack-buffer-with-deferred-hooks
                 (let* ((activities (oref activity-feed activities)))
