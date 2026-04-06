@@ -63,35 +63,13 @@
 ;; https://github.com/emacs-slack/emacs-slack/issues/547#issuecomment-1542119271
 (advice-add 'lui-buttonize-urls :before-until (lambda () (derived-mode-p 'slack-mode)))
 
-(defun slack-buffer--ensure-timestamp-alignment (orig-fn &optional text)
-  "Fill the first line when it would push the timestamp past its target column.
-lui places right-aligned timestamps at `fill-column' + 2.  When
-the first line exceeds that column, lui falls back to 1 space
-after the line end, misaligning the timestamp.  Filling the first
-line to `fill-column' prevents this."
-  (when (or (eq lui-time-stamp-position 'right)
-            (numberp lui-time-stamp-position))
-    (let ((target (if (numberp lui-time-stamp-position)
-                      lui-time-stamp-position
-                    (+ 2 (or lui-fill-column fill-column 70)))))
-      (save-excursion
-        (goto-char (point-min))
-        (let ((eol (line-end-position)))
-          (goto-char eol)
-          (when (> (current-column) target)
-            (let ((fill-column (1- target)))
-              (fill-region (point-min) (min (1+ eol) (point-max)))))))))
-  (funcall orig-fn text))
-
-(advice-add 'lui-time-stamp :around #'slack-buffer--ensure-timestamp-alignment)
-
 (define-derived-mode slack-mode lui-mode "Slack"
   ""
   (setq-local default-directory slack-default-directory)
   (lui-set-prompt lui-prompt-string)
   (setq lui-input-function 'slack-message--send)
-  ;; don't adjust indentation of messages
-  (setq-local lui-fill-type nil))
+  (setq-local lui-fill-type nil)
+  (slack-buffer--setup-timestamps))
 
 (define-derived-mode slack-info-mode lui-mode "Slack Info"
   ""
@@ -151,7 +129,13 @@ saved hooks run once over the full inserted region."
   (add-hook 'lui-pre-output-hook 'slack-handle-lazy-conversation-name nil t)
   (slack-buffer-enable-emojify)
   (lui-set-prompt " ")
-  (setq-local lui-fill-type nil))
+  (setq-local lui-fill-type nil)
+  (slack-buffer--setup-timestamps))
+
+(defun slack-buffer--setup-timestamps ()
+  "Configure right-margin timestamps for all slack buffers."
+  (setq-local lui-time-stamp-position 'right-margin)
+  (setq-local right-margin-width 20))
 
 (defclass slack-buffer ()
   ((team-id :initarg :team-id :type (or null string))
