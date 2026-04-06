@@ -61,15 +61,15 @@
     map))
 ;; to have working link buttons
 ;; https://github.com/emacs-slack/emacs-slack/issues/547#issuecomment-1542119271
-(advice-add 'lui-buttonize-urls :before-until (lambda () (derived-mode-p 'slack-mode)))
+(advice-add 'lui-buttonize-urls :before-until
+            (lambda () (derived-mode-p 'slack-mode 'slack-buffer-mode)))
 
 (define-derived-mode slack-mode lui-mode "Slack"
   ""
   (setq-local default-directory slack-default-directory)
   (lui-set-prompt lui-prompt-string)
   (setq lui-input-function 'slack-message--send)
-  (setq-local lui-fill-type nil)
-  (slack-buffer--setup-timestamps))
+  (setq-local lui-fill-type nil))
 
 (define-derived-mode slack-info-mode lui-mode "Slack Info"
   ""
@@ -97,7 +97,12 @@
 Temporarily disables `lui-pre-output-hook' and
 `lui-post-output-hook' during BODY so that bulk `lui-insert'
 calls avoid per-insert hook overhead.  After BODY completes, the
-saved hooks run once over the full inserted region."
+saved hooks run once over the full inserted region.
+
+WARNING: Hook lists are captured at entry and restored verbatim.
+If code inside BODY adds buffer-local hooks (e.g. via a mode
+function), those additions are lost on restore.  Do not call
+mode-initialization functions inside this macro."
   (declare (indent 0) (debug t))
   `(let ((slack--saved-pre lui-pre-output-hook)
          (slack--saved-post lui-post-output-hook)
@@ -129,13 +134,7 @@ saved hooks run once over the full inserted region."
   (add-hook 'lui-pre-output-hook 'slack-handle-lazy-conversation-name nil t)
   (slack-buffer-enable-emojify)
   (lui-set-prompt " ")
-  (setq-local lui-fill-type nil)
-  (slack-buffer--setup-timestamps))
-
-(defun slack-buffer--setup-timestamps ()
-  "Configure right-margin timestamps for all slack buffers."
-  (setq-local lui-time-stamp-position 'right-margin)
-  (setq-local right-margin-width 20))
+  (setq-local lui-fill-type nil))
 
 (defclass slack-buffer ()
   ((team-id :initarg :team-id :type (or null string))
@@ -274,6 +273,23 @@ text remains unchanged."
               (put-text-property (match-beginning 0) (match-end 0)
                                  'display char))))))))
 
+(defun slack-buffer--render-native-emoji-string (str)
+  "Return STR with `display' properties for :shortcode: emoji.
+Works on a propertized string so that emoji display widths are
+correct before the string is inserted into the buffer."
+  (when (and (boundp 'slack-emoji-master)
+             (< 0 (hash-table-count slack-emoji-master)))
+    (let ((start 0))
+      (while (string-match ":\\([a-zA-Z0-9_+-]+\\):" str start)
+        (let ((char (gethash (match-string 0 str) slack-emoji-master)))
+          (if (stringp char)
+              (progn
+                (put-text-property (match-beginning 0) (match-end 0)
+                                   'display char str)
+                (setq start (match-end 0)))
+            (setq start (match-end 0)))))))
+  str)
+
 (defun slack-buffer--emojify-chunked (beg end)
   "Redisplay emojis between BEG and END in chunks.
 `emojify-redisplay-emojis-in-region' silently skips regions
@@ -294,7 +310,8 @@ line-aligned strides to stay under that limit."
         (lui-time-stamp-time (slack-message-time-stamp message))
         (team (slack-buffer-team this)))
     (lui-insert-with-text-properties
-     (slack-message-to-string message team)
+     (slack-buffer--render-native-emoji-string
+      (slack-message-to-string message team))
      'not-tracked-p not-tracked-p
      'ts (slack-ts message)
      'slack-last-ts lui-time-stamp-last
@@ -488,22 +505,22 @@ line-aligned strides to stay under that limit."
         (when (eq type 'left)
           (remove-hook 'post-command-hook 'slack-reaction-echo-description t)))))
 
-(defun slack-buffer--post-output-render-emoji ()
-  "Render :shortcode: as native emoji after lui output.
-Intended as a `lui-post-output-hook' entry.  The buffer is
-narrowed to the just-inserted region when this runs."
+(defun slack-buffer--pre-output-render-emoji ()
+  "Render :shortcode: as native emoji before lui timestamps.
+Intended as a `lui-pre-output-hook' entry so that emoji display
+widths are settled before `lui-time-stamp' positions timestamps."
   (slack-buffer--render-native-emoji (point-min) (point-max)))
 
 (defun slack-buffer-enable-emojify ()
   "Enable emoji rendering in the current buffer.
-On Emacs 29+, add a `lui-post-output-hook' entry so that every
+On Emacs 29+, add a `lui-pre-output-hook' entry so that every
 `lui-insert' or `lui-replace-message' automatically gets native
 Unicode emoji display properties.  On older Emacs, activate
 `emojify-mode' when `slack-buffer-emojify' is set."
   (when slack-buffer-emojify
     (if (slack-native-emoji-p)
-        (add-hook 'lui-post-output-hook
-                  #'slack-buffer--post-output-render-emoji nil t)
+        (add-hook 'lui-pre-output-hook
+                  #'slack-buffer--pre-output-render-emoji nil t)
       (let ((emojify (require 'emojify nil t)))
         (unless emojify
           (error "Emojify is not installed"))
@@ -1039,7 +1056,8 @@ Default to the current buffer."
   (add-to-list 'dnd-protocol-alist '("^file:" . slack--dnd-upload)))
 
 (with-eval-after-load 'dnd
-  (add-hook 'slack-mode-hook 'slack-dnd-ensure-first))
+  (add-hook 'slack-mode-hook 'slack-dnd-ensure-first)
+  (add-hook 'slack-buffer-mode-hook 'slack-dnd-ensure-first))
 
 (defun slack-join-huddle (team-id room-id)
   "Start a huddle in room with ROOM-ID and team with TEAM-ID.

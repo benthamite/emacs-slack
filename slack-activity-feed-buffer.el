@@ -566,7 +566,7 @@ relying on buffer text properties."
               (let ((lui-time-stamp-time time)
                     (lui-time-stamp-format "[%Y-%m-%d %H:%M] "))
                 (lui-insert-with-text-properties
-                 message-str
+                 (slack-buffer--render-native-emoji-string message-str)
                  'ts ts
                  'team-id (oref this team-id)
                  'room-id (or room-id channel)

@@ -30,6 +30,7 @@
 (declare-function emojify-get-emoji "emojify")
 (declare-function emojify-image-dir "emojify")
 (declare-function emojify-create-emojify-emojis "emojify")
+(declare-function slack-buffer--render-native-emoji "slack-buffer")
 (defvar emojify-user-emojis)
 (defvar slack-current-buffer)
 
@@ -256,6 +257,19 @@ Unicode string, or to t when the character cannot be decoded."
                        (or char t)
                        slack-emoji-master))))))
 
+(defun slack-emoji--rerender-all-buffers ()
+  "Retroactively render emoji in all existing slack buffers.
+Called after `slack-emoji-master' is populated asynchronously so
+that buffers created before the data arrived get their
+`:shortcode:' text replaced with Unicode glyphs."
+  (when (fboundp 'slack-buffer--render-native-emoji)
+    (dolist (buf (buffer-list))
+      (when (buffer-live-p buf)
+        (with-current-buffer buf
+          (when (derived-mode-p 'slack-mode 'slack-buffer-mode)
+            (slack-buffer--render-native-emoji
+             (point-min) (point-max))))))))
+
 (defun slack-emoji-fetch-master-data (team)
   "Fetch the master emoji list synchronously and populate `slack-emoji-master'.
 TEAM is used for the HTTP request context.  Blocks until the data
@@ -283,7 +297,8 @@ used for the HTTP request context."
       ((success (&key data &allow-other-keys)
          (slack-request-handle-error
           (data "slack-emoji-fetch-master-data-async")
-          (slack-emoji--store-master-data data))))
+          (slack-emoji--store-master-data data)
+          (slack-emoji--rerender-all-buffers))))
     (slack-request
      (slack-request-create
       slack-emoji-master-data-url

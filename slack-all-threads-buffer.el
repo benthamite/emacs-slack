@@ -37,8 +37,7 @@
   "Slack All Threads"
   (add-hook 'lui-pre-output-hook 'slack-mrkdwn-add-face nil t)
   (add-hook 'lui-pre-output-hook 'slack-display-inline-action t t)
-  (cursor-sensor-mode)
-  (slack-buffer-enable-emojify))
+  (cursor-sensor-mode))
 
 (defface slack-all-thread-buffer-thread-header-face
   '((t (:weight bold :height 1.2)))
