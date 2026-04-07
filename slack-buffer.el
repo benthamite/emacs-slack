@@ -116,14 +116,18 @@ mode-initialization functions inside this macro."
        (slack-buffer--run-deferred-hooks slack--start))))
 
 (defun slack-buffer--run-deferred-hooks (start)
-  "Run saved lui output hooks once over the region from START to point-max."
-  (save-excursion
-    (save-restriction
-      (widen)
-      (narrow-to-region start (point-max))
-      (goto-char (point-min))
-      (run-hooks 'lui-pre-output-hook)
-      (run-hooks 'lui-post-output-hook))))
+  "Run saved lui output hooks once over the region from START to point-max.
+`inhibit-read-only' is bound because `lui-insert' marks output
+text as read-only before returning, yet the deferred hooks need
+to modify text properties (faces, buttons, display)."
+  (let ((inhibit-read-only t))
+    (save-excursion
+      (save-restriction
+        (widen)
+        (narrow-to-region start (point-max))
+        (goto-char (point-min))
+        (run-hooks 'lui-pre-output-hook)
+        (run-hooks 'lui-post-output-hook)))))
 
 (define-derived-mode slack-buffer-mode lui-mode "Slack Buffer"
   (setq-local default-directory slack-default-directory)
