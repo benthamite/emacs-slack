@@ -908,6 +908,94 @@ produces a newline with `not-tracked-p'."
         (should (string-match-p "\U0001F64C" str))
         (should-not (string-match-p ":raised_hands:" str))))))
 
+;;; ---- 12. Integration: reactions through full lui-insert pipeline ----
+
+(ert-deftest slack-test-reaction-unicode-survives-lui-insert ()
+  "Reaction Unicode glyph survives the full lui-insert pipeline."
+  (let ((slack-emoji-master (make-hash-table :test 'equal)))
+    (puthash ":+1:" "\U0001F44D" slack-emoji-master)
+    (slack-test-setup
+      (slack-test--register-team team)
+      (unwind-protect
+          (slack-test--with-slack-buffer-mode
+            (let* ((msg (slack-test--make-message "1710000000.000100"
+                                                  "test body"))
+                   (r (make-instance 'slack-reaction
+                                     :name "+1" :count 1 :users nil)))
+              (oset msg reactions (list r))
+              (slack-buffer-insert
+               (make-instance 'slack-stars-buffer :team-id (oref team id))
+               msg)
+              (goto-char (point-min))
+              (should (search-forward "\U0001F44D" nil t))))
+        (slack-test--unregister-team team)))))
+
+(ert-deftest slack-test-reaction-unicode-survives-deferred-hooks ()
+  "Reaction Unicode glyph survives `slack-buffer-with-deferred-hooks'."
+  (let ((slack-emoji-master (make-hash-table :test 'equal)))
+    (puthash ":heart:" "\u2764" slack-emoji-master)
+    (slack-test-setup
+      (slack-test--register-team team)
+      (unwind-protect
+          (slack-test--with-slack-buffer-mode
+            (let* ((msg (slack-test--make-message "1710000000.000100"
+                                                  "test body"))
+                   (r (make-instance 'slack-reaction
+                                     :name "heart" :count 2 :users nil)))
+              (oset msg reactions (list r))
+              (slack-buffer-with-deferred-hooks
+                (slack-buffer-insert
+                 (make-instance 'slack-stars-buffer :team-id (oref team id))
+                 msg))
+              (goto-char (point-min))
+              (should (search-forward "\u2764" nil t))))
+        (slack-test--unregister-team team)))))
+
+(ert-deftest slack-test-reaction-shortcode-absent-when-resolved ()
+  "No raw shortcode remains in buffer when emoji master is populated."
+  (let ((slack-emoji-master (make-hash-table :test 'equal)))
+    (puthash ":smile:" "\U0001F604" slack-emoji-master)
+    (slack-test-setup
+      (slack-test--register-team team)
+      (unwind-protect
+          (slack-test--with-slack-buffer-mode
+            (let* ((msg (slack-test--make-message "1710000000.000100"
+                                                  "test body"))
+                   (r (make-instance 'slack-reaction
+                                     :name "smile" :count 1 :users nil)))
+              (oset msg reactions (list r))
+              (slack-buffer-insert
+               (make-instance 'slack-stars-buffer :team-id (oref team id))
+               msg)
+              (goto-char (point-min))
+              (should-not (search-forward ":smile:" nil t))))
+        (slack-test--unregister-team team)))))
+
+(ert-deftest slack-test-multiple-reactions-all-render ()
+  "Multiple reactions all render as Unicode glyphs."
+  (let ((slack-emoji-master (make-hash-table :test 'equal)))
+    (puthash ":+1:" "\U0001F44D" slack-emoji-master)
+    (puthash ":heart:" "\u2764" slack-emoji-master)
+    (slack-test-setup
+      (slack-test--register-team team)
+      (unwind-protect
+          (slack-test--with-slack-buffer-mode
+            (let* ((msg (slack-test--make-message "1710000000.000100"
+                                                  "test body"))
+                   (r1 (make-instance 'slack-reaction
+                                      :name "+1" :count 1 :users nil))
+                   (r2 (make-instance 'slack-reaction
+                                      :name "heart" :count 3 :users nil)))
+              (oset msg reactions (list r1 r2))
+              (slack-buffer-insert
+               (make-instance 'slack-stars-buffer :team-id (oref team id))
+               msg)
+              (goto-char (point-min))
+              (should (search-forward "\U0001F44D" nil t))
+              (goto-char (point-min))
+              (should (search-forward "\u2764" nil t))))
+        (slack-test--unregister-team team)))))
+
 ;;; ---- Runner ----
 
 (provide 'test-buffer-rendering)
