@@ -41,6 +41,8 @@
 (require 'slack-message-faces)
 (require 'slack-defcustoms)
 
+(declare-function slack-emoji-resolve "slack-emoji")
+
 (defvar slack-current-buffer)
 
 (defcustom slack-visible-thread-sign ":left_speech_bubble: "
@@ -71,11 +73,16 @@
 
 
 (cl-defmethod slack-reaction-to-string ((r slack-reaction) team)
+  "Format reaction R for TEAM as a propertized string.
+Eagerly resolves the emoji shortcode to a Unicode glyph when
+available, so the result does not depend on post-hoc display
+property rendering."
   (let* ((current-user-id (oref team self-id))
          (reaction-face (if (slack-reaction-user-reacted-p r current-user-id)
                             'slack-message-output-reaction-pressed
-                          'slack-message-output-reaction)))
-    (propertize (format " :%s: %d " (oref r name) (oref r count))
+                          'slack-message-output-reaction))
+         (glyph (slack-emoji-resolve (oref r name))))
+    (propertize (format " %s %d " glyph (oref r count))
                 'face reaction-face
                 'mouse-face 'highlight
                 'keymap slack-reaction-keymap

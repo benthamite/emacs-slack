@@ -69,15 +69,18 @@
 (cl-defmethod slack-reaction-user-reacted-p ((this slack-reaction) user-id)
   (member user-id (oref this users)))
 
+(declare-function slack-emoji-resolve "slack-emoji")
+
 (cl-defmethod slack-reaction-help-text ((r slack-reaction) team cb)
+  "Show who reacted with R in TEAM, passing the result to CB."
   (slack-reaction-fetch-users r team #'(lambda (users)
                                          (let ((user-names (mapcar #'(lambda (user)
                                                                        (slack-user--name user team))
                                                                    users)))
                                            (funcall cb
-                                                    (format "%s reacted with :%s:"
+                                                    (format "%s reacted with %s"
                                                             (mapconcat #'identity user-names ", ")
-                                                            (oref r name)))))))
+                                                            (slack-emoji-resolve (oref r name))))))))
 
 (defun slack-reaction--find (reactions reaction)
   (cl-find-if #'(lambda (e) (slack-reaction-equalp e reaction))

@@ -466,7 +466,8 @@ line-aligned strides to stay under that limit."
 (cl-defmethod slack-buffer-replace ((this slack-buffer) message)
   (let ((team (slack-buffer-team this)))
     (with-current-buffer (slack-buffer-buffer this)
-      (lui-replace (slack-message-to-string message team)
+      (lui-replace (slack-buffer--render-native-emoji-string
+                    (slack-message-to-string message team))
                    (lambda ()
                      (equal (get-text-property (point) 'ts)
                             (slack-ts message)))))))

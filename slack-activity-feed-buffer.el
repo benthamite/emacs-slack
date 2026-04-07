@@ -42,6 +42,7 @@
 (declare-function slack-message-create "slack-create-message")
 (declare-function slack-select-token "slack-request")
 (declare-function slack-message-replace-buffer "slack-message-buffer")
+(declare-function slack-emoji-resolve "slack-emoji")
 
 (defun slack-team-ensure-registered (team)
   "Ensure TEAM is the canonical object in the global lookup tables.
@@ -446,10 +447,12 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
    (name :initarg :name :type string)))
 
 (cl-defmethod slack-activity-reaction-to-string ((this activity-reaction) team)
+  "Format THIS activity reaction for TEAM as a display string.
+Eagerly resolves the emoji shortcode to Unicode when available."
   (with-slots (user name) this
-    (format "  %s reacted with :%s:"
+    (format "  %s reacted with %s"
             (or (slack-user-name user team) user)
-            name)))
+            (slack-emoji-resolve name))))
 
 (defclass activity-item ()
   ((type :initarg :type :type string)

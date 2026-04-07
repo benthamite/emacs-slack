@@ -307,6 +307,18 @@ used for the HTTP request context."
       :success #'success
       :without-auth t))))
 
+(defun slack-emoji-resolve (name)
+  "Return the Unicode string for emoji NAME, or the :NAME: shortcode.
+NAME is a bare emoji name without colons (e.g. \"+1\",
+\"raised_hands\").  When `slack-emoji-master' is populated and
+contains a Unicode mapping, return the glyph.  Otherwise return
+the shortcode string."
+  (let* ((shortcode (format ":%s:" name))
+         (char (when (and (boundp 'slack-emoji-master)
+                          (< 0 (hash-table-count slack-emoji-master)))
+                 (gethash shortcode slack-emoji-master))))
+    (if (stringp char) char shortcode)))
+
 (defun slack-insert-emoji ()
   "Insert emoji in slack buffer."
   (interactive)

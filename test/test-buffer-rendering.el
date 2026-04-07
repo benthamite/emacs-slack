@@ -838,6 +838,76 @@ produces a newline with `not-tracked-p'."
         (let ((kill-buffer-query-functions nil))
           (kill-buffer buf))))))
 
+;;; ---- 11. Reaction emoji rendering ----
+
+(require 'slack-reaction)
+(require 'slack-activity-feed-buffer)
+
+(ert-deftest slack-test-emoji-resolve-returns-unicode ()
+  "`slack-emoji-resolve' returns Unicode when master table is populated."
+  (let ((slack-emoji-master (make-hash-table :test 'equal)))
+    (puthash ":+1:" "\U0001F44D" slack-emoji-master)
+    (should (equal "\U0001F44D" (slack-emoji-resolve "+1")))))
+
+(ert-deftest slack-test-emoji-resolve-falls-back-to-shortcode ()
+  "`slack-emoji-resolve' returns :name: when master table is empty."
+  (let ((slack-emoji-master (make-hash-table :test 'equal)))
+    (should (equal ":wave:" (slack-emoji-resolve "wave")))))
+
+(ert-deftest slack-test-emoji-resolve-falls-back-for-unknown ()
+  "`slack-emoji-resolve' returns :name: for unknown shortcodes."
+  (let ((slack-emoji-master (make-hash-table :test 'equal)))
+    (puthash ":+1:" "\U0001F44D" slack-emoji-master)
+    (should (equal ":custom_emoji:" (slack-emoji-resolve "custom_emoji")))))
+
+(ert-deftest slack-test-emoji-resolve-skips-non-string-values ()
+  "`slack-emoji-resolve' returns shortcode when value is t (custom image emoji)."
+  (let ((slack-emoji-master (make-hash-table :test 'equal)))
+    (puthash ":company_logo:" t slack-emoji-master)
+    (should (equal ":company_logo:" (slack-emoji-resolve "company_logo")))))
+
+(ert-deftest slack-test-reaction-to-string-has-unicode ()
+  "`slack-reaction-to-string' renders the glyph, not the shortcode."
+  (let ((slack-emoji-master (make-hash-table :test 'equal)))
+    (puthash ":+1:" "\U0001F44D" slack-emoji-master)
+    (slack-test-setup
+      (let* ((r (make-instance 'slack-reaction
+                               :name "+1" :count 3 :users nil))
+             (str (slack-reaction-to-string r team)))
+        (should (string-match-p "\U0001F44D" str))
+        (should-not (string-match-p (regexp-quote ":+1:") str))
+        (should (string-match-p "3" str))))))
+
+(ert-deftest slack-test-reaction-to-string-fallback-when-empty ()
+  "`slack-reaction-to-string' uses shortcode when master is empty."
+  (let ((slack-emoji-master (make-hash-table :test 'equal)))
+    (slack-test-setup
+      (let* ((r (make-instance 'slack-reaction
+                               :name "+1" :count 1 :users nil))
+             (str (slack-reaction-to-string r team)))
+        (should (string-match-p (regexp-quote ":+1:") str))))))
+
+(ert-deftest slack-test-reaction-to-string-has-reaction-property ()
+  "`slack-reaction-to-string' sets the `reaction' text property."
+  (let ((slack-emoji-master (make-hash-table :test 'equal)))
+    (puthash ":+1:" "\U0001F44D" slack-emoji-master)
+    (slack-test-setup
+      (let* ((r (make-instance 'slack-reaction
+                               :name "+1" :count 1 :users nil))
+             (str (slack-reaction-to-string r team)))
+        (should (eq r (get-text-property 0 'reaction str)))))))
+
+(ert-deftest slack-test-activity-reaction-has-unicode ()
+  "`slack-activity-reaction-to-string' renders the glyph."
+  (let ((slack-emoji-master (make-hash-table :test 'equal)))
+    (puthash ":raised_hands:" "\U0001F64C" slack-emoji-master)
+    (slack-test-setup
+      (let* ((r (make-instance 'activity-reaction
+                               :user user-id :name "raised_hands"))
+             (str (slack-activity-reaction-to-string r team)))
+        (should (string-match-p "\U0001F64C" str))
+        (should-not (string-match-p ":raised_hands:" str))))))
+
 ;;; ---- Runner ----
 
 (provide 'test-buffer-rendering)
