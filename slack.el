@@ -320,16 +320,99 @@ Available options (property name, type, default value)
     'kill-buffer))
 
 (defun slack-refresh-token ()
-  "Refresh slack tokens helper."
+  "Extract Slack credentials interactively via browser DevTools.
+Opens the Slack customize page, then prompts for the token and
+(when needed) cookies.  Displays the collected credentials in a
+results buffer so they can be stored externally (e.g. in `pass').
+
+For xoxc tokens, cookies must be copied from the browser
+Application/Storage tab because they are HttpOnly."
   (interactive)
-  ;; https://github.com/emacs-slack/emacs-slack/issues/566#issuecomment-1208866953
-  (message "Deleting %s to clear old Slack cookies" (request--curl-cookie-jar))
-  (delete-file (request--curl-cookie-jar))
+  (when (file-exists-p (request--curl-cookie-jar))
+    (delete-file (request--curl-cookie-jar))
+    (message "Cleared old cookie jar"))
+  (slack-refresh-token--open-browser)
+  (let* ((token (slack-refresh-token--read-token))
+         (needs-cookie (slack-need-cookie-p token))
+         (enterprise-token (when needs-cookie
+                             (slack-refresh-token--read-enterprise-token)))
+         (cookie (when needs-cookie
+                   (slack-refresh-token--read-cookie))))
+    (slack-refresh-token--display-results
+     token enterprise-token cookie)))
+
+(defun slack-refresh-token--open-browser ()
+  "Open the Slack customize page and copy the token JS to clipboard."
   (kill-new "window.prompt(\"your api token is: \", TS.boot_data.api_token)")
   (browse-url "https://my.slack.com/customize")
-  (switch-to-buffer-other-window (get-buffer-create "instructions"))
-  (insert (funcall slack-edit-refresh-token-instructions slack-refresh-token-instructions))
-  (slack-stop nil))
+  (message "Opened Slack customize page.  JS snippet copied to clipboard."))
+
+(defun slack-refresh-token--read-token ()
+  "Prompt user for the Slack API token."
+  (let ((token (read-string
+                "Paste token (from Console: Ctrl-V the copied JS snippet, then copy the result): ")))
+    (when (string-empty-p token)
+      (user-error "Token is required"))
+    (string-trim token)))
+
+(defun slack-refresh-token--read-enterprise-token ()
+  "Prompt user for the enterprise token.
+Copies a JS snippet to extract it.  Returns nil if skipped."
+  (kill-new "window.prompt(\"enterprise token: \", TS.boot_data.enterprise_api_token)")
+  (let ((token (read-string
+                "Paste enterprise token (JS copied to clipboard; RET to skip): ")))
+    (unless (string-empty-p token)
+      (string-trim token))))
+
+(defun slack-refresh-token--read-cookie ()
+  "Prompt user for the three cookie values needed by xoxc tokens.
+Returns the combined cookie string in the format expected by
+`slack-team-d-cookie' and friends."
+  (message "Switch to Application/Storage tab in DevTools to copy cookies.")
+  (let ((d (read-string "Paste cookie \"d\" value (starts with xoxd-): "))
+        (d-s (read-string "Paste cookie \"d-s\" value: "))
+        (lc (read-string "Paste cookie \"lc\" value (RET to skip): ")))
+    (when (string-empty-p d)
+      (user-error "Cookie \"d\" is required for xoxc tokens"))
+    (when (string-empty-p d-s)
+      (user-error "Cookie \"d-s\" is required for xoxc tokens"))
+    (slack-refresh-token--format-cookie d d-s lc)))
+
+(defun slack-refresh-token--format-cookie (d d-s lc)
+  "Format cookie values D, D-S, and LC into the combined string.
+The format is \"xoxd-...; d-s=VALUE; lc=VALUE\"."
+  (let ((parts (list (string-trim d))))
+    (push (format "d-s=%s" (string-trim d-s)) parts)
+    (unless (string-empty-p lc)
+      (push (format "lc=%s" (string-trim lc)) parts))
+    (string-join (nreverse parts) "; ")))
+
+(defun slack-refresh-token--display-results (token enterprise-token cookie)
+  "Display TOKEN, ENTERPRISE-TOKEN, and COOKIE in a results buffer.
+The buffer contains the values for external storage plus
+ready-to-evaluate Elisp to apply them to the current team."
+  (let ((buf (get-buffer-create "*slack-credentials*")))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert "Slack credentials collected successfully.\n")
+        (insert "Store these values securely (e.g. `pass').\n\n")
+        (insert (format "token: %s\n" token))
+        (when enterprise-token
+          (insert (format "enterprise-token: %s\n" enterprise-token)))
+        (when cookie
+          (insert (format "cookie: %s\n" cookie)))
+        (insert "\n;; Evaluate to apply to the current team:\n")
+        (insert (format "(oset slack-current-team token \"%s\")\n" token))
+        (when enterprise-token
+          (insert (format "(oset slack-current-team enterprise-token \"%s\")\n"
+                          enterprise-token)))
+        (when cookie
+          (insert (format "(oset slack-current-team cookie \"%s\")\n" cookie)))
+        (insert "(slack-start)\n"))
+      (goto-char (point-min))
+      (special-mode))
+    (switch-to-buffer-other-window buf)))
 
 (defun slack-show-channel-info ()
   "Show an org mode buffer with channel information."
