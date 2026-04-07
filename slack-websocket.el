@@ -507,7 +507,7 @@ TEAM is one of `slack-teams'."
          ((string= type "hello")
           (slack-ws-cancel-connect-timeout-timer ws)
           (slack-ws-cancel-reconnect-timer ws)
-          (slack-cancel-notify-adandon-reconnect)
+          (slack-cancel-abandon-reconnect-notice)
           (slack-ws-set-ping-timer ws #'slack-ws-ping (slack-team-id team))
           (slack-ws-resend ws team)
           (slack-log "Slack Websocket Is Ready!" team :level 'info)
@@ -1163,7 +1163,8 @@ lots of public channels."
                                  groups)))))
            (slack-team-set-channels team channels)
            (slack-team-set-groups team groups)
-           (slack-team-set-ims team ims))))))))
+           (slack-team-set-ims team ims)
+           (slack-team-set-conversations-loaded team))))))))
 
 (defalias 'slack-room-list-update 'slack-conversations-list-update)
 (defun slack-conversations-list-update (&optional team after-success)
@@ -1176,6 +1177,7 @@ lots of public channels."
            (slack-team-set-channels team channels)
            (slack-team-set-groups team groups)
            (slack-team-set-ims team ims)
+           (slack-team-set-conversations-loaded team)
            (slack-counts-update team)
            (slack-user-info-request
             (mapcar #'(lambda (im) (oref im user))

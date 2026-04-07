@@ -710,6 +710,7 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
 (defun slack-select-unread-rooms ()
   (interactive)
   (let* ((team (slack-team-select))
+         (_ (slack-team-ensure-conversations-loaded team))
          (rooms (cl-loop for team in (list team)
                          append (cl-remove-if
                                  #'(lambda (room)
@@ -728,6 +729,7 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
   "Select a room to display."
   (interactive)
   (let* ((team (slack-team-select))
+         (_ (slack-team-ensure-conversations-loaded team))
          (room (slack-room-select
                 (cl-loop for team in (list team)
                          append (append (slack-team-ims team)
@@ -870,6 +872,7 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
 (defun slack-im-select ()
   (interactive)
   (if-let* ((team (slack-team-select))
+            (_ (slack-team-ensure-conversations-loaded team))
             (candidates (cl-loop for team in (list team)
                                  for ims = (cl-remove-if #'(lambda (im)
                                                              (not (slack-room-open-p im)))
@@ -882,6 +885,7 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
 (defun slack-group-select ()
   (interactive)
   (let* ((team (slack-team-select))
+         (_ (slack-team-ensure-conversations-loaded team))
          (room (slack-room-select
                 (cl-loop for team in (list team)
                          for groups = (slack-team-groups team)
@@ -892,6 +896,7 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
 (defun slack-channel-select ()
   (interactive)
   (let* ((team (slack-team-select))
+         (_ (slack-team-ensure-conversations-loaded team))
          (room (slack-room-select
                 (cl-loop for team in (list team)
                          for channels = (slack-team-channels team)

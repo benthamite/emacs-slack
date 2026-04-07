@@ -46,9 +46,10 @@
   (get-text-property 0 'file-id (thing-at-point 'line)))
 
 (defun slack-file-add-reaction (file-id reaction team)
+  "Add REACTION to file FILE-ID in TEAM."
   (slack-message-reaction-add-request (list (cons "name" reaction)
                                             (cons "file" file-id))
-                                      team))
+                                      team nil nil))
 
 (defun slack-file-remove-reaction (file-id team)
   (let* ((file (slack-file-find file-id team))
@@ -124,14 +125,16 @@ On success, add REACTION-NAME to MESSAGE locally and call
 (defun slack-message-reaction--update-local (message reaction-name team)
   "Add REACTION-NAME to MESSAGE locally and refresh buffers.
 Mirrors what the websocket `reaction_added' handler does, so
-the UI updates immediately without waiting for a websocket event."
-  (let ((reaction (slack-reaction :name reaction-name
-                                  :count 1
-                                  :users (list (oref team self-id)))))
-    (slack-if-let* ((existing (slack-reaction-find message reaction)))
-        (slack-reaction-join existing reaction)
-      (slack-reaction-push message reaction)))
-  (slack-message-replace-buffer message team))
+the UI updates immediately without waiting for a websocket event.
+MESSAGE and REACTION-NAME may be nil for file reactions."
+  (when (and message reaction-name)
+    (let ((reaction (slack-reaction :name reaction-name
+                                    :count 1
+                                    :users (list (oref team self-id)))))
+      (slack-if-let* ((existing (slack-reaction-find message reaction)))
+          (slack-reaction-join existing reaction)
+        (slack-reaction-push message reaction)))
+    (slack-message-replace-buffer message team)))
 
 (defun slack-message-reaction-remove (reaction ts room team)
   (slack-if-let* ((message (slack-room-find-message room ts)))

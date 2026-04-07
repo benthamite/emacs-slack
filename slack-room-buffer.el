@@ -357,15 +357,6 @@ SUCCESS-CALLBACK allows you to run a function on that permalink."
   (slack-if-let* ((buf slack-current-buffer))
       (slack-buffer-delete-message buf (slack-get-ts))))
 
-(defun slack-message-copy-id ()
-  "Copy the message timestamp (ID) at point to the kill ring."
-  (interactive)
-  (slack-if-let* ((ts (slack-get-ts)))
-      (progn
-        (kill-new ts)
-        (message "Copied message id: %s" ts))
-    (message "No message at point")))
-
 (defun slack-message-copy-link (&optional success-callback)
   "Copy permalink at point.
 Optionally pass SUCCESS-CALLBACK to perform an action on the permalink obtained."

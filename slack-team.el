@@ -294,6 +294,25 @@ TODO I should experiment to see if api calls require cookies."
 (cl-defmethod slack-team-ims ((this slack-team))
   (hash-table-values (oref this ims)))
 
+(defvar slack-team--conversations-loaded (make-hash-table :test 'equal)
+  "Hash table mapping team ID to non-nil when conversations are loaded.")
+
+(defun slack-team-conversations-loaded-p (team)
+  "Return non-nil if TEAM's conversation list has been fetched."
+  (gethash (oref team id) slack-team--conversations-loaded))
+
+(defun slack-team-set-conversations-loaded (team)
+  "Mark TEAM's conversation list as loaded."
+  (puthash (oref team id) t slack-team--conversations-loaded))
+
+(defun slack-team-ensure-conversations-loaded (team)
+  "Signal an error if TEAM's conversation list hasn't loaded yet.
+Returns non-nil on success so it can be used in `if-let*' bindings."
+  (unless (slack-team-conversations-loaded-p team)
+    (user-error "Slack is still loading conversations for \"%s\"; please wait for \">> Slack is ready!\""
+                (oref team name)))
+  t)
+
 (cl-defmethod slack-team-users ((this slack-team))
   (hash-table-values (oref this users)))
 

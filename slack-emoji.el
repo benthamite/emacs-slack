@@ -30,6 +30,8 @@
 (declare-function emojify-get-emoji "emojify")
 (declare-function emojify-image-dir "emojify")
 (declare-function emojify-create-emojify-emojis "emojify")
+(declare-function emojify-completing-read "emojify")
+(declare-function emojify-download-emoji-maybe "emojify")
 (declare-function slack-buffer--render-native-emoji "slack-buffer")
 (defvar emojify-user-emojis)
 (defvar slack-current-buffer)

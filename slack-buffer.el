@@ -204,10 +204,10 @@ mode-initialization functions inside this macro."
   (oref this buf))
 
 (cl-defmethod slack-buffer-init-buffer :after ((this slack-buffer))
-  (slack-if-let* ((buf (and (slot-boundp this 'buf) (oref this buf)))
-                  (_live (buffer-live-p buf)))
-      (with-current-buffer buf
-        (add-hook 'kill-buffer-hook (slack-buffer-create-kill-hook this) nil t))))
+  (when-let* ((buf (and (slot-boundp this 'buf) (oref this buf)))
+              ((buffer-live-p buf)))
+    (with-current-buffer buf
+      (add-hook 'kill-buffer-hook (slack-buffer-create-kill-hook this) nil t))))
 
 (cl-defmethod slack-buffer-kill-buffer-window ((this slack-buffer))
   "Kill the buffer for THIS and clean up its window.
@@ -978,8 +978,8 @@ INITIAL-COMMENT and THREAD-TS are optional."
       :headers (list (cons "Content-Type" "application/json;charset=utf-8"))
       :success #'on-complete))))
 
-(defun slack-file-upload (file filetype filename)
-  "Uploads FILE with FILETYPE and FILENAME."
+(defun slack-file-upload (file _filetype filename)
+  "Upload FILE as FILENAME to the current Slack channel."
   (interactive
    (let ((file (expand-file-name (car (find-file-read-args "Select File: " t)))))
      (list file

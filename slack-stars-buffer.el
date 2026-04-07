@@ -240,10 +240,8 @@ the URL."
               new-items team
               (lambda ()
                 (with-current-buffer (slack-buffer-buffer this)
-                  (let ((inhibit-read-only t)
-                        (start (point-max)))
+                  (let ((inhibit-read-only t))
                     (slack-buffer-delete-load-more-string this)
-                    (setq start (point-max))
                     (slack-stars--insert-items this new-items)
                     (slack-stars--insert-tail this)))))))))
     (message "No more items.")))
