@@ -309,15 +309,48 @@ used for the HTTP request context."
       :success #'success
       :without-auth t))))
 
+(defvar slack-emoji--fetch-attempted nil
+  "Non-nil once a lazy fetch of emoji master data has been tried.")
+
+(defun slack-emoji--ensure-master-data ()
+  "Populate `slack-emoji-master' if empty, fetching synchronously.
+Uses `url-retrieve-synchronously' to avoid depending on the
+`slack-request' worker (whose sync path never fires callbacks).
+No-ops after the first attempt to avoid repeated failures."
+  (when (and (not slack-emoji--fetch-attempted)
+             (= 0 (hash-table-count slack-emoji-master)))
+    (setq slack-emoji--fetch-attempted t)
+    (condition-case err
+        (slack-emoji--fetch-and-store-master-data)
+      (error
+       (message "slack-emoji: fetch failed: %s" (error-message-string err))))))
+
+(defun slack-emoji--fetch-and-store-master-data ()
+  "Download and parse the iamcal emoji-data JSON into `slack-emoji-master'."
+  (let ((buf (url-retrieve-synchronously
+              slack-emoji-master-data-url t nil 30)))
+    (unwind-protect
+        (with-current-buffer buf
+          (goto-char (point-min))
+          (re-search-forward "\n\n")
+          (let ((data (json-parse-buffer
+                       :object-type 'plist
+                       :array-type 'list
+                       :false-object :json-false
+                       :null-object nil)))
+            (slack-emoji--store-master-data data)
+            (slack-emoji--rerender-all-buffers)))
+      (kill-buffer buf))))
+
 (defun slack-emoji-resolve (name)
   "Return the Unicode string for emoji NAME, or the :NAME: shortcode.
 NAME is a bare emoji name without colons (e.g. \"+1\",
 \"raised_hands\").  When `slack-emoji-master' is populated and
 contains a Unicode mapping, return the glyph.  Otherwise return
-the shortcode string."
+the shortcode string.  Triggers a lazy fetch on first use."
+  (slack-emoji--ensure-master-data)
   (let* ((shortcode (format ":%s:" name))
-         (char (when (and (boundp 'slack-emoji-master)
-                          (< 0 (hash-table-count slack-emoji-master)))
+         (char (when (< 0 (hash-table-count slack-emoji-master))
                  (gethash shortcode slack-emoji-master))))
     (if (stringp char) char shortcode)))
 

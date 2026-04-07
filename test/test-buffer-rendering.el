@@ -851,7 +851,8 @@ produces a newline with `not-tracked-p'."
 
 (ert-deftest slack-test-emoji-resolve-falls-back-to-shortcode ()
   "`slack-emoji-resolve' returns :name: when master table is empty."
-  (let ((slack-emoji-master (make-hash-table :test 'equal)))
+  (let ((slack-emoji-master (make-hash-table :test 'equal))
+        (slack-emoji--fetch-attempted t))
     (should (equal ":wave:" (slack-emoji-resolve "wave")))))
 
 (ert-deftest slack-test-emoji-resolve-falls-back-for-unknown ()
@@ -862,7 +863,8 @@ produces a newline with `not-tracked-p'."
 
 (ert-deftest slack-test-emoji-resolve-skips-non-string-values ()
   "`slack-emoji-resolve' returns shortcode when value is t (custom image emoji)."
-  (let ((slack-emoji-master (make-hash-table :test 'equal)))
+  (let ((slack-emoji-master (make-hash-table :test 'equal))
+        (slack-emoji--fetch-attempted t))
     (puthash ":company_logo:" t slack-emoji-master)
     (should (equal ":company_logo:" (slack-emoji-resolve "company_logo")))))
 
@@ -880,7 +882,8 @@ produces a newline with `not-tracked-p'."
 
 (ert-deftest slack-test-reaction-to-string-fallback-when-empty ()
   "`slack-reaction-to-string' uses shortcode when master is empty."
-  (let ((slack-emoji-master (make-hash-table :test 'equal)))
+  (let ((slack-emoji-master (make-hash-table :test 'equal))
+        (slack-emoji--fetch-attempted t))
     (slack-test-setup
       (let* ((r (make-instance 'slack-reaction
                                :name "+1" :count 1 :users nil))
