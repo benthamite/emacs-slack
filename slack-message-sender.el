@@ -38,6 +38,9 @@
 
 (defvar slack-completing-read-function)
 (defvar slack-buffer-function)
+
+(declare-function slack-message-create "slack-create-message")
+(declare-function slack-message-update-buffer "slack-message-buffer")
 (defvar slack-current-buffer)
 
 (defconst slack-channel-mention-regex "\\(<#\\([A-Za-z0-9]+\\)>\\)")
@@ -120,7 +123,9 @@ recursion when the join/open callback re-invokes this function."
   (cl-labels
       ((success (&key data &allow-other-keys)
          (if (eq t (plist-get data :ok))
-             (and on-success (funcall on-success))
+             (progn
+               (slack-chat-post-message--echo data team)
+               (when on-success (funcall on-success)))
            (if on-error
                (funcall on-error data)
              (slack-log (format "Failed to post message. Error: %s, meta: %s"
@@ -141,6 +146,20 @@ recursion when the join/open callback re-invokes this function."
       :headers (list (cons "Content-Type"
                            "application/json;charset=utf-8"))
       :success #'success))))
+
+(defun slack-chat-post-message--echo (data team)
+  "Echo the sent message from chat.postMessage response DATA locally.
+Creates the message from the API response and pushes it through
+the standard buffer-update machinery so it appears immediately."
+  (let* ((channel (plist-get data :channel))
+         (msg-data (plist-get data :message))
+         (room (and channel (slack-room-find channel team))))
+    (when (and room msg-data)
+      (plist-put msg-data :channel channel)
+      (let ((message (slack-message-create msg-data team room)))
+        (when message
+          (slack-room-push-message room message team)
+          (slack-message-update-buffer message team))))))
 
 (defun slack-message-room-list (team)
   (append (slack-group-names team)

@@ -216,11 +216,12 @@
 
 (cl-defmethod slack-buffer-update ((this slack-thread-message-buffer) message &key replace)
   (if replace (slack-buffer-replace this message)
-    (let ((buffer (slack-buffer-buffer this)))
-      (with-current-buffer buffer
-        (slack-buffer-insert this message))
-      (slack-buffer-update-last-read this message)
-      (slack-buffer-update-mark this))))
+    (unless (slack-buffer-message-exists-p this (slack-ts message))
+      (let ((buffer (slack-buffer-buffer this)))
+        (with-current-buffer buffer
+          (slack-buffer-insert this message))
+        (slack-buffer-update-last-read this message)
+        (slack-buffer-update-mark this)))))
 
 (cl-defmethod slack-buffer-display-edit-message-buffer ((this slack-thread-message-buffer) ts)
   (let* ((team (slack-buffer-team this))

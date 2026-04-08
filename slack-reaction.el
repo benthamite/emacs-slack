@@ -34,11 +34,15 @@
    (user-loading :type boolean :initform nil)))
 
 (cl-defmethod slack-reaction-join ((r slack-reaction) other)
-  (if (string= (oref r name) (oref other name))
-      (progn
-        (cl-incf (oref r count))
-        (oset r users (append (oref other users) (oref r users)))
-        r)))
+  "Merge OTHER into R, deduplicating users and deriving count.
+Idempotent: joining the same user twice is a no-op."
+  (when (string= (oref r name) (oref other name))
+    (let ((new-users (cl-remove-duplicates
+                      (append (oref other users) (oref r users))
+                      :test #'string=)))
+      (oset r users new-users)
+      (oset r count (length new-users)))
+    r))
 
 (cl-defmethod slack-equalp ((r slack-reaction) other)
   (slack-reaction-equalp r other))

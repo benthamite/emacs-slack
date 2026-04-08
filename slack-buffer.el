@@ -467,6 +467,11 @@ line-aligned strides to stay under that limit."
                                    :token token
                                    :cookie cookie)))))))
 
+(cl-defmethod slack-buffer-message-exists-p ((this slack-buffer) ts)
+  "Return non-nil if a message with TS is already in the buffer of THIS."
+  (with-current-buffer (slack-buffer-buffer this)
+    (slack-buffer-ts-eq (point-min) (point-max) ts)))
+
 (cl-defmethod slack-buffer-replace ((this slack-buffer) message)
   (let ((team (slack-buffer-team this)))
     (with-current-buffer (slack-buffer-buffer this)
