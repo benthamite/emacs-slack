@@ -345,24 +345,40 @@ TS may belong to a root message or any reply within a thread."
     (message "Thread not found for ts %s" ts)))
 
 (defun slack-all-threads-unfollow-at-point ()
-  "Unfollow the thread at point."
+  "Unfollow the thread at point.
+Works from both `slack-all-threads-buffer' and
+`slack-thread-message-buffer'."
   (interactive)
+  (let ((buf slack-current-buffer))
+    (cond
+     ((and buf (object-of-class-p buf 'slack-all-threads-buffer))
+      (slack-all-threads--unfollow-from-feed buf))
+     ((and buf (object-of-class-p buf 'slack-thread-message-buffer))
+      (slack-all-threads--unfollow-from-thread buf))
+     (t (message "Not in a thread buffer")))))
+
+(defun slack-all-threads--unfollow-from-feed (buf)
+  "Unfollow thread at point in all-threads BUF."
   (if-let* ((ts (get-text-property (point) 'ts))
-            (buf slack-current-buffer)
             (thread (slack-all-threads-buffer-find-thread buf ts))
             (root (oref thread root-msg))
             (team (slack-buffer-team buf))
             (room (slack-room-find (oref root channel) team)))
-      (slack-all-threads-unfollow-thread room root team)
+      (slack-all-threads-unfollow-thread room (slack-ts root) team)
     (message "No thread at point")))
 
-(defun slack-all-threads-unfollow-thread (room root team)
-  "Unfollow thread with root message ROOT in ROOM on TEAM."
+(defun slack-all-threads--unfollow-from-thread (buf)
+  "Unfollow the thread displayed in thread-message BUF."
+  (slack-all-threads-unfollow-thread
+   (slack-buffer-room buf) (oref buf thread-ts) (slack-buffer-team buf)))
+
+(defun slack-all-threads-unfollow-thread (room ts team)
+  "Unfollow thread TS in ROOM on TEAM."
   (cl-labels
       ((after-success ()
                       (slack-log "Unfollowed thread" team :level 'info)
                       (message "Unfollowed thread")))
-    (slack-subscriptions-thread-remove room (slack-ts root) team
+    (slack-subscriptions-thread-remove room ts team
                                        #'after-success)))
 
 (define-key slack-all-threads-buffer-mode-map (kbd "RET") 'slack-feed-open-at-point)
