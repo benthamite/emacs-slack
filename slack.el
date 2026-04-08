@@ -85,6 +85,7 @@
 (require 'slack-create-message)
 
 (require 'slack-company)
+(require 'slack-menu)
 
 (defgroup slack nil
   "Emacs Slack Client"
@@ -512,6 +513,38 @@ connected or parsing fails."
                  (cons slack-url-regexp #'slack-browse-url))))
 
 (slack-register-url-handler)
+
+;;;###autoload
+(defun slack-start-and-select ()
+  "Start Slack if not connected, then select a channel.
+If all registered teams are already connected, skip straight to
+channel selection."
+  (interactive)
+  (let ((disconnected (slack-disconnected-teams)))
+    (if disconnected
+        (progn
+          (slack-start)
+          (message "Connecting to Slack... use `slack-channel-select' once ready."))
+      (call-interactively #'slack-channel-select))))
+
+(defun slack-disconnected-teams ()
+  "Return a list of registered teams that have no active WebSocket."
+  (let (teams)
+    (maphash (lambda (_token team)
+               (unless (oref team ws)
+                 (push team teams)))
+             slack-teams-by-token)
+    teams))
+
+;;;###autoload
+(defun slack-disconnect-all ()
+  "Disconnect all connected Slack teams."
+  (interactive)
+  (maphash (lambda (_token team)
+             (when (oref team ws)
+               (slack-team-disconnect team)))
+           slack-teams-by-token)
+  (message "Disconnected all Slack teams."))
 
 (provide 'slack)
 ;;; slack.el ends here

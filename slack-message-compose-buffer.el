@@ -95,5 +95,14 @@
     (message "C-c C-c to send message")
     buf))
 
+(defun slack-yank-code-block ()
+  "Yank the kill ring as a Slack code block.
+Wraps the yanked text in triple backtick fences."
+  (interactive)
+  (insert "```\n")
+  (yank)
+  (unless (bolp) (insert "\n"))
+  (insert "```"))
+
 (provide 'slack-message-compose-buffer)
 ;;; slack-message-compose-buffer.el ends here

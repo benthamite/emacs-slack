@@ -948,6 +948,43 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
           (message "Already in thread")
         (slack-buffer-display-thread buf (slack-get-ts)))))
 
+(defun slack-thread-reply ()
+  "Open a thread for the message at point and start composing.
+If already in a thread buffer, open a compose buffer directly.
+Otherwise open (or create) the thread first, then compose."
+  (interactive)
+  (slack-if-let* ((buf slack-current-buffer))
+      (if (slack-thread-message-buffer-p buf)
+          (slack-buffer-display-message-compose-buffer buf)
+        (slack-thread-reply--open-and-compose buf (slack-get-ts)))))
+
+(defun slack-thread-reply--open-and-compose (buf ts)
+  "Open a thread for TS in BUF, then open a compose buffer.
+BUF is a `slack-message-buffer'."
+  (slack-if-let* ((team (slack-buffer-team buf))
+                  (room (slack-buffer-room buf))
+                  (message (slack-room-find-message room ts)))
+      (slack-if-let* ((thread-ts (slack-thread-ts message)))
+          (slack-thread-show-messages
+           message room team #'slack-thread-reply--compose)
+        (slack-thread-reply--start-and-compose buf message ts))))
+
+(defun slack-thread-reply--start-and-compose (buf message ts)
+  "Start a new thread for MESSAGE at TS in BUF, then compose.
+BUF is a `slack-message-buffer'."
+  (when (slack-reply-broadcast-message-p message)
+    (error "Can't start thread from broadcasted message"))
+  (let ((thread-buf (slack-create-thread-message-buffer
+                     (slack-buffer-room buf)
+                     (slack-buffer-team buf)
+                     ts)))
+    (slack-buffer-display thread-buf)
+    (slack-buffer-display-message-compose-buffer thread-buf)))
+
+(defun slack-thread-reply--compose ()
+  "Open a compose buffer for `slack-current-buffer'."
+  (slack-buffer-display-message-compose-buffer slack-current-buffer))
+
 (cl-defmethod slack-buffer-display-thread ((this slack-message-buffer) ts)
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
