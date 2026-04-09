@@ -26,65 +26,72 @@
 ;;;###autoload (autoload 'slack-menu "slack-menu" nil t)
 (transient-define-prefix slack-menu ()
   "Main menu for emacs-slack."
-  [["Navigate"
-    ("c" "channel" slack-channel-select)
-    ("g" "group" slack-group-select)
-    ("m" "direct message" slack-im-select)
-    ("u" "rooms" slack-select-rooms)
-    ("U" "unread rooms" slack-select-unread-rooms)
-    ("a" "all threads" slack-all-threads)
-    ("A" "activity feed" slack-activity-feed-show)
-    ("*" "saved items" slack-saved-items)
-    ("M" "scheduled messages" slack-scheduled-messages-show)]
-   ["Message"
-    ("d" "open thread" slack-thread-show-or-create)
-    ("Z" "reply in thread" slack-thread-reply)
-    ("W" "thread subscribe" slack-thread-toggle-subscription)
-    ("e" "edit" slack-message-edit)
-    ("D" "delete" slack-message-delete)
-    ("s" "share" slack-message-share)
-    ("l" "copy link" slack-message-copy-link)
-    ("I" "copy id" slack-message-copy-id)
-    ("Q" "quote & reply" slack-quote-and-reply)
-    ("." "redisplay" slack-message-redisplay)]
-   ["React & save"
-    ("r" "add reaction" slack-message-add-reaction)
-    ("R" "remove reaction" slack-message-remove-reaction)
-    ("p" "pin" slack-message-pins-add)
-    ("P" "unpin" slack-message-pins-remove)
-    ("n" "pins list" slack-room-pins-list)
-    ("B" "save for later" slack-message-save-for-later)]
-   ["Search"
-    ("/" "messages" slack-search-from-messages)
-    ("\\" "files" slack-search-from-files)]]
-  [["Compose"
-    ("z" "compose in buffer" slack-message-write-another-buffer)
-    ("y" "yank code block" slack-yank-code-block)
-    ("E" "insert emoji" slack-insert-emoji)
-    ("@" "embed mention" slack-message-embed-mention)
-    ("#" "embed channel" slack-message-embed-channel)]
-   ["File"
-    ("f" "upload" slack-file-upload)
-    ("F" "quick upload" slack-file-upload-quick)
-    ("S" "upload snippet" slack-file-upload-snippet)
-    ("x" "download at point" slack-download-file-at-point)
-    ("X" "clipboard image" slack-clipboard-image-upload)]
+  [["Message"
+    ("m t" "open thread" slack-thread-show-or-create)
+    ("m r" "reply in thread" slack-thread-reply)
+    ("m w" "toggle subscribe" slack-thread-toggle-subscription)
+    ("m e" "edit" slack-message-edit)
+    ("m d" "delete" slack-message-delete)
+    ("m s" "share" slack-message-share)
+    ("m l" "copy link" slack-message-copy-link)
+    ("m i" "copy id" slack-message-copy-id)
+    ("m b" "jump to browser" slack-jump-to-browser)
+    ("m q" "quote & reply" slack-quote-and-reply)
+    ("m ." "redisplay" slack-message-redisplay)
+    ""
+    "Compose"
+    ("w c" "compose in buffer" slack-message-write-another-buffer)
+    ("w y" "yank code block" slack-yank-code-block)
+    ("w e" "insert emoji" slack-insert-emoji)
+    ("w m" "embed mention" slack-message-embed-mention)
+    ("w #" "embed channel" slack-message-embed-channel)]
+   ["Navigate"
+    ("n c" "channel" slack-channel-select)
+    ("n g" "group" slack-group-select)
+    ("n d" "direct message" slack-im-select)
+    ("n r" "rooms" slack-select-rooms)
+    ("n u" "unread rooms" slack-select-unread-rooms)
+    ("n t" "all threads" slack-all-threads)
+    ("n a" "activity feed" slack-activity-feed-show)
+    ("n s" "saved items" slack-saved-items)
+    ("n m" "scheduled messages" slack-scheduled-messages-show)
+    ""
+    "Search"
+    ("s m" "messages" slack-search-from-messages)
+    ("s f" "files" slack-search-from-files)]
+   ["React"
+    ("r a" "add" slack-message-add-reaction)
+    ("r r" "remove" slack-message-remove-reaction)
+    ("r s" "save for later" slack-message-save-for-later)
+    ""
+    "Pin"
+    ("p p" "pin" slack-message-pins-add)
+    ("p u" "unpin" slack-message-pins-remove)
+    ("p l" "list" slack-room-pins-list)
+    ""
+    "File"
+    ("f u" "upload" slack-file-upload)
+    ("f q" "quick upload" slack-file-upload-quick)
+    ("f s" "upload snippet" slack-file-upload-snippet)
+    ("f d" "download at point" slack-download-file-at-point)
+    ("f c" "clipboard image" slack-clipboard-image-upload)]
    ["Channel"
-    ("C" "create" slack-create-channel)
-    ("j" "join" slack-channel-join)
-    ("v" "leave" slack-channel-leave)
-    ("t" "set topic" slack-channel-set-topic)
-    ("i" "info" slack-show-channel-info)
-    ("b" "bookmarks" slack-show-channel-bookmarks)
-    ("h" "huddle" slack-join-huddle)]
-   ["Team & connection"
-    ("T" "change team" slack-change-current-team)
-    ("o" "start" slack-start-and-select)
-    ("O" "stop" slack-disconnect-all)
-    ("+" "set status" slack-user-set-status)
-    ("-" "reset status" slack-user-reset-status)
-    ("w" "open in browser" slack-jump-to-browser)
-    ("K" "kill all buffers" slack-kill-all-buffers)]])
+    ("c c" "create" slack-create-channel)
+    ("c j" "join" slack-channel-join)
+    ("c l" "leave" slack-channel-leave)
+    ("c t" "set topic" slack-channel-set-topic)
+    ("c i" "info" slack-show-channel-info)
+    ("c b" "bookmarks" slack-show-channel-bookmarks)
+    ("c h" "huddle" slack-join-huddle)
+    ""
+    "Team & connection"
+    ("t c" "change team" slack-change-current-team)
+    ("t s" "start" slack-start-and-select)
+    ("t q" "stop" slack-disconnect-all)
+    ("t +" "set status" slack-user-set-status)
+    ("t -" "reset status" slack-user-reset-status)
+    ("t b" "open in browser" slack-jump-to-browser)
+    ("t k" "kill all buffers" slack-kill-all-buffers)]])
 
 (provide 'slack-menu)
 ;;; slack-menu.el ends here
