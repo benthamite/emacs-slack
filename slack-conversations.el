@@ -285,15 +285,15 @@ If nil, include archived channels."
 
 (defun slack-conversations-list (team success-callback &optional types)
   "Retrieve the list of conversations for TEAM.
-Run SUCCESS-CALLBACK on success. Also limit to conversation TYPES when provided."
+Run SUCCESS-CALLBACK on success with three arguments: CHANNELS,
+GROUPS, and IMS.  Also limit to conversation TYPES when provided.
+On error, SUCCESS-CALLBACK is called with whatever partial data
+was accumulated so the loading chain is never silently broken."
   (let ((cursor nil)
         (channels nil)
         (groups nil)
         (ims nil)
         (types (or types
-                   ;; Do not update public_channel unless slack-update-quick is nil.
-                   ;; `slack-conversations-list-update-quick' fetches all joined
-                   ;; public channels already.
                    (append
                     '("private_channel"
                       "mpim"
@@ -301,10 +301,20 @@ Run SUCCESS-CALLBACK on success. Also limit to conversation TYPES when provided.
                     (unless slack-update-quick (list "public_channel")))))
         (loop-count 0))
     (cl-labels
-        ((on-success
+        ((finish-with-partial-data (reason)
+           (slack-log (format "slack-conversations-list: %s (returning %d channels, %d groups, %d ims)"
+                              reason (length channels) (length groups) (length ims))
+                      team :level 'warn)
+           (funcall success-callback channels groups ims))
+         (on-api-error (err)
+           (finish-with-partial-data (format "API error: %s" err)))
+         (on-http-error (&key error-thrown symbol-status &allow-other-keys)
+           (finish-with-partial-data
+            (format "HTTP error: %S (%S)" error-thrown symbol-status)))
+         (on-success
            (&key data &allow-other-keys)
            (slack-request-handle-error
-            (data "slack-conversations-list")
+            (data "slack-conversations-list" #'on-api-error)
             (cl-loop for c in (plist-get data :channels)
                      do (cond
                          ((eq t (plist-get c :is_channel))
@@ -334,8 +344,7 @@ Run SUCCESS-CALLBACK on success. Also limit to conversation TYPES when provided.
                      (lambda ()
                        (slack-log (format ">> Fetching next cursor... Page: %s." loop-count) team :level 'info)
                        (request)))))
-              (progn
-                (funcall success-callback channels groups ims)))))
+              (funcall success-callback channels groups ims))))
          (request ()
            (slack-request
             (slack-request-create
@@ -345,7 +354,8 @@ Run SUCCESS-CALLBACK on success. Also limit to conversation TYPES when provided.
                            (and slack-exclude-archived-channels (cons "exclude_archived" "true"))
                            (and cursor (cons "cursor" cursor))
                            (cons "limit" "999"))
-             :success #'on-success))))
+             :success #'on-success
+             :error #'on-http-error))))
       (request))))
 
 

@@ -1124,12 +1124,12 @@ represent activity."
           (oset team authorize-request request))))))
 
 (defun slack-conversations-list-update-quick (&optional team)
-  "Like slack-conversations-list-update but uses userboot endpoint.
+  "Like `slack-conversations-list-update' but uses userboot endpoint.
 This way instead of getting all channels in the workspace, you
 only get the ones you are a member of, which reduces the amount
 of requests that are being made to Slack and therefore lowers the
-risk of getting rate-limited. Especially good for workspaces with
-lots of public channels."
+risk of getting rate-limited.  Especially good for workspaces
+with lots of public channels."
   (interactive)
   (let ((team (or team (slack-team-select))))
     (slack-request
@@ -1138,7 +1138,7 @@ lots of public channels."
       team
       :data (list (cons "min_channel_updated"
                         (car (s-split "\\."
-                                      (number-to-string (let ((six-months-in-seconds (* 6 30 24 60 60))) ; Approximating a month as 30 days
+                                      (number-to-string (let ((six-months-in-seconds (* 6 30 24 60 60)))
                                                           (time-to-seconds (time-subtract (current-time) six-months-in-seconds))))))))
       :success
       (cl-function
@@ -1147,7 +1147,7 @@ lots of public channels."
                (groups nil)
                (ims nil))
            (cl-loop for channel in (plist-get data :channels)
-                    do (let ((c (plist-put channel :is_member t))) ;; by definition this fetches only channel you are member of, so that attribute does not come along
+                    do (let ((c (plist-put channel :is_member t)))
                          (cond
                           ((and
                             slack-exclude-archived-channels
@@ -1164,7 +1164,14 @@ lots of public channels."
            (slack-team-set-channels team channels)
            (slack-team-set-groups team groups)
            (slack-team-set-ims team ims)
-           (slack-team-set-conversations-loaded team))))))))
+           (slack-team-set-conversations-loaded team))))
+      :error
+      (cl-function
+       (lambda (&key error-thrown symbol-status &allow-other-keys)
+         (slack-log (format "conversations-list-update-quick: HTTP error %S (%S), marking loaded anyway"
+                            error-thrown symbol-status)
+                    team :level 'error)
+         (slack-team-set-conversations-loaded team)))))))
 
 (defalias 'slack-room-list-update 'slack-conversations-list-update)
 (defun slack-conversations-list-update (&optional team after-success)
