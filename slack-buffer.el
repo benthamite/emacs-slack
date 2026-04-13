@@ -622,11 +622,12 @@ Unicode emoji display properties.  On older Emacs, activate
                                 'action 'lui-button-activate
                                 'lui-button-function 'browse-url
                                 'lui-button-arguments (list url))
-              ;; add local keymap to kill url instead of just opening with RET
               (put-text-property (1- url-begin)
                                  (+ (1- url-begin) (length replace))
                                  'local-map
                                  (let ((map (make-sparse-keymap)))
+                                   (define-key map (kbd "RET") 'push-button)
+                                   (define-key map [mouse-1] 'push-button)
                                    (define-key map (kbd "w") 'slack-kill-button-url)
                                    map)))))))))
 
