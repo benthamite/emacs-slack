@@ -28,15 +28,16 @@
   "Main menu for emacs-slack."
   [["Message"
     ("m t" "open thread" slack-thread-show-or-create)
-    ("m r" "reply in thread" slack-thread-reply)
-    ("m w" "toggle subscribe" slack-thread-toggle-subscription)
+    ("m r" "reply" slack-thread-reply)
+    ("m q" "quote & reply" slack-quote-and-reply)
     ("m e" "edit" slack-message-edit)
     ("m d" "delete" slack-message-delete)
     ("m s" "share" slack-message-share)
-    ("m l" "copy link" slack-message-copy-link)
+    ("m u" "toggle subscribe" slack-thread-toggle-subscription)
+    ("m k" "copy link" slack-message-copy-link)
     ("m i" "copy id" slack-message-copy-id)
+    ("m l" "save for later" slack-message-save-for-later)
     ("m b" "jump to browser" slack-jump-to-browser)
-    ("m q" "quote & reply" slack-quote-and-reply)
     ("m ." "redisplay" slack-message-redisplay)
     ""
     "Compose"
@@ -62,7 +63,6 @@
    ["React"
     ("r a" "add" slack-message-add-reaction)
     ("r r" "remove" slack-message-remove-reaction)
-    ("r s" "save for later" slack-message-save-for-later)
     ""
     "Pin"
     ("p p" "pin" slack-message-pins-add)
