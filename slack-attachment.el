@@ -429,6 +429,17 @@
                             'face 'slack-attachment-header))
       "")))
 
+(cl-defmethod slack-attachment-header ((attachment slack-shared-message))
+  "Format ATTACHMENT header, linking author name to the original message."
+  (with-slots (from-url author-name author-subname) attachment
+    (let ((name (or author-name author-subname)))
+      (if name
+          (propertize (if (slack-string-blankp from-url)
+                          name
+                        (slack-linkfy name from-url))
+                      'face 'slack-attachment-header)
+        (cl-call-next-method)))))
+
 (cl-defmethod slack-attachment-field-to-string ((field slack-attachment-field) &optional pad)
   (unless pad (setq pad ""))
   (let ((title (propertize (or (oref field title) "") 'face 'slack-attachment-field-title))
