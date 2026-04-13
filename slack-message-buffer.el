@@ -1127,14 +1127,17 @@ AFTER-SUCCESS is called when done."
 AFTER-SUCCESS is called when done."
   (slack-messages-paginate 'after message-ts room team after-success))
 
-(defun slack-open-message (team room ts thread-ts &optional goto-ts)
+(defun slack-open-message (team room ts thread-ts &optional goto-ts browser-fallback)
   "Open message or thread buffer for TEAM ROOM TS THREAD-TS.
 THREAD-TS can be nil.  When GOTO-TS is non-nil, navigate to that
-timestamp instead of the default."
+timestamp instead of the default.  When BROWSER-FALLBACK is
+non-nil and the message is not found, open the permalink in the
+default browser."
   (cl-labels ((go-to-link-position ()
                 (slack-buffer-goto (or goto-ts ts))
-                (slack-open-message--browser-fallback
-                 ts thread-ts team room))
+                (when browser-fallback
+                  (slack-open-message--browser-fallback
+                   ts thread-ts team room)))
               (after-success ()
                 (slack-room-display room team #'go-to-link-position))
               (open-thread (parent)
@@ -1153,7 +1156,7 @@ Checks both TS and THREAD-TS against current position in TEAM ROOM."
              (not (equal thread-ts (slack-get-ts)))
              slack-open-message-with-browser)
     (message "slack-open-message: message not available, browsing permalink")
-    (browse-url
+    (browse-url-default-browser
      (slack-info-to-permalink
       (list :team-domain (oref team name)
             :room-id (oref room id)

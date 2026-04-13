@@ -496,7 +496,7 @@ connected or parsing fails."
         (if (and team room-id ts)
             (let ((room (slack-room-find room-id team)))
               (if room
-                  (slack-open-message team room ts thread-ts ts)
+                  (slack-open-message team room ts thread-ts ts t)
                 (message "slack: room %s not found, opening in browser" room-id)
                 (browse-url-default-browser url)))
           (message "slack: could not parse URL, opening in browser")
