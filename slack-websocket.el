@@ -1064,6 +1064,8 @@ represent activity."
       (cl-labels
           ((on-error (&key error-thrown symbol-status response data)
              (oset team authorize-request nil)
+             (message ">> Slack authorization failed for \"%s\": %s"
+                      (oref team name) error-thrown)
              (slack-log (format "Authorize Failed: %s" error-thrown)
                         team)
              (when (functionp error-callback)

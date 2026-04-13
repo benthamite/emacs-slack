@@ -30,6 +30,7 @@
 (require 's)
 
 (declare-function emojify-create-emojify-emojis "emojify")
+(declare-function slack-start "slack")
 (defvar emojify--user-emojis-regexp)
 
 (defvar slack-current-team nil)
@@ -307,11 +308,23 @@ TODO I should experiment to see if api calls require cookies."
 
 (defun slack-team-ensure-conversations-loaded (team)
   "Signal an error if TEAM's conversation list hasn't loaded yet.
-Returns non-nil on success so it can be used in `if-let*' bindings."
+If TEAM was never authorized (ID is nil), auto-start it.
+Returns non-nil on success so it can be used in `if-let*'
+bindings."
   (unless (slack-team-conversations-loaded-p team)
-    (user-error "Slack is still loading conversations for \"%s\"; please wait for \">> Slack is ready!\""
-                (oref team name)))
+    (if (slack-team-never-authorized-p team)
+        (progn
+          (slack-start team)
+          (user-error "Slack was not connected for \"%s\"; starting now — please retry in a moment"
+                      (oref team name)))
+      (user-error "Slack is still loading conversations for \"%s\"; please wait for \">> Slack is ready!\""
+                  (oref team name))))
   t)
+
+(defun slack-team-never-authorized-p (team)
+  "Return non-nil if TEAM has never completed authorization.
+A nil ID means the rtm.connect handshake never succeeded."
+  (null (oref team id)))
 
 (cl-defmethod slack-team-users ((this slack-team))
   (hash-table-values (oref this users)))
