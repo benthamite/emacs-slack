@@ -426,7 +426,7 @@ more than 20 api calls."
      :success #'success
      :error #'fail)))
 
-(cl-defun slack-conversations-replies (room ts team &key after-success on-error (cursor nil) (oldest nil) (_limit nil) (latest nil) (inclusive nil) (sync nil))
+(cl-defun slack-conversations-replies (room ts team &key after-success on-error (cursor nil) (oldest nil) (limit "200") (latest nil) (inclusive nil) (sync nil))
   (let ((channel (oref room id)))
     (cl-labels
         ((fail (&rest args)
@@ -471,6 +471,7 @@ more than 20 api calls."
                       (and oldest (cons "oldest" oldest))
                       (and inclusive (cons "inclusive" inclusive))
                       (cons "ts" ts)
+                      (cons "limit" limit)
                       (if cursor (cons "cursor" cursor)
                         (cons "oldest" oldest)))
         :success #'on-success
