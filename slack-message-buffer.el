@@ -1009,6 +1009,7 @@ A way to use that is to select the right point of the buffer."
       ((after-success (_next-cursor has-more)
          (let ((buf (slack-create-thread-message-buffer
                      room team (slack-thread-ts this) has-more)))
+           (slack-thread--sync-buffer buf this room)
            (slack-buffer-display buf)
            (when (functionp success-callback) (funcall success-callback)))))
     (slack-thread-replies this room team
@@ -1183,10 +1184,28 @@ Call CALLBACK after displaying the thread buffer."
    (lambda (messages _next-cursor has-more)
      (slack-room-set-messages room messages team)
      (slack-message-set-replies room thread-ts messages)
-     (let ((buf (slack-create-thread-message-buffer
-                 room team thread-ts has-more)))
+     (let* ((parent (slack-room-find-message room thread-ts))
+            (buf (slack-create-thread-message-buffer
+                  room team thread-ts has-more)))
+       (when parent
+         (slack-thread--sync-buffer buf parent room))
        (slack-buffer-display buf)
        (when (functionp callback) (funcall callback))))))
+
+(defun slack-thread--sync-buffer (buf parent room)
+  "Insert newly-fetched replies missing from an existing thread BUF.
+PARENT is the thread's parent message in ROOM.  Does nothing when
+the underlying Emacs buffer is not yet live (i.e. the buffer will
+be initialized fresh by `slack-buffer-init-buffer')."
+  (when (slack-thread--buffer-live-p buf)
+    (when-let ((replies (slack-message-replies parent room)))
+      (dolist (m replies)
+        (slack-buffer-update buf m)))))
+
+(defun slack-thread--buffer-live-p (buf)
+  "Return non-nil if BUF has a live underlying Emacs buffer."
+  (and (slot-boundp buf 'buf)
+       (buffer-live-p (oref buf buf))))
 
 (defun slack-open-message--open-channel (ts room team callback after-success)
   "Open ROOM for TEAM at message TS.
