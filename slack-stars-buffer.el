@@ -30,6 +30,7 @@
 
 (declare-function slack-star-item-file "slack-star")
 (require 'slack-buffer)
+(require 'slack-room-buffer)
 (require 'slack-message-buffer)
 (require 'slack-star)
 (require 'slack-message)
@@ -37,8 +38,17 @@
 (define-derived-mode slack-stars-buffer-mode slack-buffer-mode "Slack Saved Items"
   (add-hook 'post-command-hook #'slack-buffer--maybe-load-more-at-end nil t))
 
-(defclass slack-stars-buffer (slack-buffer)
+(defclass slack-stars-buffer (slack-room-buffer)
   ())
+
+(cl-defmethod slack-buffer-room ((this slack-stars-buffer))
+  "Return the room for the message at point.
+Each saved item may belong to a different room, so the room is
+resolved from the `room-id' text property."
+  (let ((team (slack-buffer-team this))
+        (room-id (get-text-property (point) 'room-id)))
+    (when room-id
+      (slack-room-find room-id team))))
 
 (defun slack-stars--prefetch-messages (star-items team callback)
   "Prefetch uncached messages for STAR-ITEMS in parallel, then call CALLBACK.
@@ -256,7 +266,9 @@ the URL."
 (defun slack-create-stars-buffer (team)
   (slack-if-let* ((buf (slack-buffer-find 'slack-stars-buffer team)))
       buf
-    (make-instance 'slack-stars-buffer :team-id (oref team id))))
+    (make-instance 'slack-stars-buffer
+                   :team-id (oref team id)
+                   :room-id "__saved-items__")))
 
 (cl-defmethod slack-buffer-remove-star ((this slack-stars-buffer) ts)
   "Remove THIS star at TS."
