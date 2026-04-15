@@ -316,23 +316,23 @@ lines inserted by `slack-buffer-insert'."
 ;;;###autoload
 (defalias 'slack-stars-list 'slack-saved-items)
 
-(defun slack-saved-items-open-message ()
-  "Open the message at point in its channel or thread buffer."
-  (interactive)
-  (if-let* ((ts (get-text-property (point) 'ts))
-            (team-id (get-text-property (point) 'team-id))
-            (room-id (get-text-property (point) 'room-id))
-            (thread-ts (or (get-text-property (point) 'thread-ts) ts))
-            (team (slack-team-find team-id)))
-      (slack-open-message
-       team
-       (slack-room-find room-id team)
-       (--find (s-matches-p "[0-9]" it) (list ts))
-       (--find (s-matches-p "[0-9]" it) (list thread-ts)))
+(cl-defmethod slack-feed--open ((_buf slack-stars-buffer) ts)
+  "Open the saved item at TS in its channel or thread buffer."
+  (if-let* ((room-id (get-text-property (point) 'room-id))
+            (buf slack-current-buffer)
+            (team (slack-buffer-team buf))
+            (room (slack-room-find room-id team)))
+      (let ((thread-ts (get-text-property (point) 'thread-ts)))
+        (if thread-ts
+            (slack-open-message team room thread-ts thread-ts ts)
+          (slack-open-message team room ts nil ts)))
     (error "Not possible to jump to message")))
 
-(defalias 'slack-stars-open-message 'slack-saved-items-open-message)
-(define-key slack-stars-buffer-mode-map (kbd "RET") 'slack-saved-items-open-message)
+(defalias 'slack-saved-items-open-message 'slack-feed-open-at-point)
+(defalias 'slack-stars-open-message 'slack-feed-open-at-point)
+(define-key slack-stars-buffer-mode-map (kbd "RET") 'slack-feed-open-at-point)
+(define-key slack-stars-buffer-mode-map (kbd "n") 'slack-feed-goto-next)
+(define-key slack-stars-buffer-mode-map (kbd "p") 'slack-feed-goto-prev)
 
 (defun slack-message-remove-from-saved ()
   "Remove the saved item at point."
