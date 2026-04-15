@@ -59,6 +59,18 @@
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "RET") #'slack-load-more-message)
     map))
+
+(defvar-local slack-buffer--loading-more-p nil
+  "Non-nil while an async load-more request is in flight.")
+
+(defun slack-buffer--maybe-load-more-at-end ()
+  "Auto-load more content when point is near the end of the buffer."
+  (when (and slack-current-buffer
+             (not slack-buffer--loading-more-p)
+             (>= (point) (- (point-max) 2))
+             (ignore-errors
+               (slack-buffer-has-next-page-p slack-current-buffer)))
+    (slack-buffer-load-more slack-current-buffer)))
 ;; to have working link buttons
 ;; https://github.com/emacs-slack/emacs-slack/issues/547#issuecomment-1542119271
 (advice-add 'lui-buttonize-urls :before-until
@@ -355,18 +367,20 @@ line-aligned strides to stay under that limit."
   (slack-buffer-insert-history this))
 
 (cl-defmethod slack-buffer-load-more ((this slack-buffer))
-  (if (slack-buffer-has-next-page-p this)
-      (cl-labels
-          ((after-success
-            ()
-            (with-current-buffer (slack-buffer-buffer this)
-              (let ((inhibit-read-only t))
-                (slack-buffer-delete-load-more-string this)
-                (slack-buffer-prepare-marker-for-history this)
-                (slack-buffer-insert--history this)
-                (lui-recover-output-marker)))))
-        (slack-buffer-request-history this #'after-success))
-    (message "No more items.")))
+  (when (and (slack-buffer-has-next-page-p this)
+             (not slack-buffer--loading-more-p))
+    (setq slack-buffer--loading-more-p t)
+    (cl-labels
+        ((after-success
+          ()
+          (with-current-buffer (slack-buffer-buffer this)
+            (let ((inhibit-read-only t))
+              (slack-buffer-delete-load-more-string this)
+              (slack-buffer-prepare-marker-for-history this)
+              (slack-buffer-insert--history this)
+              (lui-recover-output-marker))
+            (setq slack-buffer--loading-more-p nil))))
+      (slack-buffer-request-history this #'after-success))))
 
 (cl-defmethod slack-buffer-cant-execute ((this slack-buffer))
   (error "Can't execute this command from %s" (eieio-object-class-name this)))

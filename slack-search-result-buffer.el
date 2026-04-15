@@ -31,7 +31,8 @@
 (require 'slack-room-buffer)
 
 (define-derived-mode slack-search-result-buffer-mode slack-buffer-mode "Slack Search Result"
-  (remove-hook 'lui-post-output-hook 'slack-display-image t))
+  (remove-hook 'lui-post-output-hook 'slack-display-image t)
+  (add-hook 'post-command-hook #'slack-buffer--maybe-load-more-at-end nil t))
 
 (defclass slack-search-result-buffer (slack-buffer)
   ((search-result :initarg :search-result :type slack-search-result)))
@@ -133,32 +134,16 @@
       (with-slots (search-result) this
         (let* ((messages (oref search-result matches)))
           (cl-loop for m in messages
-                   do (slack-buffer-insert this m)))
-        (let ((lui-time-stamp-position nil))
-          (if (slack-search-has-next-page-p search-result)
-              (slack-buffer-insert-load-more this)))))
+                   do (slack-buffer-insert this m)))))
     buffer))
 
-(cl-defmethod slack-buffer-loading-message-end-point ((_this slack-search-result-buffer))
-  (previous-single-property-change (point-max)
-                                   'loading-message))
-
-(cl-defmethod slack-buffer-delete-load-more-string ((this slack-search-result-buffer))
-  (let* ((inhibit-read-only t)
-         (loading-message-end
-          (slack-buffer-loading-message-end-point this))
-         (loading-message-start
-          (previous-single-property-change loading-message-end
-                                           'loading-message)))
-    (delete-region loading-message-start
-                   loading-message-end)))
+(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-search-result-buffer)))
 
 (cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-search-result-buffer)))
 
 (cl-defmethod slack-buffer-insert--history ((this slack-search-result-buffer))
   (slack-buffer-insert-history this)
-  (if (slack-buffer-has-next-page-p this)
-      (slack-buffer-insert-load-more this)
+  (unless (slack-buffer-has-next-page-p this)
     (let ((lui-time-stamp-position nil))
       (lui-insert "(no more messages)\n" t))))
 

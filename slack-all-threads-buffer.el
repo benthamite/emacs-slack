@@ -37,6 +37,7 @@
   "Slack All Threads"
   (add-hook 'lui-pre-output-hook 'slack-mrkdwn-add-face nil t)
   (add-hook 'lui-pre-output-hook 'slack-display-inline-action t t)
+  (add-hook 'post-command-hook #'slack-buffer--maybe-load-more-at-end nil t)
   (cursor-sensor-mode))
 
 (defface slack-all-thread-buffer-thread-header-face
@@ -130,8 +131,6 @@
       (with-slots (threads current-ts) this
         (cl-loop for thread in threads
                  do (slack-buffer-insert-thread this thread)))
-      (when (slack-buffer-has-next-page-p this)
-        (slack-buffer-insert-load-more this))
       (goto-char (point-min)))
     (slack-subscriptions-thread-clear-all (slack-buffer-team this))
     buf))
@@ -177,13 +176,7 @@ Adds `room-id' property so `slack-feed-open-at-point' can find the channel."
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-all-threads-buffer))
   (oref this has-more))
 
-(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-all-threads-buffer))
-  (slack-if-let*
-      ((beg (next-single-property-change (point-min)
-                                         'loading-message))
-       (end (next-single-property-change beg
-                                         'loading-message)))
-      (delete-region beg end)))
+(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-all-threads-buffer)))
 
 (cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-all-threads-buffer)))
 
@@ -197,9 +190,7 @@ Adds `room-id' property so `slack-feed-open-at-point' can find the channel."
              do (slack-buffer-insert-thread this thread))))
 
 (cl-defmethod slack-buffer-insert--history ((this slack-all-threads-buffer))
-  (slack-buffer-insert-history this)
-  (when (slack-buffer-has-next-page-p this)
-    (slack-buffer-insert-load-more this)))
+  (slack-buffer-insert-history this))
 
 (cl-defmethod slack-buffer-request-history ((this slack-all-threads-buffer) after-success)
   (let ((cur-point (point)))

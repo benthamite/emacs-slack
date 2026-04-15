@@ -286,8 +286,7 @@ Run an action on the data returned with AFTER-SUCCESS."
 (define-derived-mode slack-activity-feed-buffer-mode slack-buffer-mode "Slack Activity Feed"
   (add-hook 'lui-pre-output-hook 'slack-mrkdwn-add-face nil t)
   (add-hook 'lui-pre-output-hook 'slack-display-inline-action t t)
-  (add-hook 'post-command-hook
-            'slack-activity-feed--maybe-load-more nil t)
+  (add-hook 'post-command-hook #'slack-buffer--maybe-load-more-at-end nil t)
   (cursor-sensor-mode))
 
 (defclass slack-activity-feed-buffer (slack-room-buffer)
@@ -374,10 +373,7 @@ properties are unreliable."
               (slack-buffer-with-deferred-hooks
                 (let* ((activities (oref activity-feed activities)))
                   (cl-loop for m in activities
-                           do (slack-buffer-insert existing m)))
-                (let ((lui-time-stamp-position nil))
-                  (if (slack-buffer-has-next-page-p existing)
-                      (slack-buffer-insert-load-more existing))))))
+                           do (slack-buffer-insert existing m))))))
           existing)
       (make-instance 'slack-activity-feed-buffer
                      :team-id (oref team id)
@@ -631,51 +627,29 @@ relying on buffer text properties."
         (slack-buffer-with-deferred-hooks
           (let* ((activities (oref activity-feed activities)))
             (cl-loop for m in activities
-                     do (slack-buffer-insert this m)))
-          (let ((lui-time-stamp-position nil))
-            (if (slack-buffer-has-next-page-p this)
-                (slack-buffer-insert-load-more this))))))
+                     do (slack-buffer-insert this m))))))
     buffer))
 
-(defvar-local slack-activity-feed--loading-p nil
-  "Non-nil while an async load-more request is in flight.")
-
-(defun slack-activity-feed--maybe-load-more ()
-  "Load more activity when point is near the end of the buffer."
-  (when (and slack-current-buffer
-             (not slack-activity-feed--loading-p)
-             (slack-buffer-has-next-page-p slack-current-buffer)
-             (>= (point) (- (point-max) 2)))
-    (slack-buffer-load-more slack-current-buffer)))
-
-(cl-defmethod slack-buffer-insert-load-more ((_this slack-activity-feed-buffer))
-  "No-op: the activity feed uses infinite scroll instead.")
-
-(cl-defmethod slack-buffer-loading-message-end-point ((_this slack-activity-feed-buffer))
-  nil)
-
-(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-activity-feed-buffer))
-  "No-op: the activity feed has no load-more placeholder.")
+(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-activity-feed-buffer)))
 
 (cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-activity-feed-buffer)))
 
 (cl-defmethod slack-buffer-load-more ((this slack-activity-feed-buffer))
   "Load and append the next page of activity feed results."
   (when (and (slack-buffer-has-next-page-p this)
-             (not slack-activity-feed--loading-p))
-    (setq slack-activity-feed--loading-p t)
+             (not slack-buffer--loading-more-p))
+    (setq slack-buffer--loading-more-p t)
     (cl-labels
         ((after-success
           ()
           (with-current-buffer (slack-buffer-buffer this)
             (slack-buffer-insert--history this)
-            (setq slack-activity-feed--loading-p nil))))
+            (setq slack-buffer--loading-more-p nil))))
       (slack-buffer-request-history this #'after-success))))
 
 (cl-defmethod slack-buffer-insert--history ((this slack-activity-feed-buffer))
   (slack-buffer-insert-history this)
-  (if (slack-buffer-has-next-page-p this)
-      (slack-buffer-insert-load-more this)
+  (unless (slack-buffer-has-next-page-p this)
     (let ((lui-time-stamp-position nil))
       (lui-insert "(no more messages)\n" t))))
 

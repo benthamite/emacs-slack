@@ -34,7 +34,8 @@
 (require 'slack-star)
 (require 'slack-message)
 
-(define-derived-mode slack-stars-buffer-mode slack-buffer-mode "Slack Saved Items")
+(define-derived-mode slack-stars-buffer-mode slack-buffer-mode "Slack Saved Items"
+  (add-hook 'post-command-hook #'slack-buffer--maybe-load-more-at-end nil t))
 
 (defclass slack-stars-buffer (slack-buffer)
   ())
@@ -197,19 +198,7 @@ the URL."
   (let ((team (slack-buffer-team this)))
     (slack-star-has-next-page-p (oref team star))))
 
-(cl-defmethod slack-buffer-loading-message-end-point ((_this slack-stars-buffer))
-  (previous-single-property-change (point-max)
-                                   'loading-message))
-
-(cl-defmethod slack-buffer-delete-load-more-string ((this slack-stars-buffer))
-  (let* ((inhibit-read-only t)
-         (loading-message-end
-          (slack-buffer-loading-message-end-point this))
-         (loading-message-start
-          (previous-single-property-change loading-message-end
-                                           'loading-message)))
-    (delete-region loading-message-start
-                   loading-message-end)))
+(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-stars-buffer)))
 
 (cl-defmethod slack-stars--insert-items ((this slack-stars-buffer) star-items)
   "Insert messages for STAR-ITEMS into THIS buffer."
@@ -220,31 +209,31 @@ the URL."
              when m do (slack-buffer-insert this m))))
 
 (cl-defmethod slack-stars--insert-tail ((this slack-stars-buffer))
-  "Insert load-more or end-of-list marker at the bottom of THIS buffer."
-  (let ((lui-time-stamp-position nil))
-    (if (slack-buffer-has-next-page-p this)
-        (slack-buffer-insert-load-more this)
+  "Insert end-of-list marker when all items have been loaded."
+  (unless (slack-buffer-has-next-page-p this)
+    (let ((lui-time-stamp-position nil))
       (lui-insert "(no more items)\n" t))))
 
 (cl-defmethod slack-buffer-load-more ((this slack-stars-buffer))
   "Load the next page of saved items and append at the bottom."
-  (if (slack-buffer-has-next-page-p this)
-      (let* ((team (slack-buffer-team this))
-             (star (oref team star))
-             (old-count (length (slack-star-items star))))
-        (slack-stars-list-request
-         team (oref star cursor)
-         (lambda ()
-           (let ((new-items (nthcdr old-count (slack-star-items star))))
-             (slack-stars--prefetch-messages
-              new-items team
-              (lambda ()
-                (with-current-buffer (slack-buffer-buffer this)
-                  (let ((inhibit-read-only t))
-                    (slack-buffer-delete-load-more-string this)
-                    (slack-stars--insert-items this new-items)
-                    (slack-stars--insert-tail this)))))))))
-    (message "No more items.")))
+  (when (and (slack-buffer-has-next-page-p this)
+             (not slack-buffer--loading-more-p))
+    (setq slack-buffer--loading-more-p t)
+    (let* ((team (slack-buffer-team this))
+           (star (oref team star))
+           (old-count (length (slack-star-items star))))
+      (slack-stars-list-request
+       team (oref star cursor)
+       (lambda ()
+         (let ((new-items (nthcdr old-count (slack-star-items star))))
+           (slack-stars--prefetch-messages
+            new-items team
+            (lambda ()
+              (with-current-buffer (slack-buffer-buffer this)
+                (let ((inhibit-read-only t))
+                  (slack-stars--insert-items this new-items)
+                  (slack-stars--insert-tail this))
+                (setq slack-buffer--loading-more-p nil))))))))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-stars-buffer))
   (let* ((buf (cl-call-next-method))

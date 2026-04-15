@@ -37,6 +37,7 @@
   "Slack Thread Message"
   (lui-set-prompt lui-prompt-string)
   (cursor-sensor-mode)
+  (add-hook 'post-command-hook #'slack-buffer--maybe-load-more-at-end nil t)
   (setq lui-input-function 'slack-thread-message--send))
 
 (defclass slack-thread-message-buffer (slack-room-buffer)
@@ -98,27 +99,18 @@
                                do (slack-buffer-insert this m t))
                       (slack-buffer-update-last-read this latest-message)
                       (slack-buffer-update-mark this)))
-                (when (slack-buffer-has-next-page-p this)
-                  (slack-buffer-insert-load-more this)))))))
+)))))
     buf))
 
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-thread-message-buffer))
   (oref this has-more))
 
-(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-thread-message-buffer))
-  (slack-if-let*
-      ((beg (next-single-property-change (point-min)
-                                         'loading-message))
-       (end (next-single-property-change beg
-                                         'loading-message)))
-      (delete-region beg end)))
+(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-thread-message-buffer)))
 
 (cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-thread-message-buffer)))
 
 (cl-defmethod slack-buffer-insert--history ((this slack-thread-message-buffer))
-  (slack-buffer-insert-history this)
-  (when (slack-buffer-has-next-page-p this)
-    (slack-buffer-insert-load-more this)))
+  (slack-buffer-insert-history this))
 
 (cl-defmethod slack-buffer-request-history ((this slack-thread-message-buffer) after-success)
   (with-slots (thread-ts last-read) this
