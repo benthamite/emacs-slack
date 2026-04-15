@@ -32,11 +32,11 @@
     ("m q" "quote & reply" slack-quote-and-reply)
     ("m e" "edit" slack-message-edit)
     ("m d" "delete" slack-message-delete)
-    ("m s" "share" slack-message-share)
+    ("m h" "share" slack-message-share)
     ("m u" "toggle subscribe" slack-thread-toggle-subscription)
     ("m k" "copy link" slack-message-copy-link)
     ("m i" "copy id" slack-message-copy-id)
-    ("m l" "save for later" slack-message-save-for-later)
+    ("m s" "save for later" slack-message-save-for-later)
     ("m b" "jump to browser" slack-jump-to-browser)
     ("m ." "redisplay" slack-message-redisplay)
     ""
