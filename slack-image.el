@@ -130,7 +130,9 @@ the bottom."
    slack-profile-image-file-directory))
 
 (cl-defun slack-image--create (path &key (width nil) (height nil) (max-height nil) (max-width nil))
-  (let* ((imagemagick-available-p (image-type-available-p 'imagemagick))
+  (let* ((gif-p (slack-image--gif-p path))
+         (imagemagick-available-p (and (not gif-p)
+                                       (image-type-available-p 'imagemagick)))
          (image (apply #'create-image (append (list path (and imagemagick-available-p 'imagemagick) nil)
                                               (if height (list :height height))
                                               (if width (list :width width))
@@ -138,10 +140,22 @@ the bottom."
                                                   (list :max-height max-height))
                                               (if max-width
                                                   (list :max-width max-width))))))
-    (let ((final (if (and (display-graphic-p) imagemagick-available-p)
-                     (slack-image-shrink image max-height)
-                   image)))
-      (slack-image--round-content path final))))
+    (if gif-p
+        image
+      (let ((final (if (and (display-graphic-p) imagemagick-available-p)
+                       (slack-image-shrink image max-height)
+                     image)))
+        (slack-image--round-content path final)))))
+
+(defun slack-image--gif-p (path)
+  "Return non-nil if PATH names a GIF file.
+GIFs are loaded as native multi-frame images and are not wrapped in SVG,
+so that `image-animate' can drive them from
+`slack-buffer-animate-image' on cursor enter."
+  (and path
+       (stringp path)
+       (let ((ext (file-name-extension path)))
+         (and ext (string= (downcase ext) "gif")))))
 
 (defun slack-image-exists-p (image-spec)
   (file-exists-p (slack-image-path (car image-spec))))
