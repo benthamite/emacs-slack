@@ -484,6 +484,7 @@
            (body (and text (mapconcat #'(lambda (e) (concat pad e))
                                       (split-string text "\n")
                                       "\n")))
+           (blocks-str (slack-attachment--blocks-to-string blocks team pad))
            (fields (if fields (mapconcat #'(lambda (field)
                                              (slack-attachment-field-to-string field
                                                                                pad))
@@ -537,12 +538,28 @@
                                                (propertize body 'slack-text-type 'mrkdwn)
                                              body))
                                  "")
+                             (or blocks-str "")
                              (or fields "")
                              (or actions "")
                              (or files "")
                              (or footer "")
                              (if (slack-string-blankp image) "" (concat "\n" image)))
        team))))
+
+(defun slack-attachment--blocks-to-string (blocks team pad)
+  "Render attachment BLOCKS for TEAM, prefixing every line with PAD.
+Returns nil when BLOCKS is empty or block rendering is disabled on
+TEAM.  Without this, image-bearing layout blocks inside
+attachments (e.g. Giphy/Tenor previews) are never displayed."
+  (when (and blocks (not (oref team disable-block-format)))
+    (let ((rendered (mapconcat (lambda (bl)
+                                 (slack-block-to-string bl (list :team team)))
+                               blocks
+                               "\n")))
+      (unless (slack-string-blankp rendered)
+        (mapconcat (lambda (line) (concat pad line))
+                   (split-string rendered "\n")
+                   "\n")))))
 
 (provide 'slack-attachment)
 ;;; slack-attachment.el ends here
