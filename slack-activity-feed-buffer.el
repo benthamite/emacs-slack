@@ -693,16 +693,23 @@ relying on buffer text properties."
         (slack-team-ensure-registered team)
         (slack-activity-feed--mark-read room team ts)
         (let ((thread-ts (get-text-property (point) 'thread-ts)))
-          (if thread-ts
-              ;; Thread reply: open the thread view and navigate to the
-              ;; reply itself.  thread-ts (the parent) is passed as both
-              ;; TS and THREAD-TS so slack-open-message finds the parent
-              ;; in the channel and opens the thread; the reply's own ts
-              ;; is passed as GOTO-TS to scroll to it.
-              (slack-open-message team room thread-ts thread-ts ts)
-            ;; Top-level message: open the channel view.
-            (slack-open-message team room ts nil ts))))
+          (cond
+           (thread-ts
+            (slack-open-message team room thread-ts thread-ts ts))
+           ((slack-activity-feed--thread-parent-p room ts)
+            (slack-open-message team room ts ts ts))
+           (t
+            (slack-open-message team room ts nil ts)))))
     (error "Not possible to jump to message")))
+
+(defun slack-activity-feed--thread-parent-p (room ts)
+  "Return non-nil when the message at TS in ROOM has replies.
+The Slack API omits `thread_ts' from at_user and similar activity
+payloads even when the mentioned message is a thread parent.  Fall
+back to the cached message's `replies' slot to detect that case."
+  (when-let* ((msg (ignore-errors (slack-room-find-message room ts))))
+    (and (slot-boundp msg 'replies)
+         (oref msg replies))))
 
 (defun slack-activity-feed--mark-read (room team ts)
   "Mark ROOM in TEAM as read up to TS and clear the unread indicator at point."
