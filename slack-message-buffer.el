@@ -77,7 +77,6 @@
    (latest :initform nil :type (or null string))
    (marker-overlay :initform nil)
    (update-mark-timer :initform '(nil . nil) :documentation "(TIMESTAMP . TIMER) cons: debounces mark-as-read API calls.")
-   (cursor-event-prev-ts :initform nil :type (or null string))
    (cursor :initarg :cursor :initform "" :type string)
    ))
 
@@ -549,19 +548,16 @@ and forces recomputation of load-more placeholders next time.
 
 (defun slack-message-buffer-detect-ts-changed ()
   (slack-if-let* ((buffer slack-current-buffer)
-                  (message-buffer-p (eq 'slack-message-buffer
-                                        (eieio-object-class buffer)))
+                  (room-buffer-p (cl-typep buffer 'slack-room-buffer))
                   (current-ts (slack-get-ts))
                   (team (slack-buffer-team buffer)))
       (let ((prev-ts (oref buffer cursor-event-prev-ts)))
         (when (or (null prev-ts)
                   (not (string= prev-ts current-ts)))
           (oset buffer cursor-event-prev-ts current-ts)
-
           (when (slack-team-animate-image-p team)
             (slack-buffer-animate-image current-ts)
             (slack-buffer-cancel-animate-image prev-ts))
-
           (unless (slack-team-mark-as-read-immediatelyp team)
             (slack-buffer-update-mark buffer))))))
 
@@ -619,12 +615,12 @@ and forces recomputation of load-more placeholders next time.
                         (when (and timer (timerp timer))
                           (cancel-timer timer))))))))
 
-(cl-defmethod slack-buffer--subscribe-cursor-event ((this slack-message-buffer)
+(cl-defmethod slack-buffer--subscribe-cursor-event ((this slack-room-buffer)
                                                     _window
                                                     _prev-point
                                                     type)
   (cond
-   ((eq type'entered)
+   ((eq type 'entered)
     (add-hook 'post-command-hook
               #'slack-message-buffer-detect-ts-changed
               t t)

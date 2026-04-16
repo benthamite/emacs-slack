@@ -61,7 +61,8 @@
 (defconst slack-get-permalink-url "https://slack.com/api/chat.getPermalink")
 
 (defclass slack-room-buffer (slack-buffer)
-  ((room-id :initarg :room-id :type string))
+  ((room-id :initarg :room-id :type string)
+   (cursor-event-prev-ts :initform nil :type (or null string)))
   :abstract t)
 
 (cl-defmethod slack-buffer-room ((this slack-room-buffer))
