@@ -719,11 +719,18 @@ back to the cached message's `replies' slot to detect that case."
   (slack-activity-feed--clear-unread-at-point))
 
 (defun slack-activity-feed--clear-unread-at-point ()
-  "Replace the unread indicator at point with a read indicator."
+  "Replace the unread indicator for the activity item at point.
+The bullet sits on the context-header line that precedes the
+message body, so search backward from point (bounded by the
+previous blank separator between items) to locate it."
   (save-excursion
-    (goto-char (line-beginning-position))
-    (let ((inhibit-read-only t))
-      (when (search-forward "\u25cf" (line-end-position) t)
+    (let ((limit (save-excursion
+                   (if (re-search-backward "^$" nil t)
+                       (point)
+                     (point-min))))
+          (inhibit-read-only t))
+      (goto-char (line-end-position))
+      (when (search-backward "\u25cf" limit t)
         (replace-match " ")))))
 
 (define-key slack-activity-feed-buffer-mode-map (kbd "RET") 'slack-feed-open-at-point)
