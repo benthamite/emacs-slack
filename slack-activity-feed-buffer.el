@@ -43,7 +43,8 @@
 (declare-function slack-select-token "slack-request")
 (declare-function slack-message-replace-buffer "slack-message-buffer")
 (declare-function slack-emoji-resolve "slack-emoji")
-(declare-function slack-thread-mark "slack-thread")
+(declare-function slack-subscriptions-thread-get "slack-thread")
+(defvar slack-thread-mark-url)
 
 (defun slack-team-ensure-registered (team)
   "Ensure TEAM is the canonical object in the global lookup tables.
@@ -714,37 +715,86 @@ back to the cached message's `replies' slot to detect that case."
 (defun slack-activity-feed--mark-read (room team ts &optional thread-ts)
   "Mark the activity identified by TS in ROOM for TEAM as read.
 When THREAD-TS is non-nil and differs from TS, the activity is a
-thread reply: call `slack-thread-mark' so Slack clears the
+thread reply: POST `subscriptions.thread.mark' so Slack clears the
 thread's unread state (and, by extension, the activity item).
 Otherwise mark ROOM as read up to TS via
-`slack-conversations-mark'.  Also clear the visual unread
-indicator at point."
+`slack-conversations-mark'.  Only after the API confirms success
+does the local `slack-activity' object and the visual unread
+indicator get updated, so the on-screen state reflects what Slack
+actually recorded."
   (when ts
-    (cond
-     ((and thread-ts (not (string-equal thread-ts ts)))
-      (slack-if-let*
-          ((msg (or (slack-room-find-message room thread-ts)
-                    (slack-room-find-message room ts))))
-          (slack-thread-mark msg room ts team)))
-     ((or (not (slot-boundp room 'last-read))
-          (string< (oref room last-read) ts))
-      (slack-conversations-mark room team ts))))
-  (slack-activity-feed--clear-unread-at-point))
+    (let* ((feed-buffer slack-current-buffer)
+           (source-buffer (current-buffer))
+           (activity-pos (point))
+           (on-success
+            (lambda ()
+              (slack-activity-feed--on-marked-read
+               feed-buffer source-buffer activity-pos ts))))
+      (cond
+       ((and thread-ts (not (string-equal thread-ts ts)))
+        (slack-activity-feed--mark-thread-read
+         room thread-ts ts team on-success))
+       ((or (not (slot-boundp room 'last-read))
+            (string< (oref room last-read) ts))
+        (slack-conversations-mark room team ts on-success))))))
 
-(defun slack-activity-feed--clear-unread-at-point ()
-  "Replace the unread indicator for the activity item at point.
+(defun slack-activity-feed--mark-thread-read (room thread-ts ts team
+                                                   &optional after-success)
+  "POST `subscriptions.thread.mark' for THREAD-TS in ROOM up to TS for TEAM.
+Run AFTER-SUCCESS when the API returns success.  Unlike
+`slack-thread-mark' in `slack-thread.el', this variant runs a
+callback on success so the activity feed can reflect the mark
+reactively."
+  (let ((params (list (cons "channel" (oref room id))
+                      (cons "thread_ts" thread-ts)
+                      (cons "ts" ts))))
+    (slack-subscriptions-thread-get
+     room thread-ts team
+     (lambda (subscriptions)
+       (when (cl-find-if (lambda (s) (or (string= s ts) (string< s ts)))
+                         subscriptions)
+         (slack-request
+          (slack-request-create
+           slack-thread-mark-url
+           team
+           :type "POST"
+           :params params
+           :success (cl-function
+                     (lambda (&key data &allow-other-keys)
+                       (slack-request-handle-error
+                        (data "slack-activity-feed-thread-mark")
+                        (when (functionp after-success)
+                          (funcall after-success))))))))))))
+
+(defun slack-activity-feed--on-marked-read (feed-buffer source-buffer pos ts)
+  "Update FEED-BUFFER state to reflect that TS was marked read.
+SOURCE-BUFFER is the buffer from which the user invoked the mark;
+POS is the buffer position they were on when they pressed RET.
+Clears the activity's `is-unread' slot and erases the unread
+bullet on the header line that belongs to that activity item."
+  (when (and feed-buffer (slot-boundp feed-buffer 'activity-feed))
+    (dolist (activity (oref (oref feed-buffer activity-feed) activities))
+      (when (string-equal (oref (oref (oref activity item) message) ts) ts)
+        (oset activity is-unread nil))))
+  (when (buffer-live-p source-buffer)
+    (with-current-buffer source-buffer
+      (save-excursion
+        (goto-char pos)
+        (slack-activity-feed--erase-unread-bullet)))))
+
+(defun slack-activity-feed--erase-unread-bullet ()
+  "Replace the unread bullet on the current activity item's header line.
 The bullet sits on the context-header line that precedes the
 message body, so search backward from point (bounded by the
 previous blank separator between items) to locate it."
-  (save-excursion
-    (let ((limit (save-excursion
-                   (if (re-search-backward "^$" nil t)
-                       (point)
-                     (point-min))))
-          (inhibit-read-only t))
-      (goto-char (line-end-position))
-      (when (search-backward "\u25cf" limit t)
-        (replace-match " ")))))
+  (let ((limit (save-excursion
+                 (if (re-search-backward "^$" nil t)
+                     (point)
+                   (point-min))))
+        (inhibit-read-only t))
+    (goto-char (line-end-position))
+    (when (search-backward "\u25cf" limit t)
+      (replace-match " "))))
 
 (define-key slack-activity-feed-buffer-mode-map (kbd "RET") 'slack-feed-open-at-point)
 (define-key slack-activity-feed-buffer-mode-map (kbd "n") 'slack-feed-goto-next)
