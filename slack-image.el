@@ -212,29 +212,49 @@ DISPLAY-PROP may be a sliced image specification or an image object."
    ;; Plain image object
    (t display-prop)))
 
-(defun slack-image-open-at-point ()
-  "Open the full-size image for the thumbnail at point in another buffer."
-  (interactive)
+(defun slack-image--open-file-url (url)
+  "Open the cached thumbnail for URL in another window.
+Downloads URL into the image cache first when it is missing."
   (slack-if-let*
-      ((url (get-text-property (point) 'slack-file-url))
-       (url-not-blank-p (not (slack-string-blankp url)))
-       (path (and url (slack-image-path url)))
+      ((path (slack-image-path url))
        (team (and (bound-and-true-p slack-current-buffer)
                   (ignore-errors (slack-buffer-team slack-current-buffer)))))
       (cl-labels
           ((open-file ()
              (condition-case err
                  (find-file-other-window path)
-               (error (user-error "Failed to open image: %s" (error-message-string err)))))
+               (error (user-error "Failed to open image: %s"
+                                  (error-message-string err)))))
            (on-success () (open-file)))
         (if (file-exists-p path)
             (open-file)
           (slack-url-copy-file url path team
                                :success #'on-success
                                :token (slack-team-token team)
-                               :cookie (slack-team-cookie team))))
-    )
-  )
+                               :cookie (slack-team-cookie team))))))
+
+(defun slack-image--feed-buffer-p ()
+  "Return non-nil when the current buffer is a feed-style Slack buffer.
+Feed buffers bind RET to `slack-feed-open-at-point' to mark the
+item as read and jump to the underlying message."
+  (derived-mode-p 'slack-activity-feed-buffer-mode
+                  'slack-all-threads-buffer-mode
+                  'slack-stars-buffer-mode))
+
+(defun slack-image-open-at-point ()
+  "Open the full-size image for the thumbnail at point in another buffer.
+When the thumbnail has no associated `slack-file-url' and the
+buffer is a feed buffer, delegate to `slack-feed-open-at-point'
+so RET still marks the activity as read and opens the message."
+  (interactive)
+  (let ((url (get-text-property (point) 'slack-file-url)))
+    (cond
+     ((and url (not (slack-string-blankp url)))
+      (slack-image--open-file-url url))
+     ((and (get-text-property (point) 'ts)
+           (slack-image--feed-buffer-p))
+      (call-interactively #'slack-feed-open-at-point))
+     (t (user-error "No image URL available at point")))))
 
 (defun slack-image--round-content (file image)
   "Wrap IMAGE (created from FILE) in an SVG with small rounded corners.
