@@ -244,7 +244,11 @@ and forces recomputation of load-more placeholders next time.
 (cl-defmethod slack-create-message-buffer ((room slack-room) cursor team)
   (slack-if-let* ((buffer (slack-buffer-find 'slack-message-buffer team room)))
       buffer
-    (slack-message-buffer :room-id (oref room id) :team-id (oref team id) :cursor cursor)))
+    (let ((buf (slack-message-buffer :room-id (oref room id)
+                                     :team-id (oref team id)
+                                     :cursor cursor)))
+      (slack-buffer-cache-team buf team)
+      buf)))
 
 
 (cl-defmethod slack-buffer-update-oldest ((this slack-message-buffer) message)

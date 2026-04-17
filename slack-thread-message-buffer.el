@@ -46,13 +46,16 @@
    (last-read :initform nil :type (or null string))))
 
 (defun slack-create-thread-message-buffer (room team thread-ts &optional has-more)
-  "Create thread message buffer according to ROOM, TEAM, THREAD-TS."
+  "Create thread message buffer according to ROOM, TEAM, THREAD-TS.
+HAS-MORE indicates whether more replies remain on the server."
   (slack-if-let* ((buf (slack-buffer-find 'slack-thread-message-buffer team room thread-ts)))
       buf
-    (slack-thread-message-buffer :room-id (oref room id)
-                                 :team-id (oref team id)
-                                 :has-more has-more
-                                 :thread-ts thread-ts)))
+    (let ((buf (slack-thread-message-buffer :room-id (oref room id)
+                                            :team-id (oref team id)
+                                            :has-more has-more
+                                            :thread-ts thread-ts)))
+      (slack-buffer-cache-team buf team)
+      buf)))
 
 (cl-defmethod slack-buffer-name ((this slack-thread-message-buffer))
   (slack-if-let* ((team (slack-buffer-team this))

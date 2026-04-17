@@ -178,9 +178,22 @@ to modify text properties (faces, buttons, display)."
                  (make-hash-table :test #'equal))))
     (gethash key ht)))
 
+(defvar slack-buffer--team-cache
+  (make-hash-table :test 'eq :weakness 'key)
+  "Maps a `slack-buffer' instance to its `slack-team'.
+Used as a fallback when the team cannot be resolved via
+`slack-team-find' (for example, when the team's id slot has not
+been populated because rtm.connect never completed).")
+
+(defun slack-buffer-cache-team (buffer team)
+  "Associate BUFFER with TEAM in `slack-buffer--team-cache'."
+  (when (and buffer team)
+    (puthash buffer team slack-buffer--team-cache)))
+
 (cl-defmethod slack-buffer-team ((this slack-buffer))
-  (when-let ((id (oref this team-id)))
-    (slack-team-find id)))
+  (or (when-let ((id (oref this team-id)))
+        (slack-team-find id))
+      (gethash this slack-buffer--team-cache)))
 
 (declare-function slack-file-find "slack-file")
 (declare-function slack-file-download "slack-file")
