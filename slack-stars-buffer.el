@@ -339,7 +339,9 @@ lines inserted by `slack-buffer-insert'."
   "Remove the saved item at point."
   (interactive)
   (slack-if-let* ((buffer slack-current-buffer))
-      (slack-buffer-remove-star buffer (slack-get-ts))))
+      (progn
+        (slack-buffer-remove-star buffer (slack-get-ts))
+        (message "Message removed from saved"))))
 
 (defalias 'slack-message-remove-star 'slack-message-remove-from-saved)
 (define-key slack-stars-buffer-mode-map (kbd "K") 'slack-message-remove-from-saved)

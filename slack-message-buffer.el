@@ -828,7 +828,9 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
   "Save the message at point for later."
   (interactive)
   (slack-if-let* ((buffer slack-current-buffer))
-      (slack-buffer-add-star buffer (slack-get-ts))))
+      (progn
+        (slack-buffer-add-star buffer (slack-get-ts))
+        (message "Message saved for later"))))
 
 (defalias 'slack-message-add-star 'slack-message-save-for-later)
 
