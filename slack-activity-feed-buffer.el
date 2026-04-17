@@ -43,6 +43,7 @@
 (declare-function slack-select-token "slack-request")
 (declare-function slack-message-replace-buffer "slack-message-buffer")
 (declare-function slack-emoji-resolve "slack-emoji")
+(declare-function slack-thread-mark "slack-thread")
 
 (defun slack-team-ensure-registered (team)
   "Ensure TEAM is the canonical object in the global lookup tables.
@@ -689,17 +690,16 @@ relying on buffer text properties."
             (buf slack-current-buffer)
             (team (slack-buffer-team buf))
             (room (slack-room-find room-id team)))
-      (progn
+      (let ((thread-ts (get-text-property (point) 'thread-ts)))
         (slack-team-ensure-registered team)
-        (slack-activity-feed--mark-read room team ts)
-        (let ((thread-ts (get-text-property (point) 'thread-ts)))
-          (cond
-           (thread-ts
-            (slack-open-message team room thread-ts thread-ts ts))
-           ((slack-activity-feed--thread-parent-p room ts)
-            (slack-open-message team room ts ts ts))
-           (t
-            (slack-open-message team room ts nil ts)))))
+        (slack-activity-feed--mark-read room team ts thread-ts)
+        (cond
+         (thread-ts
+          (slack-open-message team room thread-ts thread-ts ts))
+         ((slack-activity-feed--thread-parent-p room ts)
+          (slack-open-message team room ts ts ts))
+         (t
+          (slack-open-message team room ts nil ts))))
     (error "Not possible to jump to message")))
 
 (defun slack-activity-feed--thread-parent-p (room ts)
@@ -711,11 +711,24 @@ back to the cached message's `replies' slot to detect that case."
     (and (slot-boundp msg 'replies)
          (oref msg replies))))
 
-(defun slack-activity-feed--mark-read (room team ts)
-  "Mark ROOM in TEAM as read up to TS and clear the unread indicator at point."
-  (let ((mark-ts (or (car (last (oref room message-ids))) ts)))
-    (when (string< (oref room last-read) mark-ts)
-      (slack-conversations-mark room team mark-ts)))
+(defun slack-activity-feed--mark-read (room team ts &optional thread-ts)
+  "Mark the activity identified by TS in ROOM for TEAM as read.
+When THREAD-TS is non-nil and differs from TS, the activity is a
+thread reply: call `slack-thread-mark' so Slack clears the
+thread's unread state (and, by extension, the activity item).
+Otherwise mark ROOM as read up to TS via
+`slack-conversations-mark'.  Also clear the visual unread
+indicator at point."
+  (when ts
+    (cond
+     ((and thread-ts (not (string-equal thread-ts ts)))
+      (slack-if-let*
+          ((msg (or (slack-room-find-message room thread-ts)
+                    (slack-room-find-message room ts))))
+          (slack-thread-mark msg room ts team)))
+     ((or (not (slot-boundp room 'last-read))
+          (string< (oref room last-read) ts))
+      (slack-conversations-mark room team ts))))
   (slack-activity-feed--clear-unread-at-point))
 
 (defun slack-activity-feed--clear-unread-at-point ()
