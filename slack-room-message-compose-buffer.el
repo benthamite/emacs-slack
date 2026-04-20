@@ -32,9 +32,13 @@
 (defclass slack-room-message-compose-buffer (slack-message-compose-buffer) ())
 
 (defun slack-create-room-message-compose-buffer (room team)
+  "Create room message compose buffer according to ROOM and TEAM."
   (slack-if-let* ((buf (slack-buffer-find 'slack-room-message-compose-buffer team room)))
       buf
-    (slack-room-message-compose-buffer :room-id (oref room id) :team-id (oref team id))))
+    (let ((buf (slack-room-message-compose-buffer :room-id (oref room id)
+                                                  :team-id (oref team id))))
+      (slack-buffer-cache-team buf team)
+      buf)))
 
 (cl-defmethod slack-buffer-name ((this slack-room-message-compose-buffer))
   (let ((team (slack-buffer-team this))

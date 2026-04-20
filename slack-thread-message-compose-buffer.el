@@ -65,9 +65,11 @@
   "Create thread message compose buffer, according to ROOM, TS, TEAM."
   (slack-if-let* ((buf (slack-buffer-find 'slack-thread-message-compose-buffer team room ts)))
       buf
-    (slack-thread-message-compose-buffer :room-id (oref room id)
-                                         :team-id (oref team id)
-                                         :thread-ts ts)))
+    (let ((buf (slack-thread-message-compose-buffer :room-id (oref room id)
+                                                    :team-id (oref team id)
+                                                    :thread-ts ts)))
+      (slack-buffer-cache-team buf team)
+      buf)))
 
 (cl-defmethod slack-buffer-send-message ((this slack-thread-message-compose-buffer) message)
   (with-slots (thread-ts) this
