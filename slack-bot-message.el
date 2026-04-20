@@ -84,8 +84,10 @@
         (slack-image--round-profile image size)))))
 
 (cl-defmethod slack-bot-find ((m slack-bot-message) team)
-  ;; TODO: ensure bot-id exists
-  (slack-find-bot (oref m bot-id) team))
+  (when (slot-boundp m 'bot-id)
+    (let ((bot-id (oref m bot-id)))
+      (unless (slack-string-blankp bot-id)
+        (slack-find-bot bot-id team)))))
 
 (cl-defmethod slack-message-profile-image ((m slack-bot-message) team)
   (let ((bot (slack-bot-find m team)))
