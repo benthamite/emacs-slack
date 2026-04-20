@@ -65,27 +65,56 @@ Any other non-nil value: send to the room."
                                    :cursor cursor
                                    :oldest oldest))))
 
-;; TODO: format is [[profile-image...], N replies, Last reply n (hours|days) ago]
 (cl-defmethod slack-thread-to-string ((m slack-message) team)
   (if (slack-message-thread-parentp m)
-      (let* ((usernames (let ((ht (make-hash-table :test 'equal)))
-                          (dolist (user-id (oref m reply-users))
-                            (puthash (slack-user-name user-id team)
-                                     t
-                                     ht))
-                          (mapconcat #'identity
-                                     (hash-table-keys ht)
-                                     " ")))
-             (count (oref m reply-count))
-             (text (concat (number-to-string (oref m reply-count))
-                           " "
-                           (if (<= 2 count) "replies" "reply")
-                           " from "
-                           usernames)))
-        (propertize text
-                    'face '(:underline t)
+      (let* ((count (oref m reply-count))
+             (images (slack-thread--reply-user-images m team))
+             (reply-label (format "%d %s"
+                                  count
+                                  (if (<= 2 count) "replies" "reply")))
+             (age (slack-thread--format-last-reply-age
+                   (and (slot-boundp m 'latest-reply)
+                        (oref m latest-reply))))
+             (label (propertize
+                     (if age
+                         (format "%s, Last reply %s" reply-label age)
+                       reply-label)
+                     'face '(:underline t))))
+        (propertize (concat images label)
                     'keymap slack-message-thread-status-keymap))
     ""))
+
+(defun slack-thread--reply-user-images (message team)
+  "Return concatenated profile-image string for MESSAGE reply-users on TEAM.
+Returns an empty string when profile-image rendering is disabled or no
+images are available."
+  (if (and slack-render-image-p slack-render-profile-images-p)
+      (cl-loop for user-id in (delete-dups (append (oref message reply-users) nil))
+               for user = (slack-user--find user-id team)
+               for image = (and user (slack-user-image user team 24))
+               when image
+               concat (concat (propertize "image"
+                                          'display image
+                                          'face 'slack-profile-image-face)
+                              " "))
+    ""))
+
+(defun slack-thread--format-last-reply-age (latest-reply)
+  "Return a human-readable age string for LATEST-REPLY timestamp.
+LATEST-REPLY is a Slack timestamp string or nil.  Returns nil when
+LATEST-REPLY is missing or blank."
+  (when (and latest-reply (not (slack-string-blankp latest-reply)))
+    (let* ((seconds (float-time
+                     (time-subtract (current-time)
+                                    (slack-ts-to-time latest-reply))))
+           (minutes (floor (/ seconds 60)))
+           (hours (floor (/ minutes 60)))
+           (days (floor (/ hours 24))))
+      (cond
+       ((< seconds 60) "just now")
+       ((< minutes 60) (format "%d minute%s ago" minutes (if (= minutes 1) "" "s")))
+       ((< hours 24) (format "%d hour%s ago" hours (if (= hours 1) "" "s")))
+       (t (format "%d day%s ago" days (if (= days 1) "" "s")))))))
 
 (cl-defmethod slack-thread-create ((m slack-message) &optional payload)
   (if payload
