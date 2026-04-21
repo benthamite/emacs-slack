@@ -834,6 +834,21 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
 
 (defalias 'slack-message-add-star 'slack-message-save-for-later)
 
+(defun slack-message-toggle-save ()
+  "Toggle save-for-later on the message at point.
+Save the message when it is not currently saved; otherwise remove it
+from the saved items list."
+  (interactive)
+  (slack-if-let* ((ts (slack-get-ts))
+                  (buffer slack-current-buffer))
+      (let* ((room (slack-buffer-room buffer))
+             (msg (and room (slack-room-find-message room ts))))
+        (if (and msg (slack-message-starred-p msg))
+            (progn (slack-buffer-remove-star buffer ts)
+                   (message "Message removed from saved"))
+          (slack-buffer-add-star buffer ts)
+          (message "Message saved for later")))))
+
 (defun slack-message-pins-add ()
   (interactive)
   (slack-if-let* ((buf slack-current-buffer))

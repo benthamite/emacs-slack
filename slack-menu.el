@@ -36,7 +36,7 @@
     ("m u" "toggle subscribe" slack-thread-toggle-subscription)
     ("m k" "copy link" slack-message-copy-link)
     ("m i" "copy id" slack-message-copy-id)
-    ("m s" "save for later" slack-message-save-for-later)
+    ("m s" "toggle save" slack-message-toggle-save)
     ("m b" "jump to browser" slack-jump-to-browser)
     ("m ." "redisplay" slack-message-redisplay)
     ""
