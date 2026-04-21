@@ -30,6 +30,40 @@
 ;;
 
 ;;; Code:
+(defun slack--live-websocket-processes ()
+  "Return websocket processes currently referenced by a team's `ws.conn'."
+  (let (procs)
+    (when (boundp 'slack-teams-by-token)
+      (maphash
+       (lambda (_k team)
+         (when (slot-boundp team 'ws)
+           (let* ((ws (oref team ws))
+                  (conn (and ws (oref ws conn))))
+             (when (and conn (fboundp 'websocket-conn))
+               (let ((proc (ignore-errors (websocket-conn conn))))
+                 (when proc (push proc procs)))))))
+       slack-teams-by-token))
+    procs))
+
+(defun slack--cleanup-stale-websockets ()
+  "Delete orphaned Slack websocket processes, preserving live ones.
+Called on reload of `slack' to avoid the connection storm that
+otherwise accumulates because each reload orphans the previous
+websocket instead of closing it.  Any slack websocket process not
+currently referenced by some team's `ws.conn' slot is considered
+a zombie from a prior load and is deleted.  The live websocket
+(if any) is preserved so that reloading while connected does not
+force a reconnect."
+  (let ((alive (slack--live-websocket-processes)))
+    (dolist (p (process-list))
+      (when (and (not (memq p alive))
+                 (memq (process-status p) '(open run connect))
+                 (string-match-p "wss-primary\\.slack\\.com" (process-name p)))
+        (ignore-errors (delete-process p))))))
+
+(when (featurep 'slack)
+  (slack--cleanup-stale-websockets))
+
 (require 'cl-lib)
 (require 'subr-x)
 (require 'color)
@@ -280,14 +314,14 @@ Available options (property name, type, default value)
                   (and token (< 0 (length token)))))
               (register (team)
                 (let ((same-team (slack-team-find-by-token (oref team token))))
-                  (if same-team
-                      (progn
-                        (slack-team-disconnect same-team)
-                        (slack-team-connect team))))
-                (puthash (oref team token) team slack-teams-by-token)
-                (if (plist-get plist :default)
-                    (setq slack-current-team team))
-                (slack-user-prefs-update team)))
+                  (unless (and same-team (slack-team-connectedp same-team))
+                    (when same-team
+                      (slack-team-disconnect same-team)
+                      (slack-team-connect team))
+                    (puthash (oref team token) team slack-teams-by-token)
+                    (if (plist-get plist :default)
+                        (setq slack-current-team team))
+                    (slack-user-prefs-update team)))))
     (if (has-token-p plist)
         (let ((team (slack-create-team plist)))
           (register team))
