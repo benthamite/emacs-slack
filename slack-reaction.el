@@ -45,12 +45,16 @@ Idempotent: joining the same user twice is a no-op."
     r))
 
 (cl-defmethod slack-equalp ((r slack-reaction) other)
+  "Return non-nil when the reaction equals the other argument."
   (slack-reaction-equalp r other))
 
 (cl-defmethod slack-reaction-equalp ((r slack-reaction) other)
+  "Return non-nil when reactions R and OTHER share the same emoji name."
   (string= (oref r name) (oref other name)))
 
 (cl-defmethod slack-reaction-fetch-users ((this slack-reaction) team cb)
+  "Resolve users who reacted with THIS in TEAM and pass the list to CB.
+Triggers a fetch when some user records are missing locally."
   (cl-labels
       ((collect-users (user-ids)
                       (cl-remove-if #'null
@@ -71,6 +75,7 @@ Idempotent: joining the same user twice is a no-op."
                                           (funcall cb (collect-users (oref this users)))))))))))
 
 (cl-defmethod slack-reaction-user-reacted-p ((this slack-reaction) user-id)
+  "Return non-nil when USER-ID reacted with reaction THIS."
   (member user-id (oref this users)))
 
 (declare-function slack-emoji-resolve "slack-emoji")
@@ -87,20 +92,24 @@ Idempotent: joining the same user twice is a no-op."
                                                             (slack-emoji-resolve (oref r name))))))))
 
 (defun slack-reaction--find (reactions reaction)
+  "Return the element of REACTIONS equal to REACTION, or nil."
   (cl-find-if #'(lambda (e) (slack-reaction-equalp e reaction))
               reactions))
 
 (cl-defmethod slack-reaction-delete ((this slack-reaction) reactions)
+  "Remove the named reaction from the reaction."
   (cl-delete-if #'(lambda (e) (slack-reaction-equalp e this))
                 reactions))
 
 (cl-defmethod slack-reaction-remove-user ((this slack-reaction) user-id)
+  "Remove USER-ID from the users of reaction THIS and update its count."
   (with-slots (count users) this
     (setq users (cl-remove-if #'(lambda (old-user) (string= old-user user-id))
                               users))
     (setq count (length users))))
 
 (cl-defmethod slack-merge ((old slack-reaction) new)
+  "Merge new data into the existing reaction in place."
   (with-slots (count users) old
     (setq count (oref new count))
     (setq users (cl-remove-duplicates (append users (oref new users))

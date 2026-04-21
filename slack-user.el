@@ -67,6 +67,7 @@
   :group 'slack)
 
 (cl-defmethod slack-user-find ((id string) team)
+  "Return the user referenced by the string in TEAM."
   (gethash id (oref team users)))
 ;; TODO remove this. use `slack-user-find'
 (defun slack-user--find (id team)
@@ -84,6 +85,7 @@
       (slack-user--name user team)))
 
 (defun slack-user--name (user team)
+  "Return the preferred display name for USER on TEAM."
   (let ((real-name (slack-user-real-name user))
         (display-name (slack-user-display-name user)))
     (if (or (oref team full-and-display-names)
@@ -92,20 +94,24 @@
       display-name)))
 
 (defun slack-user-real-name (user)
+  "Return USER's normalized real name from their profile."
   (slack-if-let* ((profile (slack-user-profile user)))
       (plist-get profile :real_name_normalized)))
 
 (defun slack-user-display-name (user)
+  "Return USER's normalized display name from their profile."
   (slack-if-let* ((profile (slack-user-profile user)))
       (plist-get profile :display_name_normalized)))
 
 (defun slack-user-label (user team)
+  "Return a completion label for USER on TEAM including DND and presence."
   (format "%s%s %s"
           (or (slack-user-dnd-status-to-string user team) " ")
           (or (slack-user-presence-to-string user team) " ")
           (slack-user--name user team)))
 
 (defun slack-user--status (user)
+  "Return USER's status as \"EMOJI TEXT\" or an empty string."
   (let* ((profile (and user (plist-get user :profile)))
          (emoji (and profile (plist-get profile :status_emoji)))
          (text (and profile (plist-get profile :status_text))))
@@ -127,18 +133,21 @@
               users))))
 
 (defun slack-user-dnd-in-range-p (user team)
+  "Return non-nil when USER is currently within their DND window on TEAM."
   (slack-if-let* ((statuses (oref team dnd-status))
                   (status (gethash (plist-get user :id)
                                    statuses)))
       (slack-dnd-in-range-p status)))
 
 (defun slack-user-dnd-status-to-string (user team)
+  "Return the propertized DND sign for USER on TEAM, or nil."
   (if (slack-user-dnd-in-range-p user team)
       (propertize slack-dnd-sign
                   'face 'slack-user-dnd-face)
     nil))
 
 (defun slack-user-presence-to-string (user team)
+  "Return the propertized active-presence sign for USER on TEAM, or nil."
   (slack-if-let* ((statuses (oref team presence))
                   (presence (gethash (plist-get user :id)
                                      statuses)))
@@ -156,6 +165,7 @@
     (slack-user-set-status-request  team emoji text (floor (+ (float-time) (* minutes 60))))))
 
 (defun slack-user-reset-status ()
+  "Clear the current user's custom status on the selected team."
   (interactive)
   (let* ((team (slack-team-select))
          (emoji "")
@@ -194,15 +204,19 @@ Optionally expire the message at UNIX-EXPIRE-BY-TIME."
   :group 'slack)
 
 (defun slack-user-profile (user)
+  "Return the profile plist of USER."
   (plist-get user :profile))
 
 (defun slack-user-fname (user)
+  "Return USER's first name from their profile."
   (plist-get (slack-user-profile user) :first_name))
 
 (defun slack-user-lname (user)
+  "Return USER's last name from their profile."
   (plist-get (slack-user-profile user) :last_name))
 
 (defun slack-user-header (user team)
+  "Return a header line for USER's profile buffer on TEAM."
   (let* ((real-name (slack-user-real-name user))
          (display-name (slack-user-display-name user))
          )
@@ -225,6 +239,7 @@ Optionally expire the message at UNIX-EXPIRE-BY-TIME."
       )))
 
 (defun slack-user-timezone (user)
+  "Return a human-readable timezone and local-time string for USER."
   (let ((offset (/ (plist-get user :tz_offset) (* 60 60))))
     (format "%s, %s (Their time is %s)"
             (or (plist-get user :tz)
@@ -235,6 +250,7 @@ Optionally expire the message at UNIX-EXPIRE-BY-TIME."
             (slack-user-local-time user))))
 
 (defun slack-user-property-to-str (value title)
+  "Return a formatted \"TITLE\\n\\tVALUE\" block, or nil when VALUE is empty."
   (and value (< 0 (length value))
        (format "%s\n\t%s"
                (propertize title 'face 'slack-user-profile-property-name-face)
@@ -242,21 +258,28 @@ Optionally expire the message at UNIX-EXPIRE-BY-TIME."
 
 
 (defun slack-user-self-p (user-id team)
+  "Return non-nil when USER-ID refers to the current user of TEAM."
   (string= user-id (oref team self-id)))
 
 (defun slack-user-name-alist (team &key filter)
+  "Return an alist of (label . user) for TEAM users, optionally filtered by FILTER."
   (let ((users (slack-team-users team)))
     (mapcar #'(lambda (e) (cons (slack-user-label e team) e))
             (if filter (funcall filter users)
               users))))
 
 (defun slack-user-hidden-p (user)
+  "Return non-nil when USER has been deleted/deactivated."
   (not (eq (plist-get user :deleted) :json-false)))
 
 (defun slack--user-select (team)
+  "Prompt to pick a user from TEAM and return the selected user."
   (slack-select-from-list ((slack-user-names team) "Select User: ")))
 
 (cl-defun slack-users-info-request (user--ids team &key after-success)
+  "Fetch user and bot info for USER--IDS on TEAM, calling AFTER-SUCCESS at end.
+Splits BOT ids off to `slack-bots-info-request' and batches user
+ids 30 at a time against users.info."
   (let ((bot-ids nil)
         (user-ids nil))
     (cl-loop for id in user--ids
@@ -306,6 +329,9 @@ Optionally expire the message at UNIX-EXPIRE-BY-TIME."
           (request (pop queue)))))))
 
 (cl-defun slack-user-info-request (user-id team &key after-success)
+  "Fetch info for USER-ID on TEAM, calling AFTER-SUCCESS on completion.
+USER-ID may be a single id, a list of ids, or a bot id starting
+with \"B\"."
   (cond
    ((not (< 0 (length user-id)))
     (when (functionp after-success) (funcall after-success)))
@@ -330,21 +356,27 @@ Optionally expire the message at UNIX-EXPIRE-BY-TIME."
           :success #'on-success))))))
 
 (defun slack-user-image-url-24 (user)
+  "Return URL of USER's 24x24 profile image."
   (plist-get (slack-user-profile user) :image_24))
 
 (defun slack-user-image-url-32 (user)
+  "Return URL of USER's 32x32 profile image."
   (plist-get (slack-user-profile user) :image_32))
 
 (defun slack-user-image-url-48 (user)
+  "Return URL of USER's 48x48 profile image."
   (plist-get (slack-user-profile user) :image_48))
 
 (defun slack-user-image-url-72 (user)
+  "Return URL of USER's 72x72 profile image."
   (plist-get (slack-user-profile user) :image_72))
 
 (defun slack-user-image-url-512 (user)
+  "Return URL of USER's 512x512 profile image."
   (plist-get (slack-user-profile user) :image_512))
 
 (defun slack-user-image-url (user size)
+  "Return USER's profile image URL for SIZE pixels, falling back to 32."
   (cond
    ((eq size 24) (slack-user-image-url-24 user))
    ((eq size 32) (slack-user-image-url-32 user))
@@ -354,6 +386,8 @@ Optionally expire the message at UNIX-EXPIRE-BY-TIME."
    (t (slack-user-image-url-32 user))))
 
 (defun slack-user-fetch-image (user size team)
+  "Return local file path for USER's SIZE profile image on TEAM.
+Download the image from Slack when it is not already cached."
   (let* ((image-url (slack-user-image-url user size))
          (file-path (and image-url (slack-profile-image-path image-url team))))
     (when file-path
@@ -366,16 +400,19 @@ Optionally expire the message at UNIX-EXPIRE-BY-TIME."
     file-path))
 
 (cl-defun slack-user-image (user team &optional (size 32))
+  "Return a round-cropped SIZE image spec for USER's avatar on TEAM."
   (when user
     (let ((image (slack-user-fetch-image user size team)))
       (when image
         (slack-image--round-profile image size)))))
 
 (defun slack-user-presence (user team)
+  "Return the presence string (\"active\"/\"away\") for USER on TEAM."
   (gethash (plist-get user :id)
            (oref team presence)))
 
 (defun slack-request-set-presence (team &optional presence)
+  "Issue the `set presence' request against the Slack API."
   (unless presence
     (let ((current-presence (gethash (oref team self-id)
                                      (oref team presence)
@@ -396,6 +433,7 @@ Optionally expire the message at UNIX-EXPIRE-BY-TIME."
       :params (list (cons "presence" presence))))))
 
 (defun slack-request-dnd-set-snooze (team time)
+  "Issue the `dnd set snooze' request against the Slack API."
   (cl-labels
       ((on-success (&key data &allow-other-keys)
                    (slack-request-handle-error
@@ -414,6 +452,7 @@ Optionally expire the message at UNIX-EXPIRE-BY-TIME."
         :params (list (cons "num_minutes" (format "%s" num-minutes))))))))
 
 (defun slack-request-dnd-end-dnd (team)
+  "Issue the `dnd end dnd' request against the Slack API."
   (cl-labels
       ((on-success (&key data &allow-other-keys)
                    (slack-request-handle-error
@@ -427,10 +466,12 @@ Optionally expire the message at UNIX-EXPIRE-BY-TIME."
       ))))
 
 (defun slack-user-equal-p (a b)
+  "Return non-nil when the two user arguments are equal."
   (string= (plist-get a :id) (plist-get b :id)))
 
 (defalias 'slack-bot-list-update 'slack-user-list-update)
 (defun slack-user-list-update (&optional team)
+  "Refresh TEAM's list of user from the Slack API."
   (interactive)
   (let ((team (or team (slack-team-select))))
     (cl-labels

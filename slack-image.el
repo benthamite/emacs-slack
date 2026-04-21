@@ -79,6 +79,7 @@ the bottom."
         (reverse slice)))))
 
 (defun slack-image-shrink (image &optional max-height)
+  "Return a copy of IMAGE shrunk to MAX-HEIGHT while preserving aspect ratio."
   (unless (image-type-available-p 'imagemagick)
     (error "Need Imagemagick"))
   (if max-height
@@ -97,6 +98,7 @@ the bottom."
     image))
 
 (defun slack-mapconcat-images (images &optional pad)
+  "Concatenate IMAGES into a propertized string, optionally prefixed with PAD."
   (when images
     (cl-labels
         ((sort-images (images)
@@ -123,6 +125,7 @@ the bottom."
                  "\n"))))
 
 (defun slack-profile-image-path (image-url team)
+  "Return the local cache path for the profile image at IMAGE-URL for TEAM."
   (expand-file-name
    (concat (md5 (concat (slack-team-name team) "-" image-url))
            "."
@@ -130,6 +133,8 @@ the bottom."
    slack-profile-image-file-directory))
 
 (cl-defun slack-image--create (path &key (width nil) (height nil) (max-height nil) (max-width nil))
+  "Create an Emacs image descriptor for file at PATH with size constraints.
+WIDTH, HEIGHT, MAX-HEIGHT and MAX-WIDTH are passed to `create-image'."
   (let* ((gif-p (slack-image--gif-p path))
          (imagemagick-available-p (and (not gif-p)
                                        (image-type-available-p 'imagemagick)))
@@ -158,6 +163,7 @@ so that `image-animate' can drive them from
          (and ext (string= (downcase ext) "gif")))))
 
 (defun slack-image-exists-p (image-spec)
+  "Return non-nil when the cached image for IMAGE-SPEC is on disk."
   (file-exists-p (slack-image-path (car image-spec))))
 
 (defun slack-image-string (spec &optional pad no-token)
@@ -180,6 +186,7 @@ so that `image-animate' can drive them from
     ""))
 
 (defun slack-render-image (image team)
+  "Render IMAGE (or a loading placeholder) in a buffer associated with TEAM."
   (let ((buf (get-buffer-create
               (format "*slack: %s Image*" (slack-team-name team)))))
     (with-current-buffer buf

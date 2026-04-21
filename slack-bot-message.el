@@ -37,16 +37,19 @@
    (icons :initarg :icons)))
 
 (cl-defmethod slack-message-bot-id ((this slack-bot-message))
+  "Return the bot id associated with the bot message THIS, if bound."
   (when (slot-boundp this 'bot-id)
     (oref this bot-id)))
 
 (cl-defmethod slack-user-find ((this slack-bot-message) team)
+  "Return the user referenced by the bot message in TEAM."
   (with-slots (bot-id user) this
     (if (slack-string-blankp bot-id)
         (slack-user--find user team)
       (slack-find-bot bot-id team))))
 
 (cl-defmethod slack-bot-name ((m slack-bot-message) team)
+  "Return the display name for the bot that sent message M on TEAM."
   (or (unless (slack-string-blankp (oref m username))
         (oref m username))
       (when (slot-boundp m 'bot-id)
@@ -55,13 +58,16 @@
       "Unknown Bot"))
 
 (cl-defmethod slack-message-sender-name ((m slack-bot-message) team)
+  "Return the display name of the sender of the bot message."
   (slack-bot-name m team))
 
 (cl-defmethod slack-message-sender-id ((m slack-bot-message))
+  "Return the Slack user ID of the sender of the bot message."
   (or (slack-message-bot-id m)
       (oref m user)))
 
 (defun slack-bot-image-url (bot size)
+  "Return the URL of the icon image for BOT at the requested SIZE."
   (let ((icons (plist-get bot :icons)))
     (cond
      ((eq size 36) (plist-get icons :image_36))
@@ -70,6 +76,7 @@
      (t (plist-get icons :image_36)))))
 
 (defun slack-bot-fetch-image (bot size team)
+  "Download the icon image for BOT at SIZE for TEAM and return its path."
   (let* ((image-url (slack-bot-image-url bot size))
          (file-path (and image-url (slack-profile-image-path image-url team))))
     (when file-path
@@ -78,18 +85,21 @@
       file-path)))
 
 (cl-defun slack-bot-image (bot team &optional (size 36))
+  "Return a round profile image for BOT on TEAM at the requested SIZE."
   (when bot
     (let ((image (slack-bot-fetch-image bot size team)))
       (when image
         (slack-image--round-profile image size)))))
 
 (cl-defmethod slack-bot-find ((m slack-bot-message) team)
+  "Return the bot plist for the sender of bot message M in TEAM."
   (when (slot-boundp m 'bot-id)
     (let ((bot-id (oref m bot-id)))
       (unless (slack-string-blankp bot-id)
         (slack-find-bot bot-id team)))))
 
 (cl-defmethod slack-message-profile-image ((m slack-bot-message) team)
+  "Return the avatar image associated with the bot message."
   (let ((bot (slack-bot-find m team)))
     (slack-bot-image bot team)))
 

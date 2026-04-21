@@ -233,6 +233,7 @@ UNIFIED is a dash-separated string like \"1F600\" or
     (error nil)))
 
 (defun slack-emoji-fetch-default-emojis-data (team)
+  "Synchronously fetch the default Unicode emoji master dataset for TEAM."
   (slack-request
    (slack-request-create
     slack-emoji-master-data-url

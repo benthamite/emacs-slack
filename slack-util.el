@@ -432,6 +432,8 @@
 (cl-defgeneric slack-ws-use-reconnect-url-p (&rest args))
 
 (defmacro slack-merge-list (old-list new-list)
+  "Merge NEW-LIST into OLD-LIST, merging matching entries and pushing new ones.
+Entries are matched via `slack-equalp' and merged via `slack-merge'."
   `(cl-loop for n in ,new-list
             do (let ((o (cl-find-if #'(lambda (e) (slack-equalp n e))
                                     ,old-list)))
@@ -439,6 +441,8 @@
                    (push n ,old-list)))))
 
 (defmacro slack-plist-each (plist &rest body)
+  "Iterate BODY over each (key value) pair in PLIST.
+The locals `key' and `value' are bound within each iteration."
   (declare (indent 2) (debug t))
   (let ((dup (cl-gensym)))
     `(let ((,dup (copy-sequence ,plist)))
@@ -448,9 +452,11 @@
            ,@body)))))
 
 (defun slack-seq-to-list (seq)
+  "Return SEQ as a list, converting vectors and other sequences."
   (if (listp seq) seq (append seq nil)))
 
 (defun slack-decode (seq)
+  "Recursively UTF-8-decode strings inside SEQ, preserving the structure."
   (cl-loop for e in (slack-seq-to-list seq)
            collect (if (stringp e)
                        (decode-coding-string e 'utf-8)
@@ -459,6 +465,9 @@
                        e))))
 
 (defun slack-class-have-slot-p (class slot)
+  "Return non-nil when CLASS defines a slot corresponding to keyword SLOT.
+SLOT is the JSON-style keyword (e.g. :user_id), matched against the
+dash-normalized slot name of CLASS."
   (and (symbolp slot)
        (let* ((stripped (substring (symbol-name slot) 1))
               (replaced (replace-regexp-in-string "_" "-"
@@ -467,6 +476,8 @@
          (slot-exists-p class symbolized))))
 
 (defun slack-collect-slots (class seq)
+  "Return a plist of initargs from SEQ that match slots of CLASS.
+Strings are decoded as UTF-8 and `:json-false' values become nil."
   (let ((plist (slack-seq-to-list seq)))
     (cl-loop for p in plist
              if (and (slack-class-have-slot-p class p)
@@ -504,11 +515,13 @@ if you need them all use `slack-get-positions-by-ts'."
 
 
 (defun slack-linkfy (text link)
+  "Return TEXT wrapped as a Slack link to LINK, or TEXT when LINK is blank."
   (if (not (slack-string-blankp link))
       (format "<%s|%s>" link text)
     text))
 
 (defun slack-string-blankp (str)
+  "Return non-nil when STR is nil or contains only whitespace."
   (if str
       (not (null (string-match-p "\\`[ \t\n\r]*\\'" str)))
     t))
@@ -552,6 +565,10 @@ if you need them all use `slack-get-positions-by-ts'."
   time)
 
 (cl-defun slack-select-multiple (prompt-fn collection &optional initial-input-fn)
+  "Prompt repeatedly for entries from COLLECTION and return the list of values.
+PROMPT-FN is called with the current iteration count to produce the prompt.
+INITIAL-INPUT-FN, if non-nil, produces the initial minibuffer input each
+round.  Selection stops when an empty input is given."
   (let ((result '())
         (loop-count 0)
         (do-loop t))
@@ -596,9 +613,13 @@ ones and overrule settings in the other lists."
     rtn))
 
 (cl-defmethod slack-ts ((ts string))
+  "Return the timestamp string identifying the string."
   ts)
 
 (defun slack-propertize-mention-text (face display text)
+  "Return TEXT propertized as a mention with FACE and DISPLAY value.
+A trailing space is appended so mention text is not sticky to the next
+character."
   (let ((props (list 'rear-nonsticky t
                      'display display
                      'face face))
@@ -622,6 +643,7 @@ Note the input timestamp must drop the last 6 digits.
     (format-time-string format (seconds-to-time ts))))
 
 (defun slack-format-message (&rest args)
+  "Join non-empty ARGS with newlines to form a message string."
   (let ((messages args))
     (mapconcat #'identity
                (cl-remove-if #'(lambda (e) (or (null e)
@@ -630,6 +652,7 @@ Note the input timestamp must drop the last 6 digits.
                "\n")))
 
 (defun slack-format-usergroup (usergroup)
+  "Return USERGROUP formatted as \"@handle\" for display."
   (concat
    "@"
    (or (ignore-errors

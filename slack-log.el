@@ -64,11 +64,13 @@ One of \\='info, \\='debug"
 
 
 (defun slack-log-level-to-int (level)
+  "Return the integer value of log LEVEL from `slack-log-levels'."
   (let ((cell (cl-assoc level slack-log-levels)))
     (if cell (cdr cell)
       20)))
 
 (defun slack-log--should-log? (level)
+  "Return non-nil when LEVEL is at or below the configured `slack-log-level'."
   (declare (indent 1))
   (let ((user-level (slack-log-level-to-int slack-log-level))
         (current-level (slack-log-level-to-int level)))
@@ -104,6 +106,7 @@ One of \\='info, \\='debug"
             (insert "\n")))))))
 
 (defun slack-log-buffer-name (team)
+  "Return the log buffer name for TEAM."
   (format "*slack-log: %s*" (slack-team-name team)))
 
 (defun slack-log-set-level (level)
@@ -113,14 +116,18 @@ One of \\='info, \\='debug"
   (setq slack-log-level level))
 
 (defun slack-log-open-buffer ()
+  "Open the log buffer for a team selected interactively."
   (interactive)
   (let ((team (slack-team-select t)))
     (funcall slack-buffer-function (get-buffer-create (slack-log-buffer-name team)))))
 
 (defun slack-event-log-buffer-name (team)
+  "Return the name of the websocket event log buffer for TEAM."
   (format "*slack-event-log: %s*" (slack-team-name team)))
 
 (defun slack-log-websocket-payload (payload team &optional out)
+  "Append PAYLOAD to the websocket event log buffer for TEAM.
+When OUT is non-nil, mark the payload as outgoing."
   (let* ((bufname (slack-event-log-buffer-name team))
          (buf (get-buffer-create bufname)))
     (when buf
@@ -135,6 +142,7 @@ One of \\='info, \\='debug"
         (setq buffer-read-only t)))))
 
 (defun slack-log-open-websocket-buffer ()
+  "Open the websocket debug buffer for a team selected interactively."
   (interactive)
   (if websocket-debug
       (progn
@@ -148,6 +156,7 @@ One of \\='info, \\='debug"
     (error "`websocket-debug` is not t")))
 
 (defun slack-log-open-event-buffer ()
+  "Open the websocket event log buffer for a team selected interactively."
   (interactive)
   (let* ((team (slack-team-select t))
          (bufname (slack-event-log-buffer-name team))

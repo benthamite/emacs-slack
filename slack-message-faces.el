@@ -119,18 +119,22 @@
   :group 'slack)
 
 (defun slack-message-put-header-property (header)
+  "Return HEADER propertized with the `slack-message-output-header' face."
   (if header
       (propertize header 'face 'slack-message-output-header)))
 
 (defun slack-message-put-text-property (text)
+  "Return TEXT propertized with the `slack-message-output-text' face."
   (if text
       (propertize text 'face 'slack-message-output-text)))
 
 (defun slack-message-put-deleted-property (text)
+  "Return TEXT propertized with the `slack-message-deleted-face' face."
   (if text
       (propertize text 'face 'slack-message-deleted-face)))
 
 (defun slack-put-preview-overlay (start end)
+  "Put a `slack-preview-face' overlay on the region between START and END."
   (let ((overlay (make-overlay start end)))
     (overlay-put overlay 'face 'slack-preview-face)))
 

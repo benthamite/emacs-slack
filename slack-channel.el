@@ -43,6 +43,7 @@
   ((is-member :initarg :is_member :initform nil :type boolean)))
 
 (cl-defmethod slack-room-name ((room slack-channel) team)
+  "Return the human-readable name of the channel."
   (if (slack-mpim-p room)
       (format "MPIM: %s"
               (string-join (mapcar (lambda (userid)
@@ -51,9 +52,11 @@
     (oref room name)))
 
 (defun slack-channel-names (team &optional filter)
+  "Return an alist of display names and channels for TEAM, optionally filtered by FILTER."
   (slack-room-names (slack-team-channels team) team filter))
 
 (defun slack-channel-list-update (&optional team after-success)
+  "Refresh TEAM's list of channel from the Slack API."
   (interactive)
   (let ((team (or team (slack-team-select))))
     (cl-labels
@@ -66,11 +69,13 @@
       (slack-conversations-list team #'success (list "public_channel")))))
 
 (defun slack-create-channel ()
+  "Create and return a new channel instance from PAYLOAD."
   (interactive)
   (let ((team (slack-team-select)))
     (slack-conversations-create team "false")))
 
 (cl-defmethod slack-room-subscribedp ((room slack-channel) team)
+  "Return non-nil when the current user is subscribed to the channel."
   (with-slots (subscribed-channels) team
     (let ((name (slack-room-name room team)))
       (or
@@ -79,12 +84,15 @@
             (memq (intern name) (append subscribed-channels slack-extra-subscribed-channels)))))))
 
 (cl-defmethod slack-room-hidden-p ((room slack-channel))
+  "Return non-nil when the channel is hidden from the user."
   (slack-room-archived-p room))
 
 (cl-defmethod slack-room-member-p ((this slack-channel))
+  "Return non-nil when the current user is a member of the channel."
   (oref this is-member))
 
 (cl-defmethod slack-room-muted-p ((this slack-channel) team)
+  "Return non-nil when the channel is muted for the current user."
   (seq-contains-p
    (plist-get (oref team user-prefs) :muted_channels)
    (oref this id)))

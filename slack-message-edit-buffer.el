@@ -39,6 +39,7 @@
   ((ts :initarg :ts :type string)))
 
 (defun slack-create-edit-message-buffer (room team ts)
+  "Create and return a new edit message buffer instance from PAYLOAD."
   (slack-if-let* ((buffer (slack-buffer-find 'slack-message-edit-buffer team room ts)))
       buffer
     (slack-message-edit-buffer :room-id (oref room id)
@@ -46,6 +47,7 @@
                                :ts ts)))
 
 (cl-defmethod slack-buffer-name ((this slack-message-edit-buffer))
+  "Return the display buffer name for the message edit buffer."
   (let ((team (slack-buffer-team this))
         (ts (oref this ts)))
     (format "*slack: %s : %s Edit Message %s"
@@ -54,19 +56,23 @@
             ts)))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-message-edit-buffer)) room ts)
+  "Return the class-level buffer key for the message edit buffer."
   (concat (oref room id)
           ":"
           ts))
 
 (cl-defmethod slack-buffer-key ((this slack-message-edit-buffer))
+  "Return the lookup key identifying the buffer for the message edit buffer."
   (let ((room (slack-buffer-room this))
         (ts (oref this ts)))
     (slack-buffer-key 'slack-message-edit-buffer room ts)))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-message-edit-buffer)))
+  "Return the team-scoped class-level buffer key for the message edit buffer."
   'slack-message-edit-buffer)
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-message-edit-buffer))
+  "Initialize and return the display buffer for the message edit buffer."
   (let* ((ts (oref this ts))
          (team (slack-buffer-team this))
          (room (slack-buffer-room this))
@@ -79,6 +85,7 @@
     buf))
 
 (cl-defmethod slack-buffer-send-message ((this slack-message-edit-buffer) message)
+  "Send a message from the message edit buffer."
   (slack-if-let* ((ts (oref this ts))
                   (team (slack-buffer-team this))
                   (room (slack-buffer-room this))

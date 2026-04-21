@@ -51,6 +51,7 @@
   ((service-name :initarg :service_name :type string)))
 
 (cl-defmethod slack-equalp ((this slack-command) other)
+  "Return non-nil when the command equals the other argument."
   (string= (oref this name) (oref other name)))
 
 (defun slack-slash-commands-parse (text team)
@@ -64,6 +65,7 @@
               (mapconcat #'identity (cdr tokens) " "))))))
 
 (defun slack-command-create (command)
+  "Create and return a `slack-command' of the right subclass from COMMAND."
   (cl-labels
       ((slack-core-command-create
         (payload)
@@ -88,6 +90,7 @@
        (t (apply #'make-instance 'slack-command command))))))
 
 (defun slack-command-list-update (&optional team)
+  "Refresh TEAM's list of command from the Slack API."
   (interactive)
   (let ((team (or team (slack-team-select))))
     (cl-labels
@@ -108,12 +111,14 @@
         :success #'on-success)))))
 
 (defun slack-command-find (name team)
+  "Return the command named NAME registered with TEAM, or nil."
   (let ((commands (oref team commands)))
     (cl-find-if #'(lambda (command) (string= name
                                              (oref command name)))
                 commands)))
 
 (cl-defmethod slack-command-company-doc-string ((this slack-command) team)
+  "Return the company-mode documentation string for command THIS in TEAM."
   (if (oref this alias-of)
       (let ((command (slack-command-find (oref this alias-of)
                                          team)))
@@ -128,6 +133,7 @@
 
 (cl-defmethod slack-command-run ((command slack-command) team channel
                                  &key (text nil))
+  "Execute slash COMMAND in CHANNEL for TEAM with optional TEXT argument."
   (let ((disp "")
         (client-token (slack-team-client-token team))
         (command (oref command name)))
@@ -164,6 +170,7 @@
           :success #'on-success)))))))
 
 (defun slack-message--send (message)
+  "Send MESSAGE from the current buffer, dispatching to slash commands when needed."
   (slack-if-let* ((buf slack-current-buffer)
                   (team (slack-buffer-team buf))
                   (room (slack-buffer-room buf)))

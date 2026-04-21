@@ -120,6 +120,10 @@ recursion when the join/open callback re-invokes this function."
                                  :on-error on-error)))))
 
 (cl-defun slack-chat-post-message (team message &key (on-success nil) (on-error nil))
+  "Send MESSAGE via `chat.postMessage' on TEAM.
+MESSAGE is a Slack API payload plist.  Invoke ON-SUCCESS once the
+server acknowledges the post, or ON-ERROR when it returns an error
+response."
   (cl-labels
       ((success (&key data &allow-other-keys)
          (if (eq t (plist-get data :ok))
@@ -162,11 +166,13 @@ the standard buffer-update machinery so it appears immediately."
           (slack-message-update-buffer message team))))))
 
 (defun slack-message-room-list (team)
+  "Return the combined list of group, IM, and channel names for TEAM."
   (append (slack-group-names team)
           (slack-im-names team)
           (slack-channel-names team)))
 
 (defun slack-message-embed-channel ()
+  "Prompt for a channel of the current team and insert a channel mention."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer)
                   (team (slack-buffer-team buf)))
@@ -176,26 +182,31 @@ the standard buffer-update machinery so it appears immediately."
                                         (format "#%s" (slack-room-name selected team))))))
 
 (defun slack-insert-channel-mention (channel-id display)
+  "Insert a mention linking to CHANNEL-ID, shown to the user as DISPLAY."
   (insert (slack-propertize-mention-text 'slack-message-mention-face
                                          display
                                          (format "<#%s>" channel-id))))
 
 (defun slack-insert-user-mention (user-id display)
+  "Insert a mention linking to USER-ID, shown to the user as DISPLAY."
   (insert (slack-propertize-mention-text 'slack-message-mention-face
                                          display
                                          (format "<@%s>" user-id))))
 
 (defun slack-insert-usergroup-mention (usergroup-id display)
+  "Insert a mention linking to USERGROUP-ID, shown to the user as DISPLAY."
   (insert (slack-propertize-mention-text 'slack-message-mention-keyword-face
                                          display
                                          (format "<!subteam^%s>" usergroup-id))))
 
 (defun slack-insert-keyword-mention (keyword display)
+  "Insert a broadcast-style mention for KEYWORD, shown as DISPLAY."
   (insert (slack-propertize-mention-text 'slack-message-mention-keyword-face
                                          display
                                          (format "<!%s>" keyword))))
 
 (defun slack-message-embed-mention ()
+  "Prompt for a user, usergroup, or broadcast keyword and insert its mention."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer)
                   (team (slack-buffer-team buf)))
@@ -232,11 +243,13 @@ the standard buffer-update machinery so it appears immediately."
 (defvar slack-enable-wysiwyg)
 
 (defun slack-enable-wysiwyg ()
+  "Install the WYSIWYG refresh hook when `slack-enable-wysiwyg' is set."
   (when slack-enable-wysiwyg
     (add-hook 'after-change-functions
               'slack-wysiwyg-after-change nil t)))
 
 (defun slack-wysiwyg-enabled-p ()
+  "Return non-nil when WYSIWYG rendering is active in the current buffer."
   (and slack-enable-wysiwyg
        (or (eq 'slack-message-compose-buffer-mode
                major-mode)
@@ -244,6 +257,7 @@ the standard buffer-update machinery so it appears immediately."
                major-mode))))
 
 (defun slack-wysiwyg-after-change (_beg _end _length)
+  "Re-apply WYSIWYG faces over the whole buffer after any edit."
   (when (slack-wysiwyg-enabled-p)
     (save-excursion
       (save-restriction
@@ -272,9 +286,11 @@ the standard buffer-update machinery so it appears immediately."
                     slack-special-mention-regex))))))
 
 (defun slack-put-block-props (beg end value)
+  "Apply VALUE as the `slack-block-props' text property on BEG..END."
   (put-text-property beg end 'slack-block-props value))
 
 (defun slack-put-section-block-props (beg end value)
+  "Apply VALUE as the `slack-section-block-props' text property on BEG..END."
   (put-text-property beg end 'slack-section-block-props value))
 
 (defun slack-mark-inline-format (regex type &optional beg-group)
@@ -291,20 +307,25 @@ properties region (default 1)."
                                      :text (match-string 3)))))))
 
 (defun slack-mark-bold ()
+  "Mark bold inline spans with block properties throughout the buffer."
   (slack-mark-inline-format slack-mrkdwn-regex-bold 'bold))
 
 (defun slack-mark-italic ()
+  "Mark italic inline spans with block properties throughout the buffer."
   (slack-mark-inline-format slack-mrkdwn-regex-italic 'italic))
 
 (defun slack-mark-strike ()
+  "Mark strike inline spans with block properties throughout the buffer."
   (slack-mark-inline-format slack-mrkdwn-regex-strike 'strike))
 
 (defun slack-mark-code ()
+  "Mark inline code spans with block properties throughout the buffer."
   ;; Group 2: the code regex captures the opening backtick in group 1
   ;; (boundary char) and the content starts at group 2.
   (slack-mark-inline-format slack-mrkdwn-regex-code 'code 2))
 
 (defun slack-mark-code-block ()
+  "Mark fenced code-block sections with section-block properties."
   (goto-char (point-min))
   (while (re-search-forward slack-mrkdwn-regex-code-block (point-max) t)
     (slack-put-section-block-props (match-beginning 0)
@@ -315,6 +336,7 @@ properties region (default 1)."
                                          :element-end (match-end 2)))))
 
 (defun slack-mark-blockquote ()
+  "Mark blockquote sections with section-block properties."
   (goto-char (point-min))
   (while (re-search-forward slack-mrkdwn-regex-blockquote (point-max) t)
     (unless (slack-mark-inside-code-p (match-beginning 0))
@@ -325,6 +347,7 @@ properties region (default 1)."
                                            :element-end (match-end 3))))))
 
 (defun slack-mark-list ()
+  "Mark bullet and ordered list items with section-block properties."
   (goto-char (point-min))
   (while (re-search-forward slack-mrkdwn-regex-list (point-max) t)
     (unless (slack-mark-inside-code-p (match-beginning 0))
@@ -343,6 +366,7 @@ properties region (default 1)."
                                              :element-end (match-end 4)))))))
 
 (defun slack-mark-mentions ()
+  "Mark user, usergroup, channel, and broadcast mentions in the buffer."
   (goto-char (point-min))
   (while (re-search-forward slack-user-mention-regex (point-max) t)
     (unless (slack-mark-inhibit-mention-p (match-beginning 1))
@@ -373,6 +397,7 @@ properties region (default 1)."
                                    :range (match-string 2))))))
 
 (defun slack-mark-emojis ()
+  "Mark `:shortcode:' emoji occurrences in the buffer with block properties."
   (goto-char (point-min))
   (while (re-search-forward ":\\([a-z0-9_-]+\\):" (point-max) t)
     (unless (slack-mark-inside-code-p (match-beginning 0))
@@ -410,20 +435,24 @@ properties region (default 1)."
                                                                                   (cdr bounds))))))))))))
 
 (defun slack-mark-inhibit-mention-p (point)
+  "Return non-nil when mention parsing should be skipped at POINT."
   (or (slack-mark-inside-code-p point)
       (slack-mark-inside-bold-p point)))
 
 (defun slack-mark-inside-code-p (point)
+  "Return non-nil when POINT lies inside an inline code or code-block span."
   (slack-if-let* ((props (or (get-text-property point 'slack-block-props)
                              (get-text-property point 'slack-section-block-props))))
       (or (eq 'code (plist-get props :type))
           (eq 'code-block (plist-get props :section-type)))))
 
 (defun slack-mark-inside-bold-p (point)
+  "Return non-nil when POINT lies inside a bold span."
   (slack-if-let* ((props (get-text-property point 'slack-block-props)))
       (eq 'bold (plist-get props :type))))
 
 (defun slack-mark-rich-text-elements ()
+  "Mark every kind of rich-text inline element in the buffer."
   (slack-mark-bold)
   (slack-mark-italic)
   (slack-mark-strike)
@@ -433,6 +462,7 @@ properties region (default 1)."
   (slack-mark-links))
 
 (defun slack-create-blocks-from-buffer ()
+  "Create and return a new blocks from buffer instance from PAYLOAD."
   (interactive)
   (with-current-buffer (current-buffer)
     (slack-mark-rich-text-elements)
@@ -629,6 +659,7 @@ properties region (default 1)."
           blocks)))))
 
 (cl-defun slack-message-upload-files (team files &key on-success on-error)
+  "Upload FILES to TEAM in parallel and invoke ON-SUCCESS or ON-ERROR on completion."
   (let ((files-count (length files))
         (result nil)
         (timer nil)
@@ -651,6 +682,9 @@ properties region (default 1)."
                                          (cancel-timer timer))))))))
 
 (cl-defun slack-files-upload-complete (team files message-payload &key (on-success nil) (on-error nil))
+  "Finalize the upload of FILES with MESSAGE-PAYLOAD on TEAM.
+Call ON-SUCCESS when the API accepts the completion, or ON-ERROR on
+failure."
   (cl-labels ((on-complete (&key data &allow-other-keys)
                 (slack-request-handle-error
                  (data "slack-files-upload-complete"

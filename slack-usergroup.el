@@ -63,10 +63,12 @@
    ))
 
 (defun slack-usergroup-create (usergroup)
+  "Create and return a new `slack-usergroup' instance from plist USERGROUP."
   (apply #'make-instance 'slack-usergroup
          (slack-collect-slots 'slack-usergroup usergroup)))
 
 (defun slack-usergroup-list-update (team)
+  "Refresh TEAM's list of usergroup from the Slack API."
   (cl-labels
       ((on-success (&key data &allow-other-keys)
                    (slack-request-handle-error
@@ -83,19 +85,23 @@
                     (cons "include_users" "true"))))))
 
 (defun slack-usergroup-find (id team)
+  "Return the usergroup in TEAM whose id equals ID, or nil."
   (cl-find-if #'(lambda (e) (string= id (oref e id)))
               (oref team usergroups)))
 
 (defun slack-usergroup-get-id (handle team)
+  "Return the id of the usergroup in TEAM whose handle equals HANDLE."
   (slack-if-let*
       ((group (cl-find-if #'(lambda (e) (string= handle (oref e handle)))
                           (oref team usergroups))))
       (oref group id)))
 
 (cl-defmethod slack-usergroup-deleted-p ((this slack-usergroup))
+  "Return non-nil when the usergroup THIS has been deleted."
   (not (eq 0 (oref this date-delete))))
 
 (cl-defmethod slack-usergroup-include-user-p ((this slack-usergroup) user-id)
+  "Return non-nil when USER-ID is a member of the usergroup THIS."
   (cl-find user-id (oref this users) :test #'string=))
 
 (defun slack-usergroup-select (team)

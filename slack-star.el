@@ -73,6 +73,7 @@
     (setq items (append items (oref new items)))))
 
 (defun slack-create-star-items (payload)
+  "Create and return a new star items instance from PAYLOAD."
   (mapcar #'(lambda (e) (slack-create-star-item e))
           payload))
 
@@ -114,6 +115,7 @@
                            (slack-file-create file)))))
 
 (cl-defmethod slack-star-item-file ((item slack-star-item) file-id)
+  "Return the file of starred ITEM when its id equals FILE-ID."
   (let ((file (oref item file)))
     (when (and file
                (string= (oref file id) file-id))
@@ -128,6 +130,7 @@
                    :cursor cursor)))
 
 (defun slack-stars-list-request (team &optional cursor after-success)
+  "Fetch starred items for TEAM starting at CURSOR, calling AFTER-SUCCESS when done."
   (cl-labels
       ((callback ()
          (when (functionp after-success)
@@ -157,6 +160,7 @@
       :success #'on-success))))
 
 (defun slack-star-api-request (url params team)
+  "Send a star add/remove request to URL with PARAMS for TEAM."
   (cl-labels
       ((on-success (&key data &allow-other-keys)
          (slack-request-handle-error

@@ -41,6 +41,7 @@
       buf)))
 
 (cl-defmethod slack-buffer-name ((this slack-room-message-compose-buffer))
+  "Return the display buffer name for the room message compose buffer."
   (let ((team (slack-buffer-team this))
         (room (slack-buffer-room this)))
     (format "*slack: %s : %s Compose Message"
@@ -48,15 +49,19 @@
             (slack-room-name room team))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-room-message-compose-buffer)) room)
+  "Return the class-level buffer key for the room message compose buffer."
   (oref room id))
 
 (cl-defmethod slack-buffer-key ((this slack-room-message-compose-buffer))
+  "Return the lookup key identifying the buffer for the room message compose buffer."
   (slack-buffer-key 'slack-room-message-compose-buffer (slack-buffer-room this)))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-room-message-compose-buffer)))
+  "Return the team-scoped class-level buffer key for the room message compose buffer."
   'slack-room-message-compose-buffer)
 
 (cl-defmethod slack-buffer-init-buffer ((_this slack-room-message-compose-buffer))
+  "Initialize and return the display buffer for the room message compose buffer."
   (let* ((buf (cl-call-next-method)))
     (with-current-buffer buf
       (setq buffer-read-only nil)
@@ -64,6 +69,7 @@
     buf))
 
 (cl-defmethod slack-buffer-send-message ((this slack-room-message-compose-buffer) message)
+  "Send a message from the room message compose buffer."
   (slack-message-send-internal message
                                (slack-buffer-room this)
                                (slack-buffer-team this)

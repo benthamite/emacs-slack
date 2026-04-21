@@ -76,6 +76,7 @@ success.")
   :group 'slack)
 
 (defun slack-message-notify (message room team)
+  "Notify the user of MESSAGE in ROOM for TEAM using the configured notifier."
   (if slack-message-custom-notifier
       (funcall slack-message-custom-notifier message room team)
     (slack-message-notify-alert message room team)))
@@ -98,6 +99,7 @@ success.")
              "\n"))
 
 (defun slack-message-mentioned-p (message team)
+  "Return non-nil when MESSAGE mentions the user or a usergroup on TEAM."
   (and (not (slack-message-minep message team))
        (let* ((body (or (slack-message-body message team) ""))
               (search-text (if (oref message attachments)
@@ -189,6 +191,7 @@ you can remove by clearing
              'slack-notify-keep)))))
 
 (defun slack-messages-tracking-faces (messages room team)
+  "Return `slack-message-tracking-faces' if any of MESSAGES in ROOM should alert for TEAM."
   (when (and slack-message-tracking-faces
              (cl-find-if (lambda (m)
                            (ignore-errors (slack-message-notify-p m room team)))
@@ -196,6 +199,7 @@ you can remove by clearing
     slack-message-tracking-faces))
 
 (defun slack-message-notify-alert (message room team)
+  "Trigger an `alert' notification for MESSAGE in ROOM for TEAM when appropriate."
   (if (slack-message-notify-p message room team)
       (let ((team-name (oref team name))
             (room-name (slack-room-name room team))
@@ -232,9 +236,11 @@ you can remove by clearing
                       :formatted-ts (format-time-string "[%H:%M]"))))))
 
 (cl-defmethod slack-message-sender-equalp ((_m slack-message) _sender-id)
+  "Return non-nil when the message's sender matches another sender."
   nil)
 
 (cl-defmethod slack-message-minep ((m slack-message) team)
+  "Return non-nil when message M was sent by the current TEAM user."
   (if team
       (with-slots (self-id) team
         (slack-message-sender-equalp m self-id))

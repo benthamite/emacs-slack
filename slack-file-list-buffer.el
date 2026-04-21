@@ -47,32 +47,40 @@
    (oldest-id :type string)))
 
 (cl-defmethod slack-buffer-name ((this slack-file-list-buffer))
+  "Return the display buffer name for the file list buffer."
   (format "*slack: %s : Files" (slack-team-name (slack-buffer-team this))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-file-list-buffer)))
+  "Return the class-level buffer key for the file list buffer."
   'slack-file-list-buffer)
 
 (cl-defmethod slack-buffer-key ((_this slack-file-list-buffer))
+  "Return the lookup key identifying the buffer for the file list buffer."
   (slack-buffer-key 'slack-file-list-buffer))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-file-list-buffer)))
+  "Return the team-scoped class-level buffer key for the file list buffer."
   'slack-file-list-buffer)
 
 (defun slack-create-file-list-buffer (page pages team)
+  "Create and return a new file list buffer instance from PAYLOAD."
   (slack-if-let* ((buffer (slack-buffer-find 'slack-file-list-buffer team)))
       buffer
     (slack-file-list-buffer :team-id (oref team id) :page page :pages pages)))
 
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-file-list-buffer))
+  "Return non-nil when the file list buffer has more history to load."
   (with-slots (page pages) this
     (< page pages)))
 
 (cl-defmethod slack-buffer-set-oldest ((this slack-file-list-buffer) file)
+  "Remember the oldest visible FILE in buffer THIS for paging purposes."
   (when file
     (oset this oldest (oref file created))
     (oset this oldest-id (oref file id))))
 
 (cl-defmethod slack-buffer-insert-history ((this slack-file-list-buffer))
+  "Insert historical messages into the buffer for the file list buffer."
   (let* ((team (slack-buffer-team this))
          (files (slack-team-files team))
          (before-oldest (oref this oldest))
@@ -90,6 +98,7 @@
         (goto-char point))))
 
 (cl-defmethod slack-buffer-request-history ((this slack-file-list-buffer) after-success)
+  "Request older history for the file list buffer from the Slack API."
   (cl-labels
       ((success (page pages)
                 (oset this page page)
@@ -101,6 +110,7 @@
                                :after-success #'success))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-file-list-buffer))
+  "Initialize and return the display buffer for the file list buffer."
   (let ((buf (cl-call-next-method)))
     (with-current-buffer buf
       (slack-file-list-buffer-mode)
@@ -116,34 +126,40 @@
     buf))
 
 (cl-defmethod slack-buffer-update ((this slack-file-list-buffer) message &key replace)
+  "Update the file list buffer after new data arrives."
   (let ((buffer (slack-buffer-buffer this)))
     (if replace (slack-buffer-replace this message)
       (with-current-buffer buffer
         (slack-buffer-insert this message)))))
 
 (cl-defmethod slack-buffer-download-file ((this slack-file-list-buffer) file-id)
+  "Download the file at point in the file list buffer."
   (slack-if-let* ((team (slack-buffer-team this))
                   (file (slack-file-find file-id team)))
       (slack-file-download file team)))
 
 (defun slack-download-file-at-point ()
+  "Download the file referenced at point in the current Slack buffer."
   (interactive)
   (slack-if-let* ((file-id (get-text-property (point) 'file-id))
                   (buf slack-current-buffer))
       (slack-buffer-download-file buf file-id)))
 
 (defun slack-buffer--run-file-action ()
+  "Run the action associated with the file referenced at point."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer)
                   (file-id (get-text-property (point) 'file-id)))
       (slack-buffer-run-file-action buf file-id)))
 
 (cl-defmethod slack-buffer-run-file-action ((this slack-file-list-buffer) file-id)
+  "Run the file action associated with the file list buffer."
   (let* ((team (slack-buffer-team this))
          (file (slack-file-find file-id team)))
     (slack-file-run-action file this)))
 
 (cl-defmethod slack-buffer-file-to-string ((this slack-file-list-buffer) file)
+  "Render a file attached to a message in the file list buffer as a string."
   (let* ((team (slack-buffer-team this))
          (lui-time-stamp-format "[%Y-%m-%d %H:%M] ")
          (lui-time-stamp-time (slack-message-time-stamp file))
@@ -170,6 +186,7 @@
     (slack-format-message header description)))
 
 (cl-defmethod slack-buffer-insert ((this slack-file-list-buffer) message &optional not-tracked-p)
+  "Insert a rendered representation of the file list buffer into the current buffer."
   (let ((lui-time-stamp-format "[%Y-%m-%d %H:%M] ")
         (lui-time-stamp-time (slack-message-time-stamp message))
         (ts (slack-file-id message)))
@@ -181,11 +198,13 @@
     (lui-insert "" t)))
 
 (cl-defmethod slack-buffer--replace ((this slack-file-list-buffer) ts)
+  "Replace the rendered message identified by the argument in the file list buffer."
   (slack-if-let* ((team (slack-buffer-team this))
                   (file (slack-file-find ts team)))
       (slack-buffer-replace this file)))
 
 (cl-defmethod slack-buffer-replace ((this slack-file-list-buffer) message)
+  "Replace the rendered message identified by the argument in the file list buffer."
   (with-current-buffer (slack-buffer-buffer this)
     (lui-replace (slack-buffer-file-to-string this message)
                  (lambda ()
@@ -193,6 +212,7 @@
                           (slack-file-id message))))))
 
 (cl-defmethod slack-buffer-toggle-email-expand ((this slack-file-list-buffer) file-id)
+  "Toggle the expanded/collapsed state of the email at point in the file list buffer."
   (slack-if-let* ((team (slack-buffer-team this))
                   (file (slack-file-find file-id team)))
       (progn
@@ -200,6 +220,7 @@
         (slack-buffer-update this file :replace t))))
 
 (defun slack-file-list ()
+  "Open the file list buffer for a team selected interactively."
   (interactive)
   (cl-labels
       ((open-buffer (buf)
@@ -216,6 +237,7 @@
                                                           team)))))))
 
 (cl-defmethod slack-buffer-add-star ((this slack-file-list-buffer) ts)
+  "Star the item at point in the file list buffer."
   (slack-if-let* ((team (slack-buffer-team this))
                   (file (slack-file-find ts team)))
       (slack-star-api-request slack-message-stars-add-url
@@ -223,6 +245,7 @@
                               team)))
 
 (cl-defmethod slack-buffer-remove-star ((this slack-file-list-buffer) ts)
+  "Remove the star from the item at point in the file list buffer."
   (slack-if-let* ((team (slack-buffer-team this))
                   (file (slack-file-find ts team)))
       (slack-star-api-request slack-message-stars-remove-url

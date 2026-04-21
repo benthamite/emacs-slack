@@ -51,12 +51,15 @@
 
 
 (cl-defmethod slack-selectable-text ((this slack-selectable-option))
+  "Return the selectable text representation of the selectable option."
   (oref this text))
 
 (cl-defmethod slack-selectable-text ((this slack-selectable-option-group))
+  "Return the selectable text representation of the selectable option group."
   (oref this text))
 
 (cl-defmethod slack-selectable-select-from-static-data-source ((this slack-selectable))
+  "Prompt the user to pick an option value from the static options of THIS."
   (cl-labels
       ((select-option (options)
                       (select (slack-selectable-prompt this)

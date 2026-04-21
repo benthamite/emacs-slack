@@ -43,6 +43,7 @@
   :group 'slack)
 
 (defun slack-get-file-id ()
+  "Return the file-id text property on the current line, if any."
   (get-text-property 0 'file-id (thing-at-point 'line)))
 
 (defun slack-file-add-reaction (file-id reaction team)
@@ -52,6 +53,7 @@
                                       team nil nil))
 
 (defun slack-file-remove-reaction (file-id team)
+  "Prompt for a reaction on the file FILE-ID in TEAM and remove it."
   (let* ((file (slack-file-find file-id team))
          (reaction (slack-message-reaction-select
                     (slack-message-reactions file))))
@@ -61,6 +63,7 @@
      team)))
 
 (defun slack-message-show-reaction-users ()
+  "Echo the names of users who reacted to the reaction at point."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer)
                   (team (slack-buffer-team buf)))
@@ -75,6 +78,7 @@
         (message "Can't get reaction:"))))
 
 (defun slack-message-reaction-select (reactions)
+  "Prompt for one of REACTIONS and return its name."
   (let ((list (mapcar #'(lambda (r)
                           (cons (oref r name)
                                 (oref r name)))
@@ -84,6 +88,7 @@
         selected)))
 
 (defun slack-message-reaction-input (team)
+  "Prompt for an emoji in TEAM and return the bare reaction name."
   (let ((reaction (slack-select-emoji team)))
     (if (and (string-prefix-p ":" reaction)
              (string-suffix-p ":" reaction))
@@ -137,6 +142,7 @@ MESSAGE and REACTION-NAME may be nil for file reactions."
     (slack-message-replace-buffer message team)))
 
 (defun slack-message-reaction-remove (reaction ts room team)
+  "Remove REACTION from the message at TS in ROOM for TEAM."
   (slack-if-let* ((message (slack-room-find-message room ts)))
       (let ((params (list (cons "channel" (oref room id))
                           (slack-message-get-param-for-reaction message)
@@ -144,6 +150,7 @@ MESSAGE and REACTION-NAME may be nil for file reactions."
         (slack-message-reaction-remove-request params team))))
 
 (defun slack-message-reaction-remove-request (params team)
+  "Send a reactions.remove request with PARAMS for TEAM."
   (cl-labels ((on-reaction-remove
                (&key data &allow-other-keys)
                (slack-request-handle-error

@@ -32,6 +32,7 @@
 (defconst slack-file-get-upload-url-url "https://slack.com/api/files.getUploadURL")
 
 (defun slack-request-plain-parser ()
+  "Issue the `plain parser' request against the Slack API."
   (buffer-substring-no-properties (point-min) (point-max)))
 
 (defface slack-message-attachment-preview-header-face
@@ -47,6 +48,7 @@
    (id :initarg :id :type (or null string) :initarg nil)))
 
 (cl-defmethod slack--upload-file ((this slack-message-compose-buffer-file) team url cb)
+  "Upload the file THIS to URL for TEAM, calling CB with success and file id."
   (let ((path (oref this path)))
     (cl-labels
         ((on-file-upload (&key data &allow-other-keys)
@@ -68,6 +70,7 @@
         :error #'on-error)))))
 
 (cl-defmethod slack-upload-file ((this slack-message-compose-buffer-file) team cb)
+  "Request an upload URL for THIS on TEAM, upload it, then call CB with status."
   (let ((filename (oref this filename))
         (path (oref this path)))
     (cl-labels
@@ -110,6 +113,7 @@
    (files :initarg :files :type (or null list) :initform nil)))
 
 (cl-defmethod slack-buffer-name ((this slack-message-attachment-preview-buffer))
+  "Return the display buffer name for the message attachment preview buffer."
   (let ((team (slack-buffer-team this))
         (room (slack-buffer-room this)))
     (format "*slack: %s : %s Compose Message Attachment"
@@ -117,16 +121,20 @@
             (slack-room-name room team))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-message-attachment-preview-buffer)) room)
+  "Return the class-level buffer key for the message attachment preview buffer."
   (oref room id))
 
 (cl-defmethod slack-buffer-key ((this slack-message-attachment-preview-buffer))
+  "Return the lookup key identifying the buffer for the message attachment preview buffer."
   (slack-buffer-key 'slack-message-attachment-preview-buffer
                     (slack-buffer-room this)))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-message-attachment-preview-buffer)))
+  "Return the team-scoped class-level buffer key for the message attachment preview buffer."
   'slack-message-attachment-preview-buffer)
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-message-attachment-preview-buffer))
+  "Initialize and return the display buffer for the message attachment preview buffer."
   (let* ((buf (cl-call-next-method)))
     (with-current-buffer buf
       (slack-message-attachment-preview-buffer-mode)
@@ -134,10 +142,12 @@
     buf))
 
 (cl-defmethod slack-buffer-room ((this slack-message-attachment-preview-buffer))
+  "Return the room associated with the message attachment preview buffer."
   (with-slots (room-id) this
     (slack-room-find room-id (slack-buffer-team this))))
 
 (cl-defmethod slack-buffer-insert-attachment-preview ((this slack-message-attachment-preview-buffer))
+  "Render the list of pending attachments in buffer THIS."
   (let* ((buffer (slack-buffer-buffer this))
          (cur-point (point)))
     (with-current-buffer buffer
@@ -186,6 +196,7 @@
     (funcall slack-buffer-function buffer)))
 
 (cl-defmethod slack-buffer-append-file ((this slack-message-attachment-preview-buffer) path filename)
+  "Append a file at PATH with FILENAME to the attachments of buffer THIS."
   (if (<= slack-max-message-attachment-count
           (length (oref this files)))
       (message "You can add up to 10 files.")
@@ -198,6 +209,7 @@
 
 
 (cl-defmethod slack-buffer-remove-file ((this slack-message-attachment-preview-buffer))
+  "Remove the file at point from the message attachment preview buffer."
   (let ((index (get-text-property (point) 'slack-file-index))
         (new-files nil))
     (when index

@@ -88,15 +88,19 @@ Buffer-wide bindings:
    ))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-message-buffer)) room)
+  "Return the class-level buffer key for the message buffer."
   (oref room id))
 
 (cl-defmethod slack-buffer-key ((this slack-message-buffer))
+  "Return the lookup key identifying the buffer for the message buffer."
   (slack-buffer-key 'slack-message-buffer (slack-buffer-room this)))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-message-buffer)))
+  "Return the team-scoped class-level buffer key for the message buffer."
   'slack-message-buffer)
 
 (cl-defmethod slack-buffer-name ((this slack-message-buffer))
+  "Return the display buffer name for the message buffer."
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
                   (room-name (slack-room-name room team)))
@@ -118,9 +122,11 @@ and forces recomputation of load-more placeholders next time.
             (slack-room-trim-messages room 100))))))
 
 (cl-defmethod slack-buffer-last-read ((this slack-message-buffer))
+  "Return the last-read timestamp for the room displayed in THIS."
   (oref (slack-buffer-room this) last-read))
 
 (cl-defmethod slack-buffer-update-mark ((this slack-message-buffer) &key (force nil))
+  "Update the read-mark position for the message buffer."
   (let* ((team (slack-buffer-team this))
          (room (slack-buffer-room this))
          (update-mark-timer (oref this update-mark-timer))
@@ -143,6 +149,8 @@ and forces recomputation of load-more placeholders next time.
               (cons ts (run-at-time timer-timeout-sec nil #'update-mark)))))))
 
 (cl-defmethod slack-buffer-update-mark-request ((this slack-message-buffer) ts &optional after-success)
+  "Send a conversations.mark request setting last-read to TS in THIS buffer.
+AFTER-SUCCESS is called after the API call returns successfully."
   (let ((team (slack-buffer-team this))
         (room (slack-buffer-room this)))
     (when (slack-room-member-p room)
@@ -159,14 +167,17 @@ and forces recomputation of load-more placeholders next time.
         (slack-counts-update team)))))
 
 (cl-defmethod slack-buffer-send-message ((this slack-message-buffer) message)
+  "Send a message from the message buffer."
   (slack-message-send-internal message
                                (slack-buffer-room this)
                                (slack-buffer-team this)))
 
 (cl-defmethod slack-buffer-latest-ts ((this slack-message-buffer))
+  "Return the timestamp of the newest known message for THIS buffer."
   (slack-room-latest (slack-buffer-room this) (slack-buffer-team this)))
 
 (cl-defmethod slack-buffer-buffer ((this slack-message-buffer))
+  "Return the Emacs buffer for THIS, positioning point on last-read on first open."
   (let* ((name (slack-buffer-name this))
          (buffer-already-exists-p (and name (get-buffer name)))
          (buffer (cl-call-next-method))
@@ -190,10 +201,15 @@ and forces recomputation of load-more placeholders next time.
     buffer))
 
 (cl-defmethod slack-buffer-visible-message-p ((this slack-message-buffer) message)
+  "Return non-nil when MESSAGE should be shown in THIS buffer."
   (slack-message-visible-p message (slack-buffer-team this)))
 
 (cl-defmethod slack-buffer-insert-messages ((this slack-message-buffer) messages
                                             &optional filter-by-oldest not-tracked-p)
+  "Insert MESSAGES into THIS buffer, updating latest and oldest markers.
+FILTER-BY-OLDEST selects messages older than `oldest' rather than
+newer than `latest'.  NOT-TRACKED-P suppresses tracking faces for
+inserted messages."
   (with-slots (latest oldest) this
     (let* ((latest-message (car (last messages)))
            (oldest-message (car messages)))
@@ -213,6 +229,7 @@ and forces recomputation of load-more placeholders next time.
         (slack-buffer-update-oldest this oldest-message)))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-message-buffer))
+  "Initialize and return the display buffer for the message buffer."
   (let ((buf (cl-call-next-method)))
     (with-current-buffer buf
       (slack-message-buffer-mode)
@@ -227,6 +244,7 @@ and forces recomputation of load-more placeholders next time.
     buf))
 
 (cl-defmethod slack-buffer-update ((this slack-message-buffer) message &key replace)
+  "Update the message buffer after new data arrives."
   (let ((team (slack-buffer-team this))
         (buffer (slack-buffer-buffer this)))
     (when (and (slack-team-mark-as-read-immediatelyp team)
@@ -238,17 +256,21 @@ and forces recomputation of load-more placeholders next time.
         (slack-buffer-insert-messages this (list message))))))
 
 (cl-defmethod slack-buffer-display-message-compose-buffer ((this slack-message-buffer))
+  "Open a compose buffer targeting the message buffer."
   (let ((buf (slack-create-room-message-compose-buffer (slack-buffer-room this)
                                                        (slack-buffer-team this))))
     (slack-buffer-display buf)))
 
 (cl-defmethod slack-buffer-update-lastest ((this slack-message-buffer) latest)
+  "Record LATEST as the newest inserted timestamp for THIS buffer."
   (with-slots ((prev-latest latest)) this
     (if (or (null prev-latest)
             (string< prev-latest latest))
         (setq prev-latest latest))))
 
 (cl-defmethod slack-create-message-buffer ((room slack-room) cursor team)
+  "Return the `slack-message-buffer' for ROOM and TEAM, creating if absent.
+CURSOR is the pagination cursor for fetching older messages."
   (slack-if-let* ((buffer (slack-buffer-find 'slack-message-buffer team room)))
       buffer
     (let ((buf (slack-message-buffer :room-id (oref room id)
@@ -259,11 +281,13 @@ and forces recomputation of load-more placeholders next time.
 
 
 (cl-defmethod slack-buffer-update-oldest ((this slack-message-buffer) message)
+  "Record MESSAGE's timestamp as the oldest inserted timestamp for THIS."
   (when (and message (or (null (oref this oldest))
                          (string< (slack-ts message) (oref this oldest))))
     (oset this oldest (slack-ts message))))
 
 (cl-defmethod slack-buffer-load-missing-messages ((this slack-message-buffer))
+  "Fetch and insert any new messages since the latest known one in THIS."
   (let* ((team (slack-buffer-team this))
          (room (slack-buffer-room this))
          (latest-message (car (last (slack-room-sorted-messages room))))
@@ -293,6 +317,7 @@ and forces recomputation of load-more placeholders next time.
                                    :after-success #'after-success))))
 
 (cl-defmethod slack-buffer-load-more ((this slack-message-buffer))
+  "Fetch additional history to display in the message buffer."
   (let ((oldest (oref this oldest))
         (team (slack-buffer-team this))
         (room (slack-buffer-room this))
@@ -337,6 +362,7 @@ and forces recomputation of load-more placeholders next time.
                                    :after-success #'after-success))))
 
 (cl-defmethod slack-buffer-display-pins-list ((this slack-message-buffer))
+  "Open the pinned-items buffer for the message buffer."
   (let ((team (slack-buffer-team this))
         (room (slack-buffer-room this)))
     (slack-pins-list
@@ -347,6 +373,7 @@ and forces recomputation of load-more placeholders next time.
            (slack-buffer-display buf))))))
 
 (cl-defmethod slack-buffer-display-user-profile ((this slack-message-buffer))
+  "Display the selected user's profile from the message buffer."
   (let ((team (slack-buffer-team this))
         (room (slack-buffer-room this)))
     (cl-labels
@@ -379,10 +406,12 @@ and forces recomputation of load-more placeholders next time.
       (request nil))))
 
 (cl-defmethod slack-buffer-delete-overlay ((this slack-message-buffer))
+  "Delete the new-message marker overlay in THIS buffer if present."
   (when (oref this marker-overlay)
     (delete-overlay (oref this marker-overlay))))
 
 (cl-defmethod slack-buffer-update-marker-overlay ((this slack-message-buffer))
+  "Move the new-message marker overlay in THIS buffer to the last-read boundary."
   (let ((buf (get-buffer (slack-buffer-name this))))
     (and buf (with-current-buffer buf
                (let* ((last-read (slack-buffer-last-read this))
@@ -411,6 +440,7 @@ and forces recomputation of load-more placeholders next time.
                                   (format "%s\n" after-string)))))))))
 
 (cl-defmethod slack-file-upload-params ((this slack-message-buffer))
+  "Return the HTTP parameters used to upload the message buffer."
   (let ((team (slack-buffer-team this))
         (room (slack-buffer-room this)))
     (list (cons "channels"
@@ -421,6 +451,7 @@ and forces recomputation of load-more placeholders next time.
                            ",")))))
 
 (cl-defmethod slack-buffer-next-message ((this slack-message-buffer) message)
+  "Return the visible message that immediately follows MESSAGE in THIS buffer."
   (let ((room (slack-buffer-room this))
         (ts (slack-ts message)))
     (cl-loop for m in (reverse (slack-room-sorted-messages room))
@@ -431,6 +462,7 @@ and forces recomputation of load-more placeholders next time.
                     (setq next m))))))
 
 (cl-defmethod slack-buffer-prev-message ((this slack-message-buffer) message)
+  "Return the visible message that immediately precedes MESSAGE in THIS buffer."
   (let* ((room (slack-buffer-room this))
          (current-ts (slack-ts message)))
     (cl-loop for ts in (reverse (oref room message-ids))
@@ -440,6 +472,7 @@ and forces recomputation of load-more placeholders next time.
                       (cl-return message))))))
 
 (cl-defmethod slack-buffer-merge-message-p ((this slack-message-buffer) message prev)
+  "Return non-nil when MESSAGE should render merged with PREV in THIS buffer."
   (let ((team (slack-buffer-team this)))
     (and prev
          (and (not (slack-message-starred-p message))
@@ -459,6 +492,9 @@ and forces recomputation of load-more placeholders next time.
                 (eq prev-day current-day))))))
 
 (cl-defmethod slack-buffer-message-text ((this slack-message-buffer) message merge-message-p)
+  "Return the rendered text for MESSAGE in THIS buffer.
+When MERGE-MESSAGE-P is non-nil, strip the user/avatar header so
+the message blends with the previous one."
   (let* ((team (slack-buffer-team this))
          (text (slack-message-to-string message team)))
     (slack-buffer--apply-message-keymap
@@ -472,6 +508,7 @@ and forces recomputation of load-more placeholders next time.
 
 (cl-defmethod slack-buffer-insert ((this slack-message-buffer) message
                                    &optional not-tracked-p prev-message)
+  "Insert a rendered representation of the message buffer into the current buffer."
   (let* ((lui-time-stamp-format "[%Y-%m-%d %H:%M] ")
          (lui-time-stamp-time (slack-message-time-stamp message))
          (ts (slack-ts message))
@@ -500,6 +537,7 @@ and forces recomputation of load-more placeholders next time.
     (lui-insert "" t)))
 
 (cl-defmethod slack-buffer-replace ((this slack-message-buffer) message)
+  "Replace the rendered message identified by the argument in the message buffer."
   (with-current-buffer (slack-buffer-buffer this)
     (let* ((prev (slack-buffer-prev-message this message))
            (merge-message-p (slack-buffer-merge-message-p this message prev))
@@ -559,6 +597,7 @@ and forces recomputation of load-more placeholders next time.
   (slack-buffer-update-marker-overlay this))
 
 (defun slack-message-buffer-detect-ts-changed ()
+  "Run per-message hooks when point moves to a different message timestamp."
   (slack-if-let* ((buffer slack-current-buffer)
                   (room-buffer-p (cl-typep buffer 'slack-room-buffer))
                   (current-ts (slack-get-ts))
@@ -574,6 +613,7 @@ and forces recomputation of load-more placeholders next time.
             (slack-buffer-update-mark buffer))))))
 
 (defun slack-buffer-get-images (ts)
+  "Return image display specs attached to the message at TS in current buffer."
   (when ts
     (slack-if-let* ((room (slack-buffer-room slack-current-buffer))
                     (beg (slack-buffer-ts-eq (point-min) (point-max) ts))
@@ -601,6 +641,7 @@ and forces recomputation of load-more placeholders next time.
           (hash-table-values images)))))
 
 (defun slack-buffer-animate-image (ts)
+  "Start animating any multi-frame images on the message at TS."
   (when (display-graphic-p)
     (slack-if-let* ((images (slack-buffer-get-images ts)))
         (cl-loop for image in images
@@ -619,6 +660,7 @@ and forces recomputation of load-more placeholders next time.
                             (image-animate image nil t))))))))
 
 (defun slack-buffer-cancel-animate-image (ts)
+  "Cancel any animation timers for multi-frame images on the message at TS."
   (when (and ts (display-graphic-p))
     (slack-if-let* ((images (slack-buffer-get-images ts)))
         (cl-loop for image in images
@@ -631,6 +673,7 @@ and forces recomputation of load-more placeholders next time.
                                                     _window
                                                     _prev-point
                                                     type)
+  "Install a cursor-motion hook that subscribes to updates in the room buffer."
   (cond
    ((eq type 'entered)
     (add-hook 'post-command-hook
@@ -646,6 +689,7 @@ and forces recomputation of load-more placeholders next time.
                  t))))
 
 (defun slack-room-unread-threads ()
+  "Deprecated alias that signals an error pointing to `slack-all-threads'."
   (interactive)
   (error "Deprecated.  use `slack-all-threads instead'"))
 
@@ -656,6 +700,7 @@ and forces recomputation of load-more placeholders next time.
     map))
 
 (defun slack-room-pins-list ()
+  "Display the pinned-items buffer for the current room."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer))
       (slack-buffer-display-pins-list buf)))
@@ -663,6 +708,7 @@ and forces recomputation of load-more placeholders next time.
 (defalias 'slack-display-user-profile-info #'slack-room-user-select)
 
 (defun slack-room-user-select ()
+  "Prompt to select a member of the current room and display their profile."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer))
       (slack-buffer-display-user-profile buf)))
@@ -703,6 +749,7 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
             (fetch-and-display)))))))
 
 (cl-defmethod slack-room-update-buffer ((this slack-room) team message replace)
+  "Update THIS room's message buffer on TEAM with MESSAGE, or REPLACE it."
   (slack-if-let* ((buffer (slack-buffer-find 'slack-message-buffer team this)))
       (slack-buffer-update buffer message :replace replace)
     (and slack-buffer-create-on-notify
@@ -716,6 +763,7 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
                               (slack-messages-tracking-faces messages this team)))))))
 
 (defun slack-select-unread-rooms ()
+  "Prompt to pick an unread, non-muted room in the selected team and display it."
   (interactive)
   (let* ((team (slack-team-select))
          (_ (slack-team-ensure-conversations-loaded team))
@@ -765,6 +813,7 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
       (message "%s" text)))
 
 (cl-defmethod slack-message--inspect ((this slack-message) room team)
+  "Return a multi-line string describing THIS message in ROOM for TEAM."
   (format "RAW: %s\nROOM: %s\nUSER: %s\nBOT: %S\nMESSAGE: %s\nATTACHMENTS: %s - %s\nFILES: %s - %s\nUSER_IDS: %s"
           (oref this text)
           (oref room id)
@@ -798,6 +847,7 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
       (slack-buffer-update-mark buffer :force t)))
 
 (cl-defmethod slack-thread-message-update-buffer ((message slack-message) room team replace)
+  "Update the thread buffer for MESSAGE in ROOM on TEAM with MESSAGE, or REPLACE."
   (slack-if-let* ((buf (slack-buffer-find 'slack-thread-message-buffer team room (slack-thread-ts message))))
       (slack-buffer-update buf message :replace replace)
     (and slack-buffer-create-on-notify
@@ -810,6 +860,7 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
                                  :after-success #'after-success)))))
 
 (cl-defmethod slack-message-update-buffer ((this slack-message) team)
+  "Insert THIS message into the room and any open thread buffer on TEAM."
   (slack-if-let* ((room (slack-room-find this team)))
       (progn
         (when (slack-message-visible-p this team)
@@ -818,6 +869,7 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
           (slack-thread-message-update-buffer this room team nil)))))
 
 (cl-defmethod slack-message-replace-buffer ((this slack-message) team)
+  "Replace the rendered message in all buffers showing it."
   (slack-if-let* ((room (slack-room-find this team)))
       (progn
         (slack-room-update-buffer room team this t)
@@ -825,6 +877,7 @@ Provide SUCCESS-CALLBACK to run some action after displaying."
           (slack-thread-message-update-buffer this room team t)))))
 
 (cl-defmethod slack-message-replace-buffer ((this slack-file) team)
+  "Replace the rendered file in all buffers showing it."
   (slack-if-let* ((buffer (slack-buffer-find 'slack-file-info-buffer team this)))
       (progn
         (oset buffer file this)
@@ -858,11 +911,13 @@ from the saved items list."
           (message "Message saved for later")))))
 
 (defun slack-message-pins-add ()
+  "Pin the message at point to its room."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer))
       (slack-buffer-pins-add buf (slack-get-ts))))
 
 (defun slack-message-pins-remove ()
+  "Unpin the message at point from its room."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer))
       (slack-buffer-pins-remove buf (slack-get-ts))))
@@ -880,12 +935,14 @@ from the saved items list."
         nil)))
 
 (defun slack-message-remove-reaction ()
+  "Remove one of your reactions from the message at point."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer))
       (slack-buffer-remove-reaction-from-message buf
                                                  (slack-get-ts))))
 
 (defun slack-message-display-room ()
+  "Open the room whose id is stored at point."
   (interactive)
   (slack-if-let*
       ((buffer slack-current-buffer)
@@ -895,6 +952,7 @@ from the saved items list."
       (slack-room-display room team)))
 
 (defun slack-im-select ()
+  "Prompt to pick an open direct-message room and display it."
   (interactive)
   (if-let* ((team (slack-team-select))
             (_ (slack-team-ensure-conversations-loaded team))
@@ -908,6 +966,7 @@ from the saved items list."
     (user-error "No open private chats available.")))
 
 (defun slack-group-select ()
+  "Prompt to pick a private channel and display it."
   (interactive)
   (let* ((team (slack-team-select))
          (_ (slack-team-ensure-conversations-loaded team))
@@ -919,6 +978,7 @@ from the saved items list."
     (slack-room-display room team)))
 
 (defun slack-channel-select ()
+  "Prompt to pick a public channel and display it."
   (interactive)
   (let* ((team (slack-team-select))
          (_ (slack-team-ensure-conversations-loaded team))
@@ -952,21 +1012,25 @@ from the saved items list."
       (slack-buffer-display-im buf)))
 
 (defun slack-message-share ()
+  "Share the message at point to another conversation."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer))
       (slack-buffer-share-message buf (slack-get-ts))))
 
 (defun slack-message-write-another-buffer ()
+  "Open a compose buffer for the current room in a separate window."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer))
       (slack-buffer-display-message-compose-buffer buf)))
 
 (defun slack-message-edit ()
+  "Open an edit buffer for the message at point."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer))
       (slack-buffer-display-edit-message-buffer buf (slack-get-ts))))
 
 (defun slack-thread-show-or-create ()
+  "Open the thread on the message at point, creating a new one if needed."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer))
       (if (slack-thread-message-buffer-p buf)
@@ -1011,6 +1075,7 @@ BUF is a `slack-message-buffer'."
   (slack-buffer-display-message-compose-buffer slack-current-buffer))
 
 (cl-defmethod slack-buffer-display-thread ((this slack-message-buffer) ts)
+  "Open the thread associated with the message at point in the message buffer."
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
                   (message (slack-room-find-message room ts)))
@@ -1019,6 +1084,7 @@ BUF is a `slack-message-buffer'."
         (slack-buffer-start-thread this message ts))))
 
 (cl-defmethod slack-buffer-start-thread ((this slack-message-buffer) message ts)
+  "Create and display a thread buffer rooted at MESSAGE with TS in THIS."
   (when (slack-reply-broadcast-message-p message)
     (error "Can't start thread from broadcasted message"))
   (let ((buf (slack-create-thread-message-buffer (slack-buffer-room this)
@@ -1041,6 +1107,7 @@ A way to use that is to select the right point of the buffer."
                           :after-success #'after-success)))
 
 (defun slack-advice-delete-window (&optional window)
+  "Notify the Slack buffer in WINDOW that its cursor is leaving."
   (let ((buf (window-buffer window)))
     (with-current-buffer buf
       (slack-if-let* ((buffer slack-current-buffer))
@@ -1050,6 +1117,9 @@ A way to use that is to select the right point of the buffer."
                                                 'left)))))
 
 (defun slack-advice-select-window (org-func window &optional norecord)
+  "Advice around `select-window' emitting cursor left/entered events.
+ORG-FUNC, WINDOW and NORECORD are forwarded to the underlying
+function."
   (slack-if-let* ((win (selected-window))
                   (live-p (window-live-p win))
                   (buf (window-buffer win)))

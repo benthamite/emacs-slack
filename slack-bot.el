@@ -32,9 +32,12 @@
 (defconst slack-bot-info-url "https://slack.com/api/bots.info")
 
 (defun slack-find-bot (id team)
+  "Return the bot plist with ID registered on TEAM, or nil."
   (gethash id (oref team bots)))
 
 (defun slack-bot-info-request (bot-id team &optional after-success)
+  "Fetch info for the bot with BOT-ID on TEAM and cache it.
+AFTER-SUCCESS is called with no arguments when the request succeeds."
   (cl-labels
       ((on-success (&key data &allow-other-keys)
                    (slack-request-handle-error
@@ -51,6 +54,8 @@
       :success #'on-success))))
 
 (defun slack-bots-info-request (bot-ids team &optional after-success)
+  "Fetch info for the bots with BOT-IDS on TEAM and cache them.
+AFTER-SUCCESS is called with no arguments when the request succeeds."
   (cl-labels
       ((success (&key data &allow-other-keys)
                 (slack-request-handle-error

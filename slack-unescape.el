@@ -48,6 +48,7 @@ see \"Formatting dates\" section in https://api.slack.com/docs/message-formattin
 (defvar slack-message-user-regexp "<@\\([WU].*?\\)\\(|.*?\\)?>")
 
 (defun slack-unescape-&<> (text)
+  "Decode HTML entities `&amp;', `&lt;', and `&gt;' in TEXT."
   (cl-labels
       ((replace (text)
                 (cond
@@ -58,6 +59,7 @@ see \"Formatting dates\" section in https://api.slack.com/docs/message-formattin
                               #'replace text t t)))
 
 (defun slack-unescape-!date (text &optional zone)
+  "Replace Slack `<!date^...>' tokens in TEXT with formatted dates in ZONE."
   (let ((date-regexp "<!date^\\([[:digit:]]*\\)^\\(.*?\\)\\(\\^.*\\)?|\\(.*?\\)>")
         (time-format-regexp "{\\(.*?\\)}"))
     (cl-labels
@@ -90,6 +92,7 @@ see \"Formatting dates\" section in https://api.slack.com/docs/message-formattin
                                 text nil t))))
 
 (defun slack-unescape-!subteam (text)
+  "Replace Slack `<!subteam^ID|label>' tokens in TEXT with the label."
   (let ((regexp "<!subteam^\\(.*?\\)|\\(.*?\\)>"))
     (cl-labels
         ((replace (text)
@@ -99,6 +102,7 @@ see \"Formatting dates\" section in https://api.slack.com/docs/message-formattin
       (replace-regexp-in-string regexp #'replace text t t))))
 
 (defun slack-unescape-variable (text)
+  "Replace Slack `<!variable>' tokens in TEXT with display names."
   (let ((regexp "<!\\(.*?\\)>")
         (commands '("channel" "here" "everyone")))
     (cl-labels
@@ -137,11 +141,13 @@ see \"Formatting dates\" section in https://api.slack.com/docs/message-formattin
       (replace-regexp-in-string regexp #'replace text t t))))
 
 (defun slack-unescape-! (text)
+  "Decode all Slack `<!...>' tokens (subteam, date, and variable) in TEXT."
   (slack-unescape-variable
    (slack-unescape-!date
     (slack-unescape-!subteam text))))
 
 (defun slack-unescape-@ (text team)
+  "Replace `<@USERID>' user mentions in TEXT with display names from TEAM."
   (cl-labels ((replace
                (text)
                (let* ((user-id (match-string 1 text))
@@ -164,6 +170,7 @@ see \"Formatting dates\" section in https://api.slack.com/docs/message-formattin
                               text t t)))
 
 (defun slack-unescape-channel (text team)
+  "Replace `<#CID|name>' channel mentions in TEXT using rooms on TEAM."
   (let ((channel-regexp "<#\\(C.*?\\)\\(|.*?\\)?>"))
     (cl-labels ((unescape-channel
                  (text)
@@ -183,6 +190,7 @@ see \"Formatting dates\" section in https://api.slack.com/docs/message-formattin
                                 text t))))
 
 (defun slack-unescape (text team)
+  "Decode all Slack markup in TEXT, resolving references against TEAM."
   (when text
     (if (< 0 (length text))
         (slack-unescape-!

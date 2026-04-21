@@ -54,11 +54,13 @@
    ))
 
 (cl-defmethod slack-ws-cancel-connect-timeout-timer ((ws slack-team-ws))
+  "Cancel the pending connect-timeout timer on websocket WS, if any."
   (when (timerp (oref ws connect-timeout-timer))
     (cancel-timer (oref ws connect-timeout-timer))
     (oset ws connect-timeout-timer nil)))
 
 (cl-defmethod slack-ws-set-connect-timeout-timer ((ws slack-team-ws) fn &rest fn-args)
+  "Schedule FN with FN-ARGS to fire after the connect-timeout on WS."
   (slack-ws-cancel-connect-timeout-timer ws)
   (oset ws connect-timeout-timer
         (apply #'run-at-time (oref ws connect-timeout-sec)
@@ -66,16 +68,19 @@
                fn fn-args)))
 
 (cl-defmethod slack-ws-cancel-ping-timer ((ws slack-team-ws))
+  "Cancel the pending ping timer on websocket WS, if any."
   (with-slots (ping-timer) ws
     (if (timerp ping-timer)
         (cancel-timer ping-timer))
     (setq ping-timer nil)))
 
 (cl-defmethod slack-ws-set-ping-timer ((ws slack-team-ws) fn &rest fn-args)
+  "Schedule FN with FN-ARGS to fire 10 seconds later as the ping timer on WS."
   (slack-ws-cancel-ping-timer ws)
   (oset ws ping-timer (apply #'run-at-time 10 nil fn fn-args)))
 
 (cl-defmethod slack-ws-cancel-ping-check-timers ((ws slack-team-ws))
+  "Cancel all pending ping-check timers on websocket WS."
   (maphash #'(lambda (_key value)
                (if (timerp value)
                    (cancel-timer value)))
@@ -83,18 +88,21 @@
   (oset ws ping-check-timers (make-hash-table :test 'equal)))
 
 (cl-defmethod slack-ws-set-ping-check-timer ((ws slack-team-ws) time fn &rest fn-args)
+  "Schedule FN with FN-ARGS as the ping-check timer keyed by TIME on WS."
   (puthash time (apply #'run-at-time
                        (oref ws check-ping-timeout-sec)
                        nil fn fn-args)
            (oref ws ping-check-timers)))
 
 (cl-defmethod slack-ws-cancel-reconnect-timer ((ws slack-team-ws))
+  "Cancel the pending reconnect timer on websocket WS, if any."
   (with-slots (reconnect-timer) ws
     (if (timerp reconnect-timer)
         (cancel-timer reconnect-timer))
     (setq reconnect-timer nil)))
 
 (cl-defmethod slack-ws-set-reconnect-timer ((ws slack-team-ws) fn &rest fn-args)
+  "Schedule FN with FN-ARGS to fire after the current reconnect delay on WS."
   (slack-ws-cancel-reconnect-timer ws)
   (oset ws reconnect-timer
         (apply #'run-at-time (oref ws reconnect-after-sec)
@@ -102,6 +110,7 @@
                fn fn-args)))
 
 (cl-defmethod slack-ws-reconnect-count-exceed-p ((ws slack-team-ws))
+  "Return non-nil when WS has exceeded the maximum reconnect attempts."
   (< (oref ws reconnect-count-max)
      (oref ws reconnect-count)))
 
@@ -117,9 +126,11 @@
   (oset ws reconnect-after-sec (oref ws reconnect-after-sec-base)))
 
 (cl-defmethod slack-ws-inc-reconnect-count ((ws slack-team-ws))
+  "Increment the reconnect attempt counter on WS."
   (cl-incf (oref ws reconnect-count)))
 
 (cl-defmethod slack-ws-use-reconnect-url-p ((ws slack-team-ws))
+  "Return non-nil when WS has a cached reconnect URL to reuse."
   (< 0 (length (oref ws reconnect-url))))
 
 (provide 'slack-team-ws)

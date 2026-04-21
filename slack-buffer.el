@@ -136,6 +136,7 @@ buttons, …) untouched.  Returns STR."
   :group 'slack)
 
 (defmacro slack-buffer-widen (&rest body)
+  "Execute BODY with all narrowing removed, restoring state on exit."
   `(save-excursion
      (save-restriction
        (widen)
@@ -195,21 +196,27 @@ to modify text properties (faces, buttons, display)."
   :abstract t)
 
 (cl-defmethod slack-buffer-name ((_this slack-buffer))
+  "Return the display buffer name for the buffer."
   (error "Implement this"))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-buffer)) &rest _args)
+  "Return the class-level buffer key for the buffer."
   (error "Implement this"))
 
 (cl-defmethod slack-buffer-key ((_this slack-buffer))
+  "Return the lookup key identifying the buffer for the buffer."
   (error "Implement this"))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-buffer)))
+  "Return the team-scoped class-level buffer key for the buffer."
   (error "Implement this"))
 
 (cl-defmethod slack-team-buffer-key ((this slack-buffer))
+  "Return the team-scoped buffer key for the buffer."
   (slack-team-buffer-key (eieio-object-class-name this)))
 
 (cl-defmethod slack-buffer-find ((class (subclass slack-buffer)) team &rest args)
+  "Find and return the buffer of CLASS for TEAM matching ARGS, or nil."
   (let* ((key (apply #'slack-buffer-key class args))
          (ht (or (slot-value team (slack-team-buffer-key class))
                  (make-hash-table :test #'equal))))
@@ -228,6 +235,7 @@ been populated because rtm.connect never completed).")
     (puthash buffer team slack-buffer--team-cache)))
 
 (cl-defmethod slack-buffer-team ((this slack-buffer))
+  "Return the `slack-team' associated with the buffer THIS."
   (or (when-let ((id (oref this team-id)))
         (slack-team-find id))
       (gethash this slack-buffer--team-cache)))
@@ -241,6 +249,7 @@ been populated because rtm.connect never completed).")
       (slack-file-download file team)))
 
 (cl-defmethod slack-team-set-buffer ((this slack-buffer))
+  "Store THIS in its team's buffer hash table keyed by its buffer key."
   (when-let ((team (slack-buffer-team this)))
     (let* ((key (slack-buffer-key this))
            (ht (or (let ((ht (slot-value team (slack-team-buffer-key this))))
@@ -251,15 +260,18 @@ been populated because rtm.connect never completed).")
             ht))))
 
 (cl-defmethod slack-buffer-buffer ((this slack-buffer))
+  "Return the live Emacs buffer for THIS, initializing it if needed."
   (or (let ((buf (and (slot-boundp this 'buf)
                       (oref this buf))))
         (and (buffer-live-p buf) buf))
       (slack-buffer-init-buffer this)))
 
 (cl-defmethod slack-buffer-set-current-buffer ((this slack-buffer))
+  "Set the buffer-local `slack-current-buffer' to THIS."
   (setq-local slack-current-buffer this))
 
 (cl-defmethod slack-buffer-init-buffer :before ((this slack-buffer))
+  "Initialize and return the display buffer for the buffer."
   (slack-team-set-buffer this)
   (slack-if-let* ((name (slack-buffer-name this)))
       (let ((buf (generate-new-buffer name)))
@@ -267,9 +279,11 @@ been populated because rtm.connect never completed).")
         buf)))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-buffer))
+  "Initialize and return the display buffer for the buffer."
   (oref this buf))
 
 (cl-defmethod slack-buffer-init-buffer :after ((this slack-buffer))
+  "Initialize and return the display buffer for the buffer."
   (when-let* ((buf (and (slot-boundp this 'buf) (oref this buf)))
               ((buffer-live-p buf)))
     (with-current-buffer buf
@@ -288,6 +302,7 @@ their previous buffer."
           (kill-buffer b))))))
 
 (cl-defmethod slack-buffer-create-kill-hook ((this slack-buffer))
+  "Return a kill-buffer-hook that removes THIS from its team's buffer table."
   #'(lambda ()
       (with-demoted-errors "slack-buffer-create-kill-hook: there was an error %S"
         (let* ((key (slack-buffer-key this))
@@ -299,6 +314,7 @@ their previous buffer."
 (defvar slack-debug nil)
 
 (cl-defmethod slack-buffer-display ((this slack-buffer))
+  "Display the Emacs buffer for THIS via `slack-buffer-function'."
   (if slack-debug
       (funcall slack-buffer-function (slack-buffer-buffer this))
     (condition-case err
@@ -372,6 +388,7 @@ line-aligned strides to stay under that limit."
           (emojify-redisplay-emojis-in-region chunk-start (point)))))))
 
 (cl-defmethod slack-buffer-insert ((this slack-buffer) message &optional not-tracked-p)
+  "Insert a rendered representation of the buffer into the current buffer."
   (let ((lui-time-stamp-format "[%Y-%m-%d %H:%M] ")
         (lui-time-stamp-time (slack-message-time-stamp message))
         (team (slack-buffer-team this)))
@@ -386,11 +403,13 @@ line-aligned strides to stay under that limit."
     (lui-insert "" t)))
 
 (defun slack-load-more-message ()
+  "Load more history for the current Slack buffer."
   (interactive)
   (slack-if-let* ((buffer slack-current-buffer))
       (slack-buffer-load-more buffer)))
 
 (cl-defmethod slack-buffer-insert-load-more ((_this slack-buffer))
+  "Insert a clickable \"(load more)\" marker at point."
   (let ((str (propertize "(load more)\n"
                          'face '(:underline t :weight bold)
                          'keymap slack-load-more-keymap
@@ -399,17 +418,21 @@ line-aligned strides to stay under that limit."
       (lui-insert str t))))
 
 (cl-defmethod slack-buffer-loading-message-end-point ((_this slack-buffer))
+  "Return the buffer position where the loading indicator ends in the buffer."
   (next-single-property-change (point-min) 'loading-message))
 
 (cl-defmethod slack-buffer-delete-load-more-string ((this slack-buffer))
+  "Remove the \"load more\" marker from the buffer for the buffer."
   (let ((loading-message-end
          (slack-buffer-loading-message-end-point this)))
     (delete-region (point-min) loading-message-end)))
 
 (cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-buffer))
+  "Position point so history can be inserted in the buffer."
   (set-marker lui-output-marker (point-min)))
 
 (cl-defmethod slack-buffer-insert--history ((this slack-buffer))
+  "Insert loaded history items into the buffer for the buffer."
   (if (slack-buffer-has-next-page-p this)
       (slack-buffer-insert-load-more this)
     (let ((lui-time-stamp-position nil))
@@ -418,6 +441,7 @@ line-aligned strides to stay under that limit."
   (slack-buffer-insert-history this))
 
 (cl-defmethod slack-buffer-load-more ((this slack-buffer))
+  "Fetch additional history to display in the buffer."
   (when (and (slack-buffer-has-next-page-p this)
              (not slack-buffer--loading-more-p))
     (setq slack-buffer--loading-more-p t)
@@ -434,58 +458,84 @@ line-aligned strides to stay under that limit."
       (slack-buffer-request-history this #'after-success))))
 
 (cl-defmethod slack-buffer-cant-execute ((this slack-buffer))
+  "Signal an error because the command is not supported in THIS buffer."
   (error "Can't execute this command from %s" (eieio-object-class-name this)))
 
 (cl-defmethod slack-buffer-update ((this slack-buffer) _message &key _replace)
+  "Update the buffer after new data arrives."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-display-pins-list ((this slack-buffer))
+  "Open the pinned-items buffer for the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-pins-add ((this slack-buffer) _ts)
+  "Pin the message at point in the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-pins-remove ((this slack-buffer) _ts)
+  "Unpin the message at point from the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-display-user-profile ((this slack-buffer))
+  "Display the selected user's profile from the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-copy-link ((this slack-buffer) _ts &optional _success-callback)
+  "Copy a permalink to the message at TS in THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-file-upload-params ((this slack-buffer))
+  "Return the HTTP parameters used to upload the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-message-action ((this slack-buffer) _ts)
+  "Execute a message action on the message at point in the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-add-reaction-to-message ((this slack-buffer) _reaction _ts)
+  "Add a reaction to the message selected in the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-send-message ((this slack-buffer) _message)
+  "Send a message from the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-room ((this slack-buffer))
+  "Return the room associated with the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-button-block-action ((this slack-buffer))
+  "Execute a button block element action from THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-conversation-select-block-action ((this slack-buffer))
+  "Execute a conversation-select block element action from the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-channel-select-block-action ((this slack-buffer))
+  "Execute a channel-select block element action from the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-user-select-block-action ((this slack-buffer))
+  "Execute a user-select block element action from the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-static-select-block-action ((this slack-buffer))
+  "Execute a static-select block element action from the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-external-select-block-action ((this slack-buffer))
+  "Execute an external-select block element action from the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-overflow-menu-block-action ((this slack-buffer))
+  "Execute an overflow menu block element action from the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-datepicker-block-action ((this slack-buffer))
+  "Execute a datepicker block element action from the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer--replace ((this slack-buffer) _ts)
+  "Replace the rendered message identified by the argument in the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-buffer))
+  "Return non-nil when the buffer has more history to load."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-insert-history ((this slack-buffer))
+  "Insert historical messages into the buffer for the buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-request-history ((this slack-buffer) _after-success)
+  "Request older history for the buffer from the Slack API."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-select-file ((this slack-buffer))
+  "Prompt the user to select a file from the buffer."
   (slack-buffer-cant-execute this))
 
 (defun slack-current-room-and-team ()
+  "Return a list (ROOM TEAM) for the current Slack buffer, or (nil nil)."
   (if (and (bound-and-true-p slack-current-buffer)
            (slot-exists-p slack-current-buffer 'room-id)
            (slot-boundp slack-current-buffer 'room-id)
@@ -496,6 +546,9 @@ line-aligned strides to stay under that limit."
     (list nil nil)))
 
 (defmacro slack-if-let-room-and-team (var-list then &rest else)
+  "Bind VAR-LIST to the current room and team, running THEN if both are set.
+Otherwise run ELSE forms.  VAR-LIST is a list of two symbols to
+bind to ROOM and TEAM respectively."
   (declare (indent 2) (debug t))
   `(cl-destructuring-bind ,var-list (slack-current-room-and-team)
      (if (and ,@var-list)
@@ -503,11 +556,13 @@ line-aligned strides to stay under that limit."
        ,@else)))
 
 (defun slack-buffer-replace-image (buffer ts)
+  "Re-render the message with TS in BUFFER so newly downloaded images appear."
   (and (buffer-live-p buffer)
        (with-current-buffer buffer
          (slack-buffer--replace slack-current-buffer ts))))
 
 (defun slack-display-image ()
+  "Download and render images lazily referenced in the current buffer."
   (goto-char (point-min))
   (while (re-search-forward "\\[Image\\]" (point-max) t)
     (slack-if-let* ((spec (get-text-property (1- (point)) 'slack-image-spec))
@@ -538,6 +593,7 @@ line-aligned strides to stay under that limit."
     (slack-buffer-ts-eq (point-min) (point-max) ts)))
 
 (cl-defmethod slack-buffer-replace ((this slack-buffer) message)
+  "Replace the rendered message identified by the argument in the buffer."
   (let ((team (slack-buffer-team this)))
     (with-current-buffer (slack-buffer-buffer this)
       (lui-replace (slack-buffer--render-native-emoji-string
@@ -549,9 +605,11 @@ line-aligned strides to stay under that limit."
 (cl-defmethod slack-buffer--subscribe-cursor-event ((_this slack-buffer)
                                                     _window
                                                     _prev-point
-                                                    _type))
+                                                    _type)
+  "Install a cursor-motion hook that subscribes to updates in the buffer.")
 
 (defun slack-reaction-echo-description ()
+  "Show the reaction help text in the echo area for the reaction at point."
   (slack-if-let* ((buffer slack-current-buffer)
                   (reaction (get-text-property (point) 'reaction))
                   (team (slack-buffer-team buffer)))
@@ -560,6 +618,9 @@ line-aligned strides to stay under that limit."
                                 #'(lambda (text) (message text)))))
 
 (defun slack-buffer-subscribe-cursor-event (window prev-point type)
+  "Dispatch cursor-sensor events to the current Slack buffer.
+WINDOW, PREV-POINT and TYPE are the arguments supplied by
+`cursor-sensor-functions'."
   (slack-if-let* ((buffer slack-current-buffer))
       (progn
         (slack-log (format "CURSOR-EVENT: BUFFER: %s, PREV-POINT: %s, POINT: %s, TYPE: %s"
@@ -602,17 +663,20 @@ Unicode emoji display properties.  On older Emacs, activate
         (emojify-mode t)))))
 
 (defun slack-buffer-goto (ts)
+  "Move point to the message with timestamp TS in the current buffer."
   (let ((point (slack-buffer-ts-eq (point-min) (point-max) ts)))
     (when point
       (goto-char point))))
 
 (defun slack-buffer-get-props-range (cur-point prop-name)
+  "Return a (START END) list spanning the PROP-NAME region around CUR-POINT."
   (let* ((start (or (and (get-text-property cur-point prop-name) cur-point)
                     (next-single-property-change cur-point prop-name)))
          (end (and start (next-single-property-change start prop-name))))
     (list start end)))
 
 (defun slack-handle-lazy-conversation-name ()
+  "Resolve `slack-lazy-conversation-name' regions to display room names."
   (slack-if-let* ((buffer slack-current-buffer)
                   (team (slack-buffer-team buffer)))
       (progn
@@ -632,6 +696,7 @@ Unicode emoji display properties.  On older Emacs, activate
               (setq cur-point end)))))))
 
 (defun slack-handle-lazy-user-name ()
+  "Resolve `slack-lazy-user-name' regions to display current user names."
   (slack-if-let* ((buffer slack-current-buffer)
                   (team (slack-buffer-team buffer)))
       (progn
@@ -649,6 +714,7 @@ Unicode emoji display properties.  On older Emacs, activate
               (setq cur-point end)))))))
 
 (defun slack-add-face-lazy ()
+  "Apply deferred face properties marked with `slack-defer-face'."
   (let ((cur-point (point-min)))
     (while (and cur-point (< cur-point (point-max)))
       (let* ((start (or (and (get-text-property cur-point 'slack-defer-face) cur-point)
@@ -670,6 +736,7 @@ Unicode emoji display properties.  On older Emacs, activate
     (kill-new url)))
 
 (defun slack-buffer-buttonize-link ()
+  "Convert Slack-formatted URL tokens in the buffer into clickable buttons."
   (let ((regex "\\(<\\)\\(http://\\|https://\\)\\(.*?\\)\\(?:|\\([[:ascii:][:nonascii:]]*?\\)\\)?\\(\\)>"))
     (ignore-errors
       (goto-char (point-min))
@@ -697,17 +764,20 @@ Unicode emoji display properties.  On older Emacs, activate
                                    map)))))))))
 
 (defun slack-buffer-show-typing-p (buffer)
+  "Return non-nil when typing indicators should be shown in BUFFER."
   (cl-case slack-typing-visibility
     (frame (slack-buffer-in-current-frame buffer))
     (buffer (slack-buffer-current-p buffer))
     (never nil)))
 
 (defun slack-buffer-current-p (buffer)
+  "Return non-nil when BUFFER is the currently selected buffer."
   (if buffer
       (string= (buffer-name buffer)
                (buffer-name (current-buffer)))))
 
 (defun slack-buffer-in-current-frame (buffer)
+  "Return non-nil when BUFFER is visible in some window of the current frame."
   (if buffer
       (cl-member (buffer-name buffer)
                  (mapcar #'buffer-name
@@ -715,6 +785,9 @@ Unicode emoji display properties.  On older Emacs, activate
                  :test #'string=)))
 
 (defmacro slack-buffer-goto-char (find-point &rest else)
+  "Move point to FIND-POINT, otherwise run ELSE forms.
+The first element of ELSE is a fallback timestamp string used to
+seed the search; the remaining forms run when no target is found."
   (let ((ts (car else))
         (else (cdr else)))
     `(let* ((cur-point (point))
@@ -726,6 +799,7 @@ Unicode emoji display properties.  On older Emacs, activate
                ,@else))))))
 
 (defun slack-buffer-goto-next-message ()
+  "Move point to the next message in the current Slack buffer."
   (interactive)
   (slack-buffer-goto-char
    (slack-buffer-next-point cur-point (point-max) ts)
@@ -748,28 +822,33 @@ Unicode emoji display properties.  On older Emacs, activate
      (message "You are on First Message."))))
 
 (defun slack-buffer-goto-first-message ()
+  "Move point to the first message in the current Slack buffer."
   (interactive)
   (goto-char
    (slack-buffer-next-point (point-min) (point-max) "0")))
 
 (defun slack-buffer-goto-last-message ()
+  "Move point to the last message in the current Slack buffer."
   (interactive)
   (goto-char
    (slack-buffer-prev-point (point-max) (point-min) (format-time-string "%s"))))
 
 (defun slack-buffer-next-point (start end ts)
+  "Return the next position between START and END with a `ts' newer than TS."
   (cl-loop for i from start to end
            for next-ts = (get-text-property i 'ts)
            if (and next-ts (string< ts next-ts))
            return i))
 
 (defun slack-buffer-prev-point (start end ts)
+  "Return the prior position between START and END with a `ts' older than TS."
   (cl-loop for i from start downto end
            for prev-ts = (get-text-property i 'ts)
            if (and prev-ts (string< prev-ts ts))
            return i))
 
 (defun slack-buffer-ts-eq (start end ts)
+  "Return the position between START and END whose `ts' property equals TS."
   (when (and start end)
     (if (<= start end)
         (cl-loop for i from start to end
@@ -782,6 +861,7 @@ Unicode emoji display properties.  On older Emacs, activate
                return i))))
 
 (defun slack-group-rename ()
+  "Rename the current private channel, prompting for one if needed."
   (interactive)
   (slack-if-let-room-and-team (room team)
       (slack-conversations-rename room team)
@@ -794,6 +874,7 @@ Unicode emoji display properties.  On older Emacs, activate
       (slack-conversations-rename room team))))
 
 (defun slack-group-invite ()
+  "Invite a user to the current private channel, prompting for one if needed."
   (interactive)
   (slack-if-let-room-and-team (room team)
       (slack-conversations-invite room team)
@@ -807,6 +888,7 @@ Unicode emoji display properties.  On older Emacs, activate
       (slack-conversations-invite room team))))
 
 (defun slack-group-leave ()
+  "Leave the current private channel, prompting for one if needed."
   (interactive)
   (slack-if-let-room-and-team (room team)
       (slack-conversations-leave room team)
@@ -817,6 +899,7 @@ Unicode emoji display properties.  On older Emacs, activate
       (slack-conversations-leave group team))))
 
 (defun slack-group-archive ()
+  "Archive the current private channel, prompting for one if needed."
   (interactive)
   (slack-if-let-room-and-team (room team)
       (slack-conversations-archive room team)
@@ -831,6 +914,7 @@ Unicode emoji display properties.  On older Emacs, activate
       (slack-conversations-archive group team))))
 
 (defun slack-group-unarchive ()
+  "Unarchive a private channel, prompting to select among archived ones."
   (interactive)
   (slack-if-let-room-and-team (room team)
       (slack-conversations-unarchive room team)
@@ -909,6 +993,7 @@ Unicode emoji display properties.  On older Emacs, activate
       (slack-conversations-set-purpose room team))))
 
 (defun slack-channel-rename ()
+  "Rename the current public channel, prompting for one if needed."
   (interactive)
   (slack-if-let-room-and-team (room team)
       (slack-conversations-rename room team)
@@ -921,6 +1006,7 @@ Unicode emoji display properties.  On older Emacs, activate
       (slack-conversations-rename room team))))
 
 (defun slack-channel-invite ()
+  "Invite a user to the current channel, prompting for one if needed."
   (interactive)
   (slack-if-let-room-and-team (room team)
       (slack-conversations-invite room team)
@@ -934,6 +1020,7 @@ Unicode emoji display properties.  On older Emacs, activate
       (slack-conversations-invite room team))))
 
 (defun slack-channel-leave (&optional team)
+  "Leave the current channel, or prompt among TEAM's joined channels."
   (interactive)
   (slack-if-let-room-and-team (cur-room cur-team)
       (slack-conversations-leave cur-room cur-team)
@@ -948,6 +1035,7 @@ Unicode emoji display properties.  On older Emacs, activate
       (slack-conversations-leave channel team))))
 
 (defun slack-channel-join (&optional team)
+  "Join a channel in TEAM, prompting among non-member, non-archived channels."
   (interactive)
   (slack-if-let-room-and-team (cur-room cur-team)
       (slack-conversations-join cur-room cur-team)

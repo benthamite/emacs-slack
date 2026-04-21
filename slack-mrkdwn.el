@@ -103,12 +103,14 @@ Group 8 matches the closing parenthesis.")
   :type 'string)
 
 (defun slack-mrkdwn-plain-text-p (point)
+  "Return non-nil when text at POINT is plain text (not wysiwyg-marked)."
   (unless (slack-wysiwyg-enabled-p)
     (let ((text-type (get-text-property point 'slack-text-type)))
       (or (null text-type)
           (eq 'plain text-type)))))
 
 (defun slack-mrkdwn-add-face ()
+  "Apply all mrkdwn faces (bold, italic, code, list, etc.) in the current buffer."
   (slack-mrkdwn-mark-code-block)
   (slack-mrkdwn-add-bold-face)
   (slack-mrkdwn-add-italic-face)
@@ -119,18 +121,22 @@ Group 8 matches the closing parenthesis.")
   (slack-mrkdwn-add-list-face))
 
 (defun slack-mrkdwn-inside-code-p (point)
+  "Return non-nil when POINT is inside an inline code span or code block."
   (or (slack-mrkdwn-inside-code-block-p point)
       (slack-mrkdwn-inside-inline-code-p point)))
 
 (defun slack-mrkdwn-inside-code-block-p (point)
+  "Return non-nil when POINT is inside a fenced code block."
   (let ((block-type (get-text-property point 'slack-code-block-type)))
     (eq 'block block-type)))
 
 (defun slack-mrkdwn-inside-inline-code-p (point)
+  "Return non-nil when POINT is inside an inline code span."
   (let ((block-type (get-text-property point 'slack-code-block-type)))
     (eq 'inline block-type)))
 
 (defun slack-mrkdwn-mark-code-block ()
+  "Tag code-block and inline-code regions with `slack-code-block-type' properties."
   (goto-char (point-min))
   (while (re-search-forward slack-mrkdwn-regex-code-block (point-max) t)
     (slack-if-let* ((beg (match-beginning 2))
@@ -149,6 +155,7 @@ Group 8 matches the closing parenthesis.")
                              'slack-code-block-type 'inline)))))
 
 (defun slack-mrkdwn-add-bold-face ()
+  "Apply `slack-mrkdwn-bold-face' to bold spans and hide their delimiters."
   (goto-char (point-min))
   (while (re-search-forward slack-mrkdwn-regex-bold (point-max) t)
     (slack-if-let* ((beg (match-beginning 3))
@@ -168,6 +175,7 @@ Group 8 matches the closing parenthesis.")
                                  'invisible t))))))
 
 (defun slack-mrkdwn-add-italic-face ()
+  "Apply `slack-mrkdwn-italic-face' to italic spans and hide their delimiters."
   (goto-char (point-min))
   (while (re-search-forward slack-mrkdwn-regex-italic (point-max) t)
     (slack-if-let* ((beg (match-beginning 3))
@@ -187,6 +195,7 @@ Group 8 matches the closing parenthesis.")
                                  'invisible t))))))
 
 (defun slack-mrkdwn-add-strike-face ()
+  "Apply `slack-mrkdwn-strike-face' to strikethrough spans and hide their delimiters."
   (goto-char (point-min))
   (while (re-search-forward slack-mrkdwn-regex-strike (point-max) t)
     (slack-if-let* ((beg (match-beginning 3))
@@ -206,6 +215,7 @@ Group 8 matches the closing parenthesis.")
                                  'invisible t))))))
 
 (defun slack-mrkdwn-add-code-face ()
+  "Apply `slack-mrkdwn-code-face' to inline code spans and hide their backticks."
   (goto-char (point-min))
   (while (re-search-forward slack-mrkdwn-regex-code (point-max) t)
     (slack-if-let* ((beg (match-beginning 3))
@@ -226,6 +236,7 @@ Group 8 matches the closing parenthesis.")
 
 
 (defun slack-mrkdwn-add-code-block-face ()
+  "Apply `slack-mrkdwn-code-block-face' to fenced code blocks and hide fences."
   (goto-char (point-min))
   (while (re-search-forward slack-mrkdwn-regex-code-block (point-max) t)
     (slack-if-let* ((beg (match-beginning 2))
@@ -246,6 +257,7 @@ Group 8 matches the closing parenthesis.")
                                  'invisible t))))))
 
 (defun slack-mrkdwn-add-blockquote-face ()
+  "Apply `slack-mrkdwn-blockquote-face' to blockquotes and replace the leading marker."
   (goto-char (point-min))
   (while (re-search-forward slack-mrkdwn-regex-blockquote (point-max) t)
     (slack-if-let* ((beg (match-beginning 3))
@@ -266,6 +278,7 @@ Group 8 matches the closing parenthesis.")
                                    'display slack-mrkdwn-blockquote-sign)))))))
 
 (defun slack-mrkdwn-add-list-face ()
+  "Apply `slack-mrkdwn-list-face' to list markers, substituting a bullet glyph."
   (goto-char (point-min))
   (while (re-search-forward slack-mrkdwn-regex-list (point-max) t)
     (slack-if-let* ((beg (match-beginning 2))

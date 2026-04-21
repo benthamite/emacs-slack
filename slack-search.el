@@ -86,6 +86,7 @@
    (type :initarg :type :type string)))
 
 (cl-defmethod slack-merge ((this slack-search-result) other)
+  "Merge new data into the existing search result in place."
   (oset this query (oref other query))
   (oset this sort (oref other sort))
   (oset this sort-dir (oref other sort-dir))
@@ -94,6 +95,7 @@
   (oset this pagination (oref other pagination)))
 
 (cl-defmethod slack-message-to-string ((this slack-search-message) team)
+  "Render the search message as a displayable string."
   (with-slots (channel username) this
     (let* ((room (slack-room-find (oref channel id) team))
            (header (propertize (format "%s%s"
@@ -109,23 +111,28 @@
                   'permalink (ignore-errors (oref this permalink))))))
 
 (cl-defmethod slack-ts ((this slack-search-message))
+  "Return the timestamp string identifying the search message."
   (slack-ts (oref this message)))
 
 (cl-defmethod slack-search-has-next-page-p ((this slack-search-result))
+  "Return non-nil when search result THIS has a next page available."
   (slack-search-paging-next-page (oref this pagination)))
 
 (cl-defmethod slack-search-paging-next-page ((this slack-search-pagination))
+  "Return the next page number for pagination THIS, or nil if exhausted."
   (with-slots (page-count page) this
     (when (< page page-count)
       (1+ page))))
 
 (defun slack-search-create-message-channel (payload)
+  "Build a `slack-search-message-channel' instance from PAYLOAD plist."
   (and payload
        (make-instance 'slack-search-message-channel
                       :id (plist-get payload :id)
                       :name (plist-get payload :name))))
 
 (defun slack-search-create-around-message (payload)
+  "Build a `slack-search-message-around-message' instance from PAYLOAD plist."
   (and payload
        (make-instance 'slack-search-message-around-message
                       :user (plist-get payload :user)
@@ -135,6 +142,7 @@
                       :type (plist-get payload :type))))
 
 (defun slack-search-create-message (payload team)
+  "Build a `slack-search-message' from PAYLOAD in TEAM, with surrounding context."
   (setq payload (append payload nil))
   (let* ((channel (slack-search-create-message-channel
                    (plist-get payload :channel)))
@@ -161,6 +169,7 @@
                    :next-2 next-2)))
 
 (defun slack-search-create-pagination (payload)
+  "Build a `slack-search-pagination' instance from PAYLOAD plist."
   (and payload
        (make-instance 'slack-search-pagination
                       :total_count (plist-get payload :total_count)
@@ -171,6 +180,8 @@
                       :last (plist-get payload :last))))
 
 (defun slack-search-create-result (payload sort sort-dir team)
+  "Build a `slack-search-result' from message-search PAYLOAD for TEAM.
+SORT and SORT-DIR describe the original query ordering."
   (let* ((messages (plist-get payload :messages))
          (matches (mapcar #'(lambda (e) (slack-search-create-message e team))
                           (plist-get messages :matches)))
@@ -184,6 +195,8 @@
                    :sort-dir sort-dir)))
 
 (defun slack-search-create-file-result (payload sort sort-dir)
+  "Build a `slack-search-result' from file-search PAYLOAD.
+SORT and SORT-DIR describe the original query ordering."
   (let* ((files (plist-get payload :files))
          (matches (mapcar #'slack-file-create
                           (plist-get files :matches)))
@@ -197,6 +210,8 @@
                    :sort-dir sort-dir)))
 
 (defun slack-search-query-params (&optional query)
+  "Prompt for search parameters and return (TEAM QUERY SORT SORT-DIR).
+If QUERY is non-nil, use it as the search query without prompting."
   (let ((team (slack-team-select))
         (query (or query (read-from-minibuffer "Query: ")))
         (sort (funcall slack-completing-read-function "Sort: " `("score" "timestamp")
@@ -213,6 +228,9 @@
 
 (cl-defmethod slack-search-request ((this slack-search-result)
                                     after-success team &optional (page 1))
+  "Issue the search request for THIS, fetching PAGE (1 by default) from TEAM.
+AFTER-SUCCESS is called once the result (and any missing users) are
+merged into THIS."
   (cl-labels
       ((callback ()
          (funcall after-success))
@@ -250,6 +268,7 @@
             :success #'on-success))))))
 
 (cl-defmethod slack-message-user-ids ((this slack-search-message))
+  "Return the list of user IDs referenced by the search message."
   (with-slots (message) this
     (slack-message-user-ids message)))
 

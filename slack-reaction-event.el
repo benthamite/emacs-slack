@@ -37,6 +37,7 @@
 (defclass slack-message-reaction-removed-event (slack-message-reaction-event) ())
 
 (defun slack-create-reaction-event (payload)
+  "Create and return a new reaction event instance from PAYLOAD."
   (let* ((type (plist-get payload :type))
          (item (plist-get payload :item))
          (item-type (plist-get item :type)))
@@ -47,14 +48,17 @@
                   (slack-create-message-reaction-removed-event payload)))))))
 
 (defun slack-create-message-reaction-added-event (payload)
+  "Create and return a new message reaction added event instance from PAYLOAD."
   (slack-message-reaction-added-event :type (plist-get payload :type)
                                       :payload payload))
 
 (defun slack-create-message-reaction-removed-event (payload)
+  "Create and return a new message reaction removed event instance from PAYLOAD."
   (slack-message-reaction-removed-event :type (plist-get payload :type)
                                         :payload payload))
 
 (cl-defmethod slack-event-find-message ((this slack-message-reaction-event) team)
+  "Return the message referenced by the message reaction event event from TEAM, or nil."
   (let* ((payload (oref this payload))
          (item (plist-get payload :item))
          (channel (plist-get item :channel))
@@ -66,6 +70,7 @@
           (slack-reaction-event--fetch-and-cache-message room ts team)))))
 
 (cl-defmethod slack-event-save-message ((this slack-message-reaction-removed-event) message _team)
+  "Persist the message carried by the message reaction removed event event into TEAM."
   (let* ((payload (oref this payload))
          (user-id (plist-get payload :user))
          (reaction (slack-reaction :name (plist-get payload :reaction)
@@ -77,6 +82,7 @@
           (slack-reaction-delete message reaction)))))
 
 (cl-defmethod slack-event-save-message ((this slack-message-reaction-added-event) message _team)
+  "Persist the message carried by the message reaction added event event into TEAM."
   (let* ((payload (oref this payload))
          (reaction (slack-reaction :name (plist-get payload :reaction)
                                    :count 1
@@ -86,6 +92,7 @@
       (slack-reaction-push message reaction))))
 
 (cl-defmethod slack-event-update-buffer ((_this slack-message-reaction-event) message team)
+  "Refresh the buffers affected by the message reaction event event for TEAM."
   (slack-message-replace-buffer message team))
 
 

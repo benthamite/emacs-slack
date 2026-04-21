@@ -53,6 +53,9 @@ Any other non-nil value: send to the room."
   :group 'slack)
 
 (cl-defmethod slack-thread-replies ((this slack-message) room team &key after-success (cursor nil) (oldest nil))
+  "Fetch thread replies for THIS message in ROOM on TEAM.
+CURSOR and OLDEST are paging parameters; AFTER-SUCCESS is a callback
+invoked with (NEXT-CURSOR HAS-MORE) after messages are stored."
   (let* ((ts (slack-thread-ts this))
          (oldest (or oldest ts)))
     (cl-labels ((success (messages next-cursor has-more)
@@ -66,6 +69,7 @@ Any other non-nil value: send to the room."
                                    :oldest oldest))))
 
 (cl-defmethod slack-thread-to-string ((m slack-message) team)
+  "Return a propertized summary string of the thread rooted at M for TEAM."
   (if (slack-message-thread-parentp m)
       (let* ((count (oref m reply-count))
              (images (slack-thread--reply-user-images m team))
@@ -117,6 +121,8 @@ LATEST-REPLY is missing or blank."
        (t (format "%d day%s ago" days (if (= days 1) "" "s")))))))
 
 (cl-defmethod slack-thread-create ((m slack-message) &optional payload)
+  "Create and return a `slack-thread' rooted at message M.
+Optional PAYLOAD supplies reply/unread metadata from Slack."
   (if payload
       (let ((reply-count (plist-get payload :reply_count))
             (unread-count (plist-get payload :unread_count))
@@ -132,6 +138,7 @@ LATEST-REPLY is missing or blank."
                    :root m)))
 
 (defun slack-subscriptions-thread-add (room ts team &optional after-success)
+  "Subscribe TEAM to the thread at TS in ROOM, calling AFTER-SUCCESS on success."
   (cl-labels
       ((success (&key data &allow-other-keys)
                 (slack-request-handle-error
@@ -149,6 +156,7 @@ LATEST-REPLY is missing or blank."
       :success #'success))))
 
 (defun slack-subscriptions-thread-remove (room ts team &optional after-success)
+  "Unsubscribe TEAM from the thread at TS in ROOM, calling AFTER-SUCCESS on success."
   (cl-labels
       ((success (&key data &allow-other-keys)
                 (slack-request-handle-error
@@ -166,6 +174,9 @@ LATEST-REPLY is missing or blank."
       :success #'success))))
 
 (defun slack-subscriptions-thread-get (room ts team &optional after-success handle-error)
+  "Fetch thread subscriptions for TS in ROOM on TEAM.
+Call AFTER-SUCCESS with the subscriptions list.  HANDLE-ERROR is an
+optional fallback error handler."
   (cl-labels
       ((success (&key data &allow-other-keys)
                 (slack-request-handle-error
@@ -183,6 +194,7 @@ LATEST-REPLY is missing or blank."
       :success #'success))))
 
 (cl-defmethod slack-thread-mark ((this slack-message) room ts team)
+  "Mark the thread rooted at THIS in ROOM as read up to TS on TEAM."
   (let* ((channel (oref room id))
          (thread-ts (or (oref this thread-ts)
                         ;; initial thread reply

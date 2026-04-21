@@ -40,6 +40,7 @@
   (setq-local buffer-read-only t))
 
 (cl-defmethod slack-buffer-name ((this slack-room-info-buffer))
+  "Return the display buffer name for the room info buffer."
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
                   (room-name (slack-room-name room team)))
@@ -48,15 +49,19 @@
               room-name)))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-room-info-buffer)) room)
+  "Return the class-level buffer key for the room info buffer."
   (oref room id))
 
 (cl-defmethod slack-buffer-key ((this slack-room-info-buffer))
+  "Return the lookup key identifying the buffer for the room info buffer."
   (slack-buffer-key 'slack-room-info-buffer (slack-buffer-room this)))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-room-info-buffer)))
+  "Return the team-scoped class-level buffer key for the room info buffer."
   'slack-room-info-buffer)
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-room-info-buffer))
+  "Initialize and return the display buffer for the room info buffer."
   (let* ((buf (cl-call-next-method)))
     (with-current-buffer buf
       (slack-room-info-buffer-mode)
@@ -86,6 +91,7 @@
   :group 'slack)
 
 (cl-defmethod slack-buffer-insert ((this slack-room-info-buffer))
+  "Insert a rendered representation of the room info buffer into the current buffer."
   (let ((team (slack-buffer-team this))
         (room (slack-buffer-room this))
         (inhibit-read-only t))
@@ -104,6 +110,7 @@
     (slack-buffer-insert-created room team)))
 
 (cl-defmethod slack-buffer-insert-created ((room slack-room) _team)
+  "Insert the creation timestamp of the room's room into the current buffer."
   (with-slots (created) room
     (when created
       (insert (propertize "Created"
@@ -113,6 +120,7 @@
                (number-to-string created))))))
 
 (cl-defmethod slack-buffer-insert-created ((room slack-group) team)
+  "Insert the creation timestamp of the group's room into the current buffer."
   (cl-call-next-method)
   (with-slots (creator) room
     (when creator
@@ -121,6 +129,7 @@
     ))
 
 (cl-defmethod slack-buffer-insert-purpose ((room slack-group))
+  "Insert the purpose of the group's room into the current buffer."
   (with-slots (purpose) room
     (when purpose
       (insert (propertize "Purpose"
@@ -138,9 +147,11 @@
                                           released-button))))
         (insert "\n")))))
 
-(cl-defmethod slack-buffer-insert-purpose ((_room slack-room)))
+(cl-defmethod slack-buffer-insert-purpose ((_room slack-room))
+  "Insert the purpose of the room's room into the current buffer.")
 
 (cl-defmethod slack-buffer-insert-topic ((room slack-group))
+  "Insert the topic of the group's room into the current buffer."
   (with-slots (topic) room
     (when topic
       (insert (propertize "Topic"
@@ -158,9 +169,11 @@
                                           released-button))))
         (insert "\n")))))
 
-(cl-defmethod slack-buffer-insert-topic ((_room slack-room)))
+(cl-defmethod slack-buffer-insert-topic ((_room slack-room))
+  "Insert the topic of the room's room into the current buffer.")
 
 (cl-defmethod slack-create-room-info-buffer ((room slack-room) team)
+  "Return the existing or newly created info buffer for ROOM on TEAM."
   (slack-if-let* ((buffer (slack-buffer-find 'slack-room-info-buffer team room)))
       buffer
     (slack-room-info-buffer :room-id (oref room id) :team-id (oref team id))))

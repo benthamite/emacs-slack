@@ -79,6 +79,8 @@ If nil, include archived channels."
   "https://slack.com/api/conversations.mark")
 
 (cl-defun slack-conversations-success-handler (team &key on-errors on-success)
+  "Return a request success handler for TEAM.
+ON-ERRORS receives the :errors list; ON-SUCCESS receives the response data."
   (cl-function
    (lambda (&key data &allow-other-keys)
      (cl-labels
@@ -107,6 +109,7 @@ If nil, include archived channels."
           (funcall on-success data)))))))
 
 (defun slack-conversations-archive (room team)
+  "Archive ROOM in TEAM via the conversations.archive API."
   (let ((id (oref room id)))
     (slack-request
      (slack-request-create
@@ -117,6 +120,7 @@ If nil, include archived channels."
       :success (slack-conversations-success-handler team)))))
 
 (defun slack-conversations-unarchive (room team)
+  "Unarchive ROOM in TEAM via the conversations.unarchive API."
   (let ((channel (oref room id)))
     (slack-request
      (slack-request-create
@@ -127,6 +131,7 @@ If nil, include archived channels."
       :success (slack-conversations-success-handler team)))))
 
 (defun slack-conversations-invite (room team)
+  "Invite one or more users chosen interactively to ROOM in TEAM."
   (let* ((channel (oref room id))
          (user-names (slack-user-names
                       team #'(lambda (users)
@@ -184,6 +189,7 @@ If nil, include archived channels."
                                                       #'errors-handler))))))
 
 (defun slack-conversations-join (room team &optional on-success)
+  "Join ROOM in TEAM, optionally invoking ON-SUCCESS with the response data."
   (cl-labels
       ((success (data)
                 (when (eq 'slack-channel
@@ -203,6 +209,7 @@ If nil, include archived channels."
                   :on-success #'success))))))
 
 (defun slack-conversations-leave (room team)
+  "Leave ROOM in TEAM via the conversations.leave API."
   (let ((channel (oref room id)))
     (slack-request
      (slack-request-create
@@ -213,6 +220,7 @@ If nil, include archived channels."
       :success (slack-conversations-success-handler team)))))
 
 (defun slack-conversations-rename (room team)
+  "Rename ROOM in TEAM to a name read from the minibuffer."
   (let ((channel (oref room id))
         (name (read-from-minibuffer "Name: ")))
     (slack-request
@@ -225,6 +233,7 @@ If nil, include archived channels."
       :success (slack-conversations-success-handler team)))))
 
 (defun slack-conversations-set-purpose (room team)
+  "Set the purpose of ROOM in TEAM to a value read from the minibuffer."
   (let ((channel (oref room id))
         (purpose (read-from-minibuffer "Purpose: ")))
     (cl-labels
@@ -244,6 +253,7 @@ If nil, include archived channels."
                                                       #'on-success))))))
 
 (defun slack-conversations-set-topic (room team)
+  "Set the topic of ROOM in TEAM to a value read from the minibuffer."
   (let ((channel (oref room id))
         (topic (read-from-minibuffer "Topic: ")))
     (cl-labels
@@ -263,6 +273,7 @@ If nil, include archived channels."
                                                       #'on-success))))))
 
 (defun slack-conversations-kick (room team)
+  "Remove an interactively chosen member from ROOM in TEAM."
   (let* ((candidates (cl-loop for user in (slack-user-names team)
                               if (cl-find (plist-get (cdr user) :id)
                                           (slack-room-members room)
@@ -396,10 +407,13 @@ more than 20 api calls."
    (list "private_channel")))
 
 (defun slack-conversations-info (channel-id team &optional after-success on-error)
+  "Fetch info for CHANNEL-ID in TEAM and run AFTER-SUCCESS or ON-ERROR."
   (slack-request
    (slack-conversations-info-request channel-id team after-success on-error)))
 
 (defun slack-conversations-info-request (channel-id team &optional after-success on-error)
+  "Build a request object fetching info for CHANNEL-ID in TEAM.
+AFTER-SUCCESS runs after the room is stored; ON-ERROR runs on failure."
   (cl-labels
       ((fail (&rest args)
          (when (functionp on-error)
@@ -427,6 +441,10 @@ more than 20 api calls."
      :error #'fail)))
 
 (cl-defun slack-conversations-replies (room ts team &key after-success on-error (cursor nil) (oldest nil) (limit "200") (latest nil) (inclusive nil) (sync nil))
+  "Fetch the thread replies for TS in ROOM of TEAM.
+CURSOR, OLDEST, LIMIT, LATEST, INCLUSIVE, and SYNC map to the
+conversations.replies API params. AFTER-SUCCESS receives the parsed
+messages, next cursor, and has-more flag; ON-ERROR handles failures."
   (let ((channel (oref room id)))
     (cl-labels
         ((fail (&rest args)
@@ -478,6 +496,7 @@ more than 20 api calls."
         :error #'fail
         :sync sync)))))
 (defun slack-conversations-close (room team &optional after-success)
+  "Close ROOM in TEAM, optionally calling AFTER-SUCCESS with the response."
   (let ((channel (oref room id)))
     (cl-labels
         ((on-success (data)
@@ -492,6 +511,8 @@ more than 20 api calls."
         :success (slack-conversations-success-handler
                   team :on-success #'on-success))))))
 (cl-defun slack-conversations-create (team &optional (is-private "false"))
+  "Create a new channel in TEAM, prompting for the name.
+IS-PRIVATE is the string \"true\" or \"false\"; when nil, the user is asked."
   (let ((name (read-from-minibuffer "Name: "))
         (is-private (or is-private
                         (if (y-or-n-p "Private? ")
@@ -514,6 +535,10 @@ more than 20 api calls."
                                             (inclusive nil)
                                             (limit "100")
                                             (sync nil))
+  "Fetch message history for ROOM in TEAM via conversations.history.
+CURSOR, LATEST, OLDEST, INCLUSIVE, LIMIT, and SYNC map to API params.
+AFTER-SUCCESS receives the parsed messages and next cursor; ON-ERROR
+handles failures."
   (let ((channel (oref room id)))
     (cl-labels
         ((fail (&rest args)
@@ -558,6 +583,8 @@ more than 20 api calls."
         :sync sync)))))
 
 (defun slack-conversations-members (room team &optional cursor after-success)
+  "Fetch members of ROOM in TEAM, paginating with CURSOR.
+AFTER-SUCCESS is called with the members list and the next cursor."
   (if (slack-room-members-loaded-p room)
       (when (functionp after-success)
         (funcall after-success (slack-room-members room) ""))
@@ -593,6 +620,8 @@ more than 20 api calls."
                   team :on-success #'success))))))
 
 (cl-defun slack-conversations-open (team &key room user-ids on-success on-error)
+  "Open a conversation in TEAM with ROOM or USER-IDS.
+Calls ON-SUCCESS with the response data, or ON-ERROR with the error list."
   (let ((channel (or (and room (oref room id))
                      ""))
         (users (mapconcat #'identity user-ids ",")))
@@ -607,6 +636,8 @@ more than 20 api calls."
       :success (slack-conversations-success-handler team :on-errors on-error :on-success on-success)))))
 
 (defun slack-conversations-mark (room team ts &optional after-success after-error)
+  "Mark ROOM in TEAM read up to timestamp TS.
+AFTER-SUCCESS runs on success; AFTER-ERROR runs on failure."
   (cl-labels ((on-success (&rest _ignore)
                           (when (functionp after-success)
                             (funcall after-success)))

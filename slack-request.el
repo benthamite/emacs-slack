@@ -86,6 +86,7 @@ token for endpoints recorded in `slack-token-preference'."
   :group 'slack)
 
 (defun slack-need-cookie-p (token)
+  "Return non-nil when TOKEN is a browser-style token requiring cookie auth."
   (and token (>= (length token) 4)
        (string= "xoxc" (substring token 0 4))))
 
@@ -96,9 +97,11 @@ token for endpoints recorded in `slack-token-preference'."
   (url-cookie-store "lc" (slack-team-lc-cookie team) nil ".slack.com" "/" t))
 
 (defun slack-parse ()
+  "Parse the JSON response body in the current buffer into a plist."
   (json-parse-buffer :object-type 'plist :array-type 'list :false-object :json-false :null-object nil))
 
 (defun slack-request-parse-payload (payload)
+  "Issue the `parse payload' request against the Slack API."
   (condition-case err-var
       (json-parse-string payload :object-type 'plist :array-type 'list :false-object :json-false :null-object nil)
     (error (message "[Slack] Error on parse JSON: %S, ERR: %S"
@@ -129,6 +132,7 @@ token for endpoints recorded in `slack-token-preference'."
 
 (cl-defun slack-request-create
     (url team &key type success error params data parser sync files headers (timeout slack-request-timeout) without-auth no-retry)
+  "Issue the `create' request against the Slack API."
   (let ((args (list
                :url url :team team :type type
                :success success :error error
@@ -146,6 +150,7 @@ token for endpoints recorded in `slack-token-preference'."
     (apply #'make-instance 'slack-request-request ret)))
 
 (cl-defmethod slack-equalp ((this slack-request-request) other)
+  "Return non-nil when the request request equals the other argument."
   (and (slack-equalp (oref this team)
                      (oref other team))
        (string= "GET" (oref this type))
@@ -156,12 +161,14 @@ token for endpoints recorded in `slack-token-preference'."
               (oref other params))))
 
 (cl-defmethod slack-request-retry-request ((req slack-request-request) retry-after)
+  "Reschedule request REQ to execute after RETRY-AFTER seconds and requeue it."
   (oset req execute-at (+ retry-after (time-to-seconds)))
   (oset req retry-count (1+ (oref req retry-count)))
   (oset req response nil)
   (slack-request-worker-push req))
 
 (cl-defmethod slack-request-retry-failed-request-p ((req slack-request-request) error-thrown symbol-status)
+  "Return non-nil when REQ should be retried given ERROR-THROWN and SYMBOL-STATUS."
   (with-slots (no-retry type retry-count) req
     (and (not no-retry)
          (or (zerop slack-request-max-retry)
@@ -172,6 +179,7 @@ token for endpoints recorded in `slack-token-preference'."
                   (eq symbol-status 'timeout))))))
 
 (cl-defmethod slack-request-log-failed-retry ((req slack-request-request) error-thrown symbol-status data)
+  "Log that REQ will be retried after failing with ERROR-THROWN, SYMBOL-STATUS, DATA."
   (with-slots (url params team retry-count) req
     (slack-log (format "Retry Request by Error. URL: %S, PARAMS: %S, ERROR-THROWN: %S, SYMBOL-STATUS: %S, DATA: %S, COUNT: %d"
                        url
@@ -183,6 +191,7 @@ token for endpoints recorded in `slack-token-preference'."
                team :level 'warn)))
 
 (cl-defmethod slack-request-log-retry ((req slack-request-request) retry-after-sec)
+  "Log that REQ will be retried after RETRY-AFTER-SEC seconds."
   (with-slots (url params team) req
     (slack-log (format "Retrying Request After: %s second, URL: %s, PARAMS: %s"
                        retry-after-sec
@@ -191,6 +200,7 @@ token for endpoints recorded in `slack-token-preference'."
                team)))
 
 (cl-defmethod slack-request-log-failed ((req slack-request-request) error-thrown symbol-status data)
+  "Log that REQ failed, reporting ERROR-THROWN, SYMBOL-STATUS, and DATA."
   (with-slots (url params team) req
     (slack-log (format "REQUEST FAILED. URL: %S, PARAMS: %S, ERROR-THROWN: %S, SYMBOL-STATUS: %S, DATA: %S"
                        url
@@ -201,6 +211,7 @@ token for endpoints recorded in `slack-token-preference'."
                team :level 'error)))
 
 (cl-defmethod slack-request-log-success ((req slack-request-request) data)
+  "Log that REQ finished successfully with response DATA at trace level."
   (with-slots (url params team) req
     (slack-log (format "REQUEST FINISHED. URL: %S, PARAMS: %S, DATA: %S"
                        url
@@ -209,6 +220,9 @@ token for endpoints recorded in `slack-token-preference'."
                team :level 'trace)))
 
 (cl-defmethod slack-request ((req slack-request-request) &key (on-success nil) (on-error nil))
+  "Execute request REQ, retrying and handling token errors as needed.
+ON-SUCCESS and ON-ERROR, when functions, are invoked after the
+request's own success and error handlers run."
   (let* (;; we don't want to save cookies because they break switching teams using the trick from  https://github.com/tkf/emacs-request/issues/155
          (request-curl-options slack-request-curl-options)
          (temp-cookie (unless (oref req sync)
@@ -323,9 +337,11 @@ token for endpoints recorded in `slack-token-preference'."
   (make-instance 'slack-request-worker))
 
 (cl-defmethod slack-request-worker-push ((this slack-request-worker) req)
+  "Enqueue the request worker on the shared request worker."
   (cl-pushnew req (oref this queue) :test #'slack-equalp))
 
 (defun slack-request-worker-on-timeout ()
+  "Issue the `worker on timeout' request against the Slack API."
   (slack-request-worker-execute)
   (when (and slack-request-worker-instance
              (timerp (oref slack-request-worker-instance timer)))
@@ -334,6 +350,7 @@ token for endpoints recorded in `slack-token-preference'."
   (slack-request-worker-set-timer))
 
 (defun slack-request-worker-set-timer ()
+  "Issue the `worker set timer' request against the Slack API."
   (oset slack-request-worker-instance
         timer
         (run-at-time 1 nil #'slack-request-worker-on-timeout)))
@@ -382,6 +399,7 @@ Stop after `slack-request-worker-max-request-limit'."
                                      )))))))
 
 (cl-defmethod slack-request-worker-push ((req slack-request-request))
+  "Enqueue the request request on the shared request worker."
   (unless slack-request-worker-instance
     (setq slack-request-worker-instance
           (slack-request-worker-create)))
@@ -421,6 +439,9 @@ Stop after `slack-request-worker-max-request-limit'."
                  team :level 'debug))))
 
 (cl-defun slack-url-copy-file (url newname team &key (success nil) (error nil) (sync nil) (token nil) (cookie nil))
+  "Download URL to NEWNAME for TEAM, using curl when available.
+SUCCESS and ERROR are callbacks.  SYNC forces a blocking request.
+TOKEN and COOKIE supply auth credentials for Slack-hosted URLs."
   (if (executable-find "curl")
       (slack-curl-downloader url newname team
                              :success success
@@ -466,6 +487,8 @@ Stop after `slack-request-worker-max-request-limit'."
                         (list (cons "Cookie" (format "d=%s; " cookie)))))))))))
 
 (cl-defun slack-curl-downloader (url name team &key (success nil) (error nil) (token nil) (cookie nil))
+  "Download URL to NAME asynchronously with curl, logging to TEAM on failure.
+SUCCESS and ERROR are callbacks; TOKEN and COOKIE supply Slack auth."
   (cl-labels
       ((sentinel (proc event)
          (cond

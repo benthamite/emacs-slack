@@ -40,15 +40,18 @@
    (ts :initarg :ts :type string)))
 
 (cl-defmethod slack-buffer-room ((this slack-message-share-buffer))
+  "Return the room associated with the message share buffer."
   (with-slots (room-id) this
     (slack-room-find room-id (slack-buffer-team this))))
 
 (defun slack-create-message-share-buffer (room team ts)
+  "Create and return a new message share buffer instance from PAYLOAD."
   (slack-if-let* ((buf (slack-buffer-find 'slack-message-share-buffer team room ts)))
       buf
     (slack-message-share-buffer :room-id (oref room id) :team-id (oref team id) :ts ts)))
 
 (cl-defmethod slack-buffer-name ((this slack-message-share-buffer))
+  "Return the display buffer name for the message share buffer."
   (let ((ts (oref this ts))
         (team (slack-buffer-team this))
         (room (slack-buffer-room this)))
@@ -58,19 +61,23 @@
             ts)))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-message-share-buffer)) room ts)
+  "Return the class-level buffer key for the message share buffer."
   (concat (oref room id)
           ":"
           ts))
 
 (cl-defmethod slack-buffer-key ((this slack-message-share-buffer))
+  "Return the lookup key identifying the buffer for the message share buffer."
   (let ((room (slack-buffer-room this))
         (ts (oref this ts)))
     (slack-buffer-key 'slack-message-share-buffer room ts)))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-message-share-buffer)))
+  "Return the team-scoped class-level buffer key for the message share buffer."
   'slack-message-share-buffer)
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-message-share-buffer))
+  "Initialize and return the display buffer for the message share buffer."
   (let* ((buf (cl-call-next-method)))
     (with-current-buffer buf
       (slack-message-share-buffer-mode)
@@ -78,6 +85,7 @@
     buf))
 
 (cl-defmethod slack-buffer-send-message ((this slack-message-share-buffer) message)
+  "Send a message from the message share buffer."
   (with-slots (ts) this
     (slack-message-share--send (slack-buffer-team this)
                                (slack-buffer-room this)

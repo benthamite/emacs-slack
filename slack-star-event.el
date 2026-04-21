@@ -30,9 +30,12 @@
 (defclass slack-star-event (slack-event slack-message-event-processable) ())
 
 (cl-defmethod slack-event-update-buffer ((_this slack-star-event) message team)
+  "Refresh the buffers affected by the star event event for TEAM."
   (slack-message-replace-buffer message team))
 
 (cl-defmethod slack-event-create-star-item ((this slack-star-event) _team &optional file)
+  "Build and return a star item normalized from the payload of star event THIS.
+Optional FILE supplies an already-created `slack-file' for file items."
   (let* ((payload (oref this payload))
          (item (plist-get payload :item))
          (item-type (plist-get item :type))
@@ -56,6 +59,8 @@
     (slack-create-star-item normalized)))
 
 (cl-defmethod slack-event-update-star-item ((this slack-star-event) team &optional file)
+  "Persist the star item for event THIS on TEAM and refresh the stars buffer.
+Optional FILE is forwarded to `slack-event-create-star-item'."
   (let ((star-item (slack-event-create-star-item this team file)))
     (slack-event-save-star-item this star-item team)
     (slack-event-update-star-buffer this star-item team)))
@@ -63,13 +68,16 @@
 (defclass slack-star-added-event (slack-star-event) ())
 
 (cl-defmethod slack-event-save-message ((_this slack-star-added-event) message _team)
+  "Persist the message carried by the star added event event into TEAM."
   (slack-message-star-added message))
 
 (cl-defmethod slack-event-save-star-item ((_this slack-star-added-event) item team)
+  "Persist the starred item from the star added event event into TEAM."
   (slack-if-let* ((star (oref team star)))
       (push item (oref star items))))
 
 (cl-defmethod slack-event-update-star-buffer ((_this slack-star-added-event) item team)
+  "Refresh the stars buffer after the star added event event on TEAM."
   (slack-if-let* ((buffer (slack-buffer-find 'slack-stars-buffer team)))
       (with-current-buffer (slack-buffer-buffer buffer)
         (slack-buffer-insert buffer item))))
@@ -77,15 +85,18 @@
 (defclass slack-star-removed-event (slack-star-event) ())
 
 (cl-defmethod slack-event-save-message ((_this slack-star-removed-event) message _team)
+  "Persist the message carried by the star removed event event into TEAM."
   (slack-message-star-removed message))
 
 (cl-defmethod slack-event-save-star-item ((_this slack-star-removed-event) item team)
+  "Persist the starred item from the star removed event event into TEAM."
   (slack-if-let* ((star (oref team star)))
       (oset star items (cl-remove-if #'(lambda (e) (string= (slack-ts e)
                                                             (slack-ts item)))
                                      (oref star items)))))
 
 (cl-defmethod slack-event-update-star-buffer ((_this slack-star-removed-event) item team)
+  "Refresh the stars buffer after the star removed event event on TEAM."
   (slack-if-let* ((buffer (slack-buffer-find 'slack-stars-buffer team)))
       (slack-buffer-message-delete buffer (slack-ts item))))
 
@@ -98,6 +109,7 @@
 (defclass slack-file-star-removed-event (slack-file-star-event slack-star-removed-event) ())
 
 (defun slack-create-star-event (payload)
+  "Create and return a new star event instance from PAYLOAD."
   (let* ((type (plist-get payload :type))
          (item (plist-get payload :item))
          (item-type (plist-get item :type))
@@ -112,22 +124,27 @@
              (slack-create-file-star-removed-event payload))))))
 
 (defun slack-create-message-star-added-event (payload)
+  "Create and return a new message star added event instance from PAYLOAD."
   (slack-message-star-added-event :type (plist-get payload :type)
                                   :payload payload))
 
 (defun slack-create-message-star-removed-event (payload)
+  "Create and return a new message star removed event instance from PAYLOAD."
   (slack-message-star-removed-event :type (plist-get payload :type)
                                     :payload payload))
 
 (defun slack-create-file-star-added-event (payload)
+  "Create and return a new file star added event instance from PAYLOAD."
   (slack-file-star-added-event :type (plist-get payload :type)
                                :payload payload))
 
 (defun slack-create-file-star-removed-event (payload)
+  "Create and return a new file star removed event instance from PAYLOAD."
   (slack-file-star-removed-event :type (plist-get payload :type)
                                  :payload payload))
 
 (cl-defmethod slack-event-find-message ((this slack-message-star-event) team)
+  "Return the message referenced by the message star event event from TEAM, or nil."
   (let* ((payload (oref this payload))
          (item (plist-get payload :item))
          (channel (plist-get item :channel))
@@ -138,10 +155,12 @@
       (slack-room-find-message room ts))))
 
 (cl-defmethod slack-event-update ((this slack-message-star-event) team)
+  "Apply the message star event event to TEAM's in-memory state."
   (cl-call-next-method)
   (slack-event-update-star-item this team))
 
 (cl-defmethod slack-event-find-message ((this slack-file-star-event) team)
+  "Return the message referenced by the file star event event from TEAM, or nil."
   (let* ((payload (oref this payload))
          (item (plist-get payload :item))
          (file (plist-get item :file))
@@ -149,6 +168,7 @@
     (slack-file-find id team)))
 
 (cl-defmethod slack-event-update ((this slack-file-star-event) team)
+  "Apply the file star event event to TEAM's in-memory state."
   (let ((file (slack-event-find-message this team)))
     (cl-labels
         ((update (&rest _args)

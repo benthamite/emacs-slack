@@ -47,6 +47,7 @@
    (ims :initarg :ims :type (or null list) :initform nil)))
 
 (cl-defmethod slack-counts-summary ((this slack-counts))
+  "Return an alist summarizing unread/mention totals for THIS counts object."
   (with-slots (threads channels mpims ims) this
     (cl-labels
         ((counts-summary (counts)
@@ -69,11 +70,13 @@
               (cons 'im im-summary))))))
 
 (defun slack-create-counts-threads (payload)
+  "Create and return a new counts threads instance from PAYLOAD."
   (make-instance 'slack-counts-threads
                  :has_unreads (eq t (plist-get payload :has_unreads))
                  :mention_count (plist-get payload :mention_count)))
 
 (defun slack-create-counts-conversation (payload)
+  "Create and return a new counts conversation instance from PAYLOAD."
   (make-instance 'slack-counts-conversation
                  :id (plist-get payload :id)
                  :has_unreads (eq t (plist-get payload :has_unreads))
@@ -81,6 +84,7 @@
                  :latest (plist-get payload :latest)))
 
 (defun slack-create-counts (payload)
+  "Create and return a new counts instance from PAYLOAD."
   (make-instance 'slack-counts
                  :threads (slack-create-counts-threads
                            (plist-get payload :threads))
@@ -92,6 +96,7 @@
                               (plist-get payload :ims))))
 
 (defun slack-client-counts (team after-success)
+  "Fetch client.counts data for TEAM and call AFTER-SUCCESS with the result."
   (cl-labels
       ((success (&key data &allow-other-keys)
                 (slack-request-handle-error
@@ -107,118 +112,141 @@
       :success #'success))))
 
 (defun slack-counts-find (conversation-counts id)
+  "Return the counts entry in CONVERSATION-COUNTS whose id equals ID."
   (cl-find-if #'(lambda (count)
                   (string= id (oref count id)))
               conversation-counts))
 
 (defmacro slack-counts-with (counts id &rest found)
+  "Locate the count for ID in COUNTS and evaluate FOUND with `count' bound to it."
   (declare (indent 2) (debug t))
   `(slack-if-let* ((count (slack-counts-find ,counts ,id)))
        (progn
          ,@found)))
 
 (cl-defmethod slack-counts-im-unread-p ((this slack-counts) im)
+  "Return non-nil when IM has unread messages according to counts THIS."
   (with-slots (ims) this
     (slack-counts-with ims (oref im id)
       (oref count has-unreads))))
 
 (cl-defmethod slack-counts-channel-unread-p ((this slack-counts) channel)
+  "Return non-nil when CHANNEL has unread messages according to counts THIS."
   (with-slots (channels) this
     (slack-counts-with channels (oref channel id)
       (oref count has-unreads))))
 
 (cl-defmethod slack-counts-mpim-unread-p ((this slack-counts) mpim)
+  "Return non-nil when MPIM has unread messages according to counts THIS."
   (with-slots (mpims) this
     (slack-counts-with mpims (oref mpim id)
       (oref count has-unreads))))
 
 (cl-defmethod slack-counts-im-mention-count ((this slack-counts) im)
+  "Return the mention count for IM recorded in counts THIS."
   (with-slots (ims) this
     (or (slack-counts-with ims (oref im id)
           (oref count mention-count))
         0)))
 
 (cl-defmethod slack-counts-channel-mention-count ((this slack-counts) channel)
+  "Return the mention count for CHANNEL recorded in counts THIS."
   (with-slots (channels) this
     (or (slack-counts-with channels (oref channel id)
           (oref count mention-count))
         0)))
 
 (cl-defmethod slack-counts-mpim-mention-count ((this slack-counts) mpim)
+  "Return the mention count for MPIM recorded in counts THIS."
   (with-slots (mpims) this
     (or (slack-counts-with mpims (oref mpim id)
           (oref count mention-count))
         0)))
 
 (cl-defmethod slack-counts-im-set-mention-count ((this slack-counts) im value)
+  "Set the mention count for IM to VALUE in counts THIS."
   (with-slots (ims) this
     (slack-counts-with ims (oref im id)
       (oset count mention-count value))))
 
 (cl-defmethod slack-counts-channel-set-mention-count ((this slack-counts) channel value)
+  "Set the mention count for CHANNEL to VALUE in counts THIS."
   (with-slots (channels) this
     (slack-counts-with channels (oref channel id)
       (oset count mention-count value))))
 
 (cl-defmethod slack-counts-mpim-set-mention-count ((this slack-counts) mpim value)
+  "Set the mention count for MPIM to VALUE in counts THIS."
   (with-slots (mpims) this
     (slack-counts-with mpims (oref mpim id)
       (oset count mention-count value))))
 
 (cl-defmethod slack-counts-im-set-has-unreads ((this slack-counts) im value)
+  "Set the has-unreads flag for IM to VALUE in counts THIS."
   (with-slots (ims) this
     (slack-counts-with ims (oref im id)
       (oset count has-unreads value))))
 
 (cl-defmethod slack-counts-channel-set-has-unreads ((this slack-counts) channel value)
+  "Set the has-unreads flag for CHANNEL to VALUE in counts THIS."
   (with-slots (channels) this
     (slack-counts-with channels (oref channel id)
       (oset count has-unreads value))))
 
 (cl-defmethod slack-counts-mpim-set-has-unreads ((this slack-counts) mpim value)
+  "Set the has-unreads flag for MPIM to VALUE in counts THIS."
   (with-slots (mpims) this
     (slack-counts-with mpims (oref mpim id)
       (oset count has-unreads value))))
 
 (cl-defmethod slack-counts-should-update-latest-p ((this slack-counts-conversation) ts)
+  "Return non-nil when TS is newer than the latest-ts stored on THIS."
   (with-slots (latest) this
     (string< latest ts)))
 
 (cl-defmethod slack-counts-conversation-update-latest ((this slack-counts-conversation) ts)
+  "Update the latest-ts of conversation THIS to TS when TS is newer."
   (when (slack-counts-should-update-latest-p this ts)
     (oset this latest ts)))
 
 (cl-defmethod slack-counts-im-update-latest ((this slack-counts) im ts)
+  "Update the latest-ts cached for IM in counts THIS to TS when newer."
   (with-slots (ims) this
     (slack-counts-with ims (oref im id)
       (slack-counts-conversation-update-latest count ts))))
 
 (cl-defmethod slack-counts-channel-update-latest ((this slack-counts) channel ts)
+  "Update the latest-ts cached for CHANNEL in counts THIS to TS when newer."
   (with-slots (channels) this
     (slack-counts-with channels (oref channel id)
       (slack-counts-conversation-update-latest count ts))))
 
 (cl-defmethod slack-counts-mpim-update-latest ((this slack-counts) mpim ts)
+  "Update the latest-ts cached for MPIM in counts THIS to TS when newer."
   (with-slots (mpims) this
     (slack-counts-with mpims (oref mpim id)
       (slack-counts-conversation-update-latest count ts))))
 
 (cl-defmethod slack-counts-im-latest ((this slack-counts) im)
+  "Return the latest-message timestamp for IM recorded in counts THIS."
   (with-slots (ims) this
     (slack-counts-with ims (oref im id)
       (oref count latest))))
 
 (cl-defmethod slack-counts-channel-latest ((this slack-counts) channel)
+  "Return the latest-message timestamp for CHANNEL recorded in counts THIS."
   (with-slots (channels) this
     (slack-counts-with channels (oref channel id)
       (oref count latest))))
 
 (cl-defmethod slack-counts-mpim-latest ((this slack-counts) mpim)
+  "Return the latest-message timestamp for MPIM recorded in counts THIS."
   (with-slots (mpims) this
     (slack-counts-with mpims (oref mpim id)
       (oref count latest))))
 
 (cl-defmethod slack-counts-update-threads ((this slack-counts) has-unreads mention-count)
+  "Update the threads counts on THIS with HAS-UNREADS and MENTION-COUNT."
   (with-slots (threads) this
     (oset threads has-unreads has-unreads)
     (oset threads mention-count mention-count))

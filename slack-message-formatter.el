@@ -56,17 +56,21 @@
     (define-key keymap [mouse-1] #'slack-reaction-toggle)
     keymap))
 
-(cl-defgeneric slack-buffer-toggle-reaction (buffer reaction))
+(cl-defgeneric slack-buffer-toggle-reaction (buffer reaction)
+  "Toggle REACTION on the current message of BUFFER.")
 
 (defun slack-reaction-toggle ()
+  "Toggle the reaction at point in the current Slack buffer."
   (interactive)
   (slack-if-let* ((buffer slack-current-buffer)
                   (reaction (get-text-property (point) 'reaction)))
       (slack-buffer-toggle-reaction buffer reaction)))
 
-(cl-defgeneric slack-buffer-reaction-help-text (buffer reaction))
+(cl-defgeneric slack-buffer-reaction-help-text (buffer reaction)
+  "Return help-echo text describing REACTION for BUFFER.")
 
 (defun slack-reaction-help-echo (_window _string pos)
+  "Return the help-echo string for the reaction at POS."
   (slack-if-let* ((buffer slack-current-buffer)
                   (reaction (get-text-property pos 'reaction)))
       (slack-buffer-reaction-help-text buffer reaction)))
@@ -125,6 +129,7 @@ property rendering."
      'permalink (oref m permalink))))
 
 (cl-defmethod slack-file-deleted-p ((file slack-file))
+  "Return non-nil when FILE has been deleted on Slack."
   (let ((mode (oref file mode)))
     (string= mode "tombstone")))
 
@@ -145,6 +150,7 @@ download button when the file is downloadable."
                  (concat " " (slack-file-download-button file))))))))
 
 (cl-defmethod slack-file-summary ((file slack-file) _ts team)
+  "Return a short summary string for the file."
   (if (slot-boundp file 'permalink)
       (with-slots (mode permalink) file
         (if (slack-file-deleted-p file)
@@ -168,15 +174,18 @@ download button when the file is downloadable."
     (define-key map (kbd "RET") #'slack-toggle-email-expand)
     map))
 
-(cl-defgeneric slack-buffer-toggle-email-expand (buffer file-id))
+(cl-defgeneric slack-buffer-toggle-email-expand (buffer file-id)
+  "Toggle expand/collapse of the email file FILE-ID in BUFFER.")
 
 (defun slack-toggle-email-expand ()
+  "Toggle expansion of the email file at point."
   (interactive)
   (let ((buffer slack-current-buffer))
     (slack-if-let* ((file-id (get-text-property (point) 'id)))
         (slack-buffer-toggle-email-expand buffer file-id))))
 
 (cl-defmethod slack-file-summary ((this slack-file-email) ts team)
+  "Return a short summary string for the file email."
   (with-slots (preview-plain-text plain-text is-expanded) this
     (let* ((has-more (< (length preview-plain-text)
                         (length plain-text)))
@@ -197,6 +206,7 @@ download button when the file is downloadable."
                           'keymap slack-expand-email-keymap)))))
 
 (cl-defmethod slack-message-to-string ((this slack-file) ts team)
+  "Render the file as a displayable string."
   (if (slack-file-hidden-by-limit-p this)
       (slack-file-hidden-by-limit-message this)
     (let ((body (or (condition-case err
@@ -213,6 +223,7 @@ download button when the file is downloadable."
                      'slack-file-url (oref this url-private-download)))))))
 
 (cl-defmethod slack-message-to-alert ((m slack-message) team)
+  "Return a plain-text alert string for message M on TEAM."
   (with-slots (text attachments files) m
     (let ((alert-text
            (cond

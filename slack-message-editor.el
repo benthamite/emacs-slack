@@ -51,6 +51,7 @@
   (slack-buffer-enable-emojify))
 
 (defun slack-message-share--send (team room ts msg)
+  "Share message at TS from ROOM on TEAM to a user-selected channel with body MSG."
   (let* ((slack-room-list (slack-message-room-list team))
          (share-channel-id (oref (slack-select-from-list
                                      (slack-room-list
@@ -75,6 +76,7 @@
         :success #'on-success)))))
 
 (defun slack-message-cancel-edit ()
+  "Abort the current edit/compose and close its buffer."
   (interactive)
   (let ((buffer (slack-buffer-buffer slack-current-buffer)))
     (with-current-buffer buffer
@@ -83,12 +85,14 @@
         (delete-window)))))
 
 (defun slack-message-send-from-buffer ()
+  "Send the entire current buffer text as a Slack message."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer)
                   (text (buffer-substring-no-properties (point-min) (point-max))))
       (slack-buffer-send-message buf text)))
 
 (defun slack-message--edit (channel team ts text)
+  "Edit the message at TS in CHANNEL for TEAM, replacing its body with TEXT."
   (cl-labels ((on-edit (&key data &allow-other-keys)
                        (slack-request-handle-error
                         (data "slack-message--edit"))))

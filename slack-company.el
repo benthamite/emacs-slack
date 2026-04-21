@@ -159,6 +159,10 @@
 ;; [2]: https://github.com/minad/cape?tab=readme-ov-file#company-adapter
 
 (defun slack--grab (regexp &optional expression limit)
+  "Return a match string for REGEXP if it matches text before point.
+If EXPRESSION is non-nil, return the match string for the
+respective parenthesized expression in REGEXP.  LIMIT bounds the
+backward match, like the LIMIT argument of `looking-back'."
   (when (looking-back regexp limit)
     (or (match-string-no-properties (or expression 0)) "")))
 
@@ -171,6 +175,9 @@ Matching is limited to the current line."
     (slack--grab regexp expression (line-beginning-position))))
 
 (defun slack--completion-doc-buffer (&optional string)
+  "Return a documentation buffer populated with STRING.
+Used as the company/cape `:company-doc-buffer' backend so the
+candidate's documentation can be displayed inline."
   (with-current-buffer (get-buffer-create " *slack-completion-documentation*")
     (erase-buffer)
     (fundamental-mode)

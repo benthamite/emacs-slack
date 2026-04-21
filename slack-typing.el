@@ -56,10 +56,12 @@ If USER-NAMES provided, also create `slack-typing-user' instances."
                    :users users)))
 
 (cl-defmethod slack-equalp ((this slack-typing-user) other)
+  "Return non-nil when the typing user equals the other argument."
   (string= (oref this user-name)
            (oref other user-name)))
 
 (cl-defmethod slack-typing-add-user ((this slack-typing) user limit)
+  "Add USER to the typing state THIS with expiration LIMIT."
   (let ((new-user (slack-typing-user-create user limit)))
     (oset this users (cons new-user
                            (cl-remove-if #'(lambda (old-user)
@@ -67,6 +69,7 @@ If USER-NAMES provided, also create `slack-typing-user' instances."
                                          (oref this users))))))
 
 (cl-defmethod slack-typing-set-limit ((this slack-typing) limit)
+  "Set the expiration time LIMIT on the typing state THIS."
   (oset this limit limit))
 
 (defun slack-typing-display (team-id)

@@ -345,10 +345,12 @@ properties are unreliable."
              return (oref msg channel))))
 
 (cl-defmethod slack-buffer-name ((_class (subclass slack-activity-feed-buffer)) team)
+  "Return the display buffer name for the activity feed buffer."
   (format "*slack: %s Activity Feed*"
           (oref team name)))
 
 (cl-defmethod slack-buffer-name ((this slack-activity-feed-buffer))
+  "Return the display buffer name for the activity feed buffer."
   (format "*slack: %s Activity Feed*"
           (slack-team-name (slack-buffer-team this))))
 
@@ -356,12 +358,15 @@ properties are unreliable."
   "activity feed")
 
 (cl-defmethod slack-buffer-key ((_this slack-activity-feed-buffer))
+  "Return the lookup key identifying the buffer for the activity feed buffer."
   (slack-buffer-key 'slack-activity-feed-buffer))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-activity-feed-buffer)))
+  "Return the team-scoped class-level buffer key for the activity feed buffer."
   'slack-activity-feed-buffer)
 
 (defun slack-create-activity-feed-buffer (activity-feed team)
+  "Create and return a new activity feed buffer instance from PAYLOAD."
   (slack-team-ensure-registered team)
   (let ((existing (slack-buffer-find 'slack-activity-feed-buffer team)))
     (if (and existing
@@ -477,6 +482,7 @@ Eagerly resolves the emoji shortcode to Unicode when available."
    (item :initarg :item :type activity-item)))
 
 (cl-defmethod slack-activity-to-string ((this slack-activity) team)
+  "Render activity THIS on TEAM as a single-line string with an unread marker."
   (with-slots (is-unread item) this
     (format "%s %s" (if is-unread "*" " ") (slack-activity-item-to-string item team))))
 
@@ -508,6 +514,7 @@ relying on buffer text properties."
         (slack-buffer-replace af-buffer message))))
 
 (cl-defmethod slack-buffer-insert ((this slack-activity-feed-buffer) activity &rest _args)
+  "Insert a rendered representation of the activity feed buffer into the current buffer."
   (let* ((team (slack-buffer-team this))
          (time (slack-ts-to-time (oref activity feed-ts)))
          (is-unread (oref activity is-unread))
@@ -597,6 +604,7 @@ relying on buffer text properties."
     (oref activity-feed pagination)))
 
 (cl-defmethod slack-buffer-insert-history ((this slack-activity-feed-buffer))
+  "Insert historical messages into the buffer for the activity feed buffer."
   (with-slots (activity-feed) this
     (let* ((cur-point (point))
            (activities (-drop (oref activity-feed last) (oref activity-feed activities))))
@@ -606,6 +614,7 @@ relying on buffer text properties."
     ))
 
 (cl-defmethod slack-buffer-request-history ((this slack-activity-feed-buffer) after-success)
+  "Request older history for the activity feed buffer from the Slack API."
   (with-slots (activity-feed) this
     (let ((team (slack-buffer-team this)))
       (slack-activity-feed-request
@@ -632,6 +641,7 @@ relying on buffer text properties."
        (oref activity-feed pagination)))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-activity-feed-buffer))
+  "Initialize and return the display buffer for the activity feed buffer."
   (let ((buffer (cl-call-next-method)))
     (with-current-buffer buffer
       (slack-activity-feed-buffer-mode)
@@ -643,9 +653,11 @@ relying on buffer text properties."
                      do (slack-buffer-insert this m))))))
     buffer))
 
-(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-activity-feed-buffer)))
+(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-activity-feed-buffer))
+  "Remove the \"load more\" marker from the buffer for the activity feed buffer.")
 
-(cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-activity-feed-buffer)))
+(cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-activity-feed-buffer))
+  "Position point so history can be inserted in the activity feed buffer.")
 
 (cl-defmethod slack-buffer-load-more ((this slack-activity-feed-buffer))
   "Load and append the next page of activity feed results."
@@ -661,6 +673,7 @@ relying on buffer text properties."
       (slack-buffer-request-history this #'after-success))))
 
 (cl-defmethod slack-buffer-insert--history ((this slack-activity-feed-buffer))
+  "Insert loaded history items into the buffer for the activity feed buffer."
   (slack-buffer-insert-history this)
   (unless (slack-buffer-has-next-page-p this)
     (let ((lui-time-stamp-position nil))

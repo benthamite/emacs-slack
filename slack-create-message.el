@@ -33,14 +33,17 @@
 (require 'slack-attachment)
 
 (defun slack-reaction-create (payload)
+  "Create and return a new `slack-reaction' from PAYLOAD."
   (apply #'make-instance 'slack-reaction
          (slack-collect-slots 'slack-reaction payload)))
 
 (defun slack-reply-broadcast-message-create (payload)
+  "Create and return a new `slack-reply-broadcast-message' from PAYLOAD."
   (apply #'make-instance 'slack-reply-broadcast-message
          (slack-collect-slots 'slack-reply-broadcast-message payload)))
 
 (defun slack-room-or-children-p (room)
+  "Return non-nil when ROOM is a `slack-room' or known subclass instance."
   (when (and room
              (eieio-object-p room))
     (cl-case (eieio-object-class-name room)
@@ -51,12 +54,14 @@
       (t nil))))
 
 (cl-defmethod slack-message-set-file ((m slack-message) payload)
+  "Populate the files slot of M from the :files list in PAYLOAD."
   (let ((files (mapcar #'(lambda (file) (slack-file-create file))
                        (plist-get payload :files))))
     (oset m files files)
     m))
 
 (cl-defmethod slack-message-set-attachments ((m slack-message) payload)
+  "Populate the attachments slot of M from the :attachments list in PAYLOAD."
   (let ((attachments (append (plist-get payload :attachments) nil)))
     (when (< 0 (length attachments))
       (oset m attachments
@@ -64,16 +69,21 @@
   m)
 
 (defun slack-message-set-blocks (message payload)
+  "Populate the blocks slot of MESSAGE from the :blocks list in PAYLOAD."
   (oset message blocks (mapcar #'slack-create-layout-block
                                (plist-get payload :blocks))))
 
 (cl-defmethod slack-message-set-edited ((this slack-message) payload)
+  "Populate the edited slot of THIS from the :edited map in PAYLOAD."
   (if (plist-get payload :edited)
       (oset this edited (apply #'make-instance 'slack-message-edited
                                (slack-collect-slots 'slack-message-edited
                                                     (plist-get payload :edited))))))
 
 (defun slack-message-create (payload team &optional room)
+  "Create and return a message of the appropriate subclass from PAYLOAD.
+TEAM is used for logging.  Optional ROOM supplies the channel id when
+PAYLOAD lacks one."
   (when payload
     (plist-put payload :reactions (append (plist-get payload :reactions) nil))
     (plist-put payload :attachments (append (plist-get payload :attachments) nil))

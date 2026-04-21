@@ -65,6 +65,7 @@ HAS-MORE indicates whether more replies remain on the server."
       buf)))
 
 (cl-defmethod slack-buffer-name ((this slack-thread-message-buffer))
+  "Return the display buffer name for the thread message buffer."
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
                   (room-name (slack-room-name room team)))
@@ -73,21 +74,26 @@ HAS-MORE indicates whether more replies remain on the server."
               (oref this thread-ts))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-thread-message-buffer)) _room ts)
+  "Return the class-level buffer key for the thread message buffer."
   ts)
 
 (cl-defmethod slack-buffer-key ((this  slack-thread-message-buffer))
+  "Return the lookup key identifying the buffer for the thread message buffer."
   (slack-buffer-key 'slack-thread-message-buffer
                     (slack-buffer-room this)
                     (oref this thread-ts)))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-thread-message-buffer)))
+  "Return the team-scoped class-level buffer key for the thread message buffer."
   'slack-thread-message-buffer)
 
 (cl-defmethod slack-buffer-update-last-read ((this slack-thread-message-buffer) message)
+  "Record the timestamp of MESSAGE as the last-read position of buffer THIS."
   (when message
     (oset this last-read (slack-ts message))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-thread-message-buffer))
+  "Initialize and return the display buffer for the thread message buffer."
   (let* ((buf (cl-call-next-method)))
     (when buf
       (with-current-buffer buf
@@ -113,16 +119,21 @@ HAS-MORE indicates whether more replies remain on the server."
     buf))
 
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-thread-message-buffer))
+  "Return non-nil when the thread message buffer has more history to load."
   (oref this has-more))
 
-(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-thread-message-buffer)))
+(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-thread-message-buffer))
+  "Remove the \"load more\" marker from the buffer for the thread message buffer.")
 
-(cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-thread-message-buffer)))
+(cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-thread-message-buffer))
+  "Position point so history can be inserted in the thread message buffer.")
 
 (cl-defmethod slack-buffer-insert--history ((this slack-thread-message-buffer))
+  "Insert loaded history items into the buffer for the thread message buffer."
   (slack-buffer-insert-history this))
 
 (cl-defmethod slack-buffer-request-history ((this slack-thread-message-buffer) after-success)
+  "Request older history for the thread message buffer from the Slack API."
   (with-slots (thread-ts last-read) this
     (slack-if-let* ((team (slack-buffer-team this))
                     (room (slack-buffer-room this))
@@ -136,6 +147,7 @@ HAS-MORE indicates whether more replies remain on the server."
                                 :oldest last-read)))))
 
 (cl-defmethod slack-buffer-update-mark ((this slack-thread-message-buffer))
+  "Update the read-mark position for the thread message buffer."
   (with-slots (last-read thread-ts) this
     (slack-if-let* ((team (slack-buffer-team this))
                     (room (slack-buffer-room this))
@@ -146,6 +158,7 @@ HAS-MORE indicates whether more replies remain on the server."
                            team))))
 
 (cl-defmethod slack-buffer-insert-history ((this slack-thread-message-buffer))
+  "Insert historical messages into the buffer for the thread message buffer."
   (with-slots (thread-ts last-read) this
     (slack-if-let* ((team (slack-buffer-team this))
                     (room (slack-buffer-room this))
@@ -161,6 +174,7 @@ HAS-MORE indicates whether more replies remain on the server."
 
 
 (cl-defmethod slack-buffer-send-message ((this slack-thread-message-buffer) message)
+  "Send a message from the thread message buffer."
   (with-slots (thread-ts) this
     (slack-thread-send-message (slack-buffer-room this)
                                (slack-buffer-team this)
@@ -168,6 +182,8 @@ HAS-MORE indicates whether more replies remain on the server."
                                thread-ts)))
 
 (defun slack-thread-send-message (room team message thread-ts &optional files)
+  "Send MESSAGE as a reply to the thread at THREAD-TS in ROOM on TEAM.
+Optional FILES are sent as attachments."
   (let ((broadcast (if (eq slack-thread-also-send-to-room 'ask)
                        (y-or-n-p (format "Also send to %s ? "
                                          (slack-room-name room team)))
@@ -181,16 +197,19 @@ HAS-MORE indicates whether more replies remain on the server."
                                    :files files))))
 
 (defun slack-thread-message--send (message)
+  "Send MESSAGE from the current thread message buffer."
   (slack-if-let* ((buf slack-current-buffer))
       (slack-buffer-send-message buf message)))
 
 (cl-defmethod slack-buffer-add-reaction-to-message ((this slack-thread-message-buffer) reaction ts)
+  "Add a reaction to the message selected in the thread message buffer."
   (slack-message-reaction-add reaction
                               ts
                               (slack-buffer-room this)
                               (slack-buffer-team this)))
 
 (cl-defmethod slack-buffer-remove-reaction-from-message ((this slack-thread-message-buffer) ts)
+  "Remove a reaction from the message at point in the thread message buffer."
   (let* ((team (slack-buffer-team this))
          (room (slack-buffer-room this))
          (message (slack-room-find-message room ts))
@@ -199,6 +218,7 @@ HAS-MORE indicates whether more replies remain on the server."
     (slack-message-reaction-remove reaction ts room team)))
 
 (cl-defmethod slack-buffer-add-star ((this slack-thread-message-buffer) ts &optional due-in-ms)
+  "Star the item at point in the thread message buffer."
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
                   (message (slack-room-find-message room ts)))
@@ -208,6 +228,7 @@ HAS-MORE indicates whether more replies remain on the server."
                               team)))
 
 (cl-defmethod slack-buffer-remove-star ((this slack-thread-message-buffer) ts)
+  "Remove the star from the item at point in the thread message buffer."
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
                   (message (slack-room-find-message room ts)))
@@ -217,6 +238,7 @@ HAS-MORE indicates whether more replies remain on the server."
                               team)))
 
 (cl-defmethod slack-buffer-update ((this slack-thread-message-buffer) message &key replace)
+  "Update the thread message buffer after new data arrives."
   (if replace (slack-buffer-replace this message)
     (unless (slack-buffer-message-exists-p this (slack-ts message))
       (let ((buffer (slack-buffer-buffer this)))
@@ -226,18 +248,21 @@ HAS-MORE indicates whether more replies remain on the server."
         (slack-buffer-update-mark this)))))
 
 (cl-defmethod slack-buffer-display-edit-message-buffer ((this slack-thread-message-buffer) ts)
+  "Open an edit buffer for the message at point in the thread message buffer."
   (let* ((team (slack-buffer-team this))
          (room (slack-buffer-room this))
          (buf (slack-create-edit-message-buffer room team ts)))
     (slack-buffer-display buf)))
 
 (cl-defmethod slack-buffer-share-message ((this slack-thread-message-buffer) ts)
+  "Share the message at point from the thread message buffer to another conversation."
   (let* ((team (slack-buffer-team this))
          (room (slack-buffer-room this))
          (buf (slack-create-message-share-buffer room team ts)))
     (slack-buffer-display buf)))
 
 (cl-defmethod slack-file-upload-params ((this slack-thread-message-buffer))
+  "Return the HTTP parameters used to upload the thread message buffer."
   (list (cons "thread_ts" (oref this thread-ts))
         (cons "channels" (oref (slack-buffer-room this) id))))
 

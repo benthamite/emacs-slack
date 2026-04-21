@@ -146,9 +146,11 @@
 ;;; Class Methods
 
 (cl-defmethod slack-buffer-name ((_class slack-scheduled-messages-buffer) team)
+  "Return the display buffer name for the scheduled messages buffer."
   (format "*slack %s Scheduled Msgs*" (oref team name)))
 
 (cl-defmethod slack-buffer-name ((this slack-scheduled-messages-buffer))
+  "Return the display buffer name for the scheduled messages buffer."
   (format "*slack %s Scheduled Msgs*" (slack-team-name (slack-buffer-team this))))
 
 (cl-defmethod slack-buffer-key ((_class slack-scheduled-messages-buffer))
@@ -158,6 +160,7 @@
   "scheduled-messages")
 
 (cl-defmethod slack-team-buffer-key ((_class slack-scheduled-messages-buffer))
+  "Return the team-scoped buffer key for the scheduled messages buffer."
   'slack-scheduled-messages-buffer)
 
 (cl-defmethod slack-scheduled-message-to-string ((msg slack-scheduled-message) team)
@@ -198,19 +201,26 @@
 
 
 
-(cl-defmethod slack-buffer-has-next-page-p ((_this slack-scheduled-messages-buffer)))
+(cl-defmethod slack-buffer-has-next-page-p ((_this slack-scheduled-messages-buffer))
+  "Return non-nil when the scheduled messages buffer has more history to load.")
 
-(cl-defmethod slack-buffer-insert-history ((_this slack-scheduled-messages-buffer)))
+(cl-defmethod slack-buffer-insert-history ((_this slack-scheduled-messages-buffer))
+  "Insert historical messages into the buffer for the scheduled messages buffer.")
 
-(cl-defmethod slack-buffer-request-history ((_this slack-scheduled-messages-buffer) _after-success))
+(cl-defmethod slack-buffer-request-history ((_this slack-scheduled-messages-buffer) _after-success)
+  "Request older history for the scheduled messages buffer from the Slack API.")
 
-(cl-defmethod slack-buffer-loading-message-end-point ((_this slack-scheduled-messages-buffer)))
+(cl-defmethod slack-buffer-loading-message-end-point ((_this slack-scheduled-messages-buffer))
+  "Return the buffer position where the loading indicator ends in the scheduled messages buffer.")
 
-(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-scheduled-messages-buffer)))
+(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-scheduled-messages-buffer))
+  "Remove the \"load more\" marker from the buffer for the scheduled messages buffer.")
 
-(cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-scheduled-messages-buffer)))
+(cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-scheduled-messages-buffer))
+  "Position point so history can be inserted in the scheduled messages buffer.")
 
-(cl-defmethod slack-buffer-insert--history ((_this slack-scheduled-messages-buffer)))
+(cl-defmethod slack-buffer-insert--history ((_this slack-scheduled-messages-buffer))
+  "Insert loaded history items into the buffer for the scheduled messages buffer.")
 
 
 ;;; Interactive Functions

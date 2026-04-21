@@ -33,10 +33,12 @@
   ((message :initarg :message)))
 
 (cl-defmethod slack-message-user-ids ((this slack-pinned-item))
+  "Return the list of user IDs referenced by the pinned item."
   (with-slots (message) this
     (slack-message-user-ids message)))
 
 (defun slack-pinned-item-create (payload room team)
+  "Create and return a `slack-pinned-item' from PAYLOAD for ROOM on TEAM."
   (let* ((type (plist-get payload :type))
          (message (cond
                    ((string= type "message")
@@ -52,9 +54,11 @@
     (slack-pinned-item :message message)))
 
 (cl-defmethod slack-ts ((this slack-pinned-item))
+  "Return the timestamp string identifying the pinned item."
   (slack-ts (oref this message)))
 
 (cl-defmethod slack-message-to-string ((this slack-pinned-item) team)
+  "Render the pinned item as a displayable string."
   (with-slots (message) this
     (if (or (slack-file-p message)
             (slack-file-email-p message))
@@ -62,6 +66,7 @@
       (slack-message-to-string message team))))
 
 (defun slack-pins-list (room team after-success)
+  "Fetch pinned items in ROOM on TEAM, calling AFTER-SUCCESS with the list."
   (cl-labels
       ((callback (items)
                  (funcall after-success items))

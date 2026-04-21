@@ -41,6 +41,7 @@
   :group 'slack)
 
 (defun slack-display-inline-action ()
+  "Replace Slack `<slack-action://.../...|label>' tokens with clickable labels."
   (goto-char (point-min))
   (let ((regexp "<slack-action://\\(.*?\\)/\\(.*?\\)|\\(.*?\\)>"))
     (while (re-search-forward regexp (point-max) t)
@@ -55,6 +56,8 @@
                                    'keymap slack-action-keymap))))))
 
 (defun slack-actions-run (ts room type action-id app-id team)
+  "Invoke a bot action on the message at TS in ROOM for TEAM.
+TYPE, ACTION-ID and APP-ID identify which action to run."
   (slack-if-let*
       ((params (list (cons "message_ts" ts)
                      (cons "channel" (oref room id))
@@ -79,6 +82,9 @@
           :success #'success)))))
 
 (defun slack-actions-list (team &optional after-success handle-error)
+  "Fetch the list of app actions available on TEAM.
+AFTER-SUCCESS is called with the action list; HANDLE-ERROR is an
+optional error fallback."
   (cl-labels
       ((success (&key data &allow-other-keys)
                 (slack-request-handle-error
@@ -93,6 +99,7 @@
       :success #'success))))
 
 (defun slack-actions-select (actions)
+  "Prompt for one of the actions in ACTIONS and return its (APP . ACTION) pair."
   (cl-labels ((display-p (action)
                          (if (functionp (plist-get action :display-p))
                              (funcall (plist-get action :display-p))

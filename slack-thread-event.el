@@ -30,6 +30,7 @@
 (defclass slack-thread-event (slack-event slack-message-event-processable) ())
 
 (cl-defmethod slack-event-find-message ((this slack-thread-event) team)
+  "Return the message referenced by the thread event event from TEAM, or nil."
   (let* ((payload (oref this payload))
          (subscription (plist-get payload :subscription))
          (channel (plist-get subscription :channel))
@@ -40,10 +41,12 @@
 (defclass slack-thread-marked-event (slack-thread-event) ())
 
 (defun slack-create-thread-marked-event (payload)
+  "Create and return a new thread marked event instance from PAYLOAD."
   (make-instance 'slack-thread-marked-event
                  :payload payload))
 
 (cl-defmethod slack-event-save-message ((this slack-thread-marked-event) message team)
+  "Persist the message carried by the thread marked event event into TEAM."
   (slack-if-let* ((room (slack-room-find message team)))
       (let* ((payload (oref this payload))
              (subscription (plist-get payload :subscription))
@@ -54,10 +57,12 @@
 (defclass slack-thread-subscribed-event (slack-thread-event) ())
 
 (defun slack-create-thread-subscribed-event (payload)
+  "Create and return a new thread subscribed event instance from PAYLOAD."
   (make-instance 'slack-thread-subscribed-event
                  :payload payload))
 
 (cl-defmethod slack-event-save-message ((this slack-thread-subscribed-event) message team)
+  "Persist the message carried by the thread subscribed event event into TEAM."
   (slack-if-let* ((room (slack-room-find message team)))
       (let* ((payload (oref this payload))
              (subscription (plist-get payload :subscription))
@@ -69,10 +74,12 @@
 (defclass slack-thread-unsubscribed-event (slack-thread-event) ())
 
 (defun slack-create-thread-unsubscribed-event (payload)
+  "Create and return a new thread unsubscribed event instance from PAYLOAD."
   (make-instance 'slack-thread-unsubscribed-event
                  :payload payload))
 
 (cl-defmethod slack-event-save-message ((this slack-thread-unsubscribed-event) message team)
+  "Persist the message carried by the thread unsubscribed event event into TEAM."
   (slack-if-let* ((room (slack-room-find message team)))
       (let* ((payload (oref this payload))
              (subscription (plist-get payload :subscription))

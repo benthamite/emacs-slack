@@ -33,6 +33,7 @@
   ((thread-ts :initarg :thread-ts :type string)))
 
 (cl-defmethod slack-buffer-name ((this slack-thread-message-compose-buffer))
+  "Return the display buffer name for the thread message compose buffer."
   (let ((team (slack-buffer-team this))
         (room (slack-buffer-room this))
         (ts (oref this thread-ts)))
@@ -42,17 +43,21 @@
             ts)))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-thread-message-compose-buffer)) _room ts)
+  "Return the class-level buffer key for the thread message compose buffer."
   ts)
 
 (cl-defmethod slack-buffer-key ((this slack-thread-message-compose-buffer))
+  "Return the lookup key identifying the buffer for the thread message compose buffer."
   (slack-buffer-key 'slack-thread-message-compose-buffer
                     (slack-buffer-room this)
                     (oref this thread-ts)))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-thread-message-compose-buffer)))
+  "Return the team-scoped class-level buffer key for the thread message compose buffer."
   'slack-thread-message-compose-buffer)
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-thread-message-compose-buffer))
+  "Initialize and return the display buffer for the thread message compose buffer."
   (let ((buf (cl-call-next-method)))
     (with-current-buffer buf
       (slack-message-compose-buffer-mode)
@@ -72,6 +77,7 @@
       buf)))
 
 (cl-defmethod slack-buffer-send-message ((this slack-thread-message-compose-buffer) message)
+  "Send a message from the thread message compose buffer."
   (with-slots (thread-ts) this
     (slack-thread-send-message (slack-buffer-room this)
                                (slack-buffer-team this)
@@ -81,6 +87,7 @@
   (cl-call-next-method))
 
 (cl-defmethod slack-buffer-display-message-compose-buffer ((this slack-thread-message-buffer))
+  "Open a compose buffer targeting the thread message buffer."
   (with-slots (thread-ts) this
     (let ((buf (slack-create-thread-message-compose-buffer
                 (slack-buffer-room this)

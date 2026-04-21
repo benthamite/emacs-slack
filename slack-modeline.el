@@ -147,6 +147,10 @@ exactly.  Skips the call if less than
       (slack-activity-feed-refresh-unread-summary))))
 
 (defun slack-team-counts-summary (team)
+  "Return an alist summarizing unread state for TEAM.
+The result has the form `((thread . (HAS-UNREADS . COUNT))
+(channel . (HAS-UNREADS . COUNT)))', aggregating the mention
+counts tracked by `slack-counts'."
   (with-slots (counts) team
     (if counts
         (let* ((summary (slack-counts-summary counts))

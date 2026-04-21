@@ -239,6 +239,7 @@ You can add it to append custom instructions that depend on context."
 
 ;;;###autoload
 (defun slack-start (&optional team)
+  "Connect TEAM (or all registered teams when nil) to Slack."
   (interactive
    (list
     slack-current-team))
@@ -328,10 +329,12 @@ Available options (property name, type, default value)
       (error ":token is required"))))
 
 (cl-defmethod slack-team-connect ((team slack-team))
+  "Start TEAM's connection unless it is already connected."
   (unless (slack-team-connectedp team)
     (slack-start team)))
 
 (defun slack-change-current-team ()
+  "Prompt for a registered team and set it as `slack-current-team'."
   (interactive)
   (let* ((alist (mapcar #'(lambda (team) (cons (slack-team-name team)
                                                (oref team token)))

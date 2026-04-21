@@ -102,6 +102,7 @@
 
 
 (defun slack-attachment-action-create (payload)
+  "Build a `slack-attachment-action' instance from PAYLOAD plist."
   (cl-labels
       ((create-option (option)
          (apply #'make-instance
@@ -158,6 +159,7 @@
                (slack-collect-slots 'slack-attachment-action properties)))))))
 
 (defun slack-attachment-create (payload)
+  "Build a `slack-attachment' or `slack-shared-message' instance from PAYLOAD."
   (setq payload
         (plist-put payload :fields
                    (mapcar #'(lambda (field)
@@ -194,6 +196,7 @@
            (slack-collect-slots 'slack-attachment payload))))
 
 (cl-defmethod slack-image-spec ((this slack-attachment))
+  "Return the image spec for THIS attachment, clamped to the max height."
   (with-slots (image-url image-height image-width) this
     (when image-url
       (let* ((max-height slack-image-max-height)
@@ -221,6 +224,7 @@
                                                    _team
                                                    common-payload
                                                    _service-id)
+  "Return the payload for invoking THIS attachment action, extending COMMON-PAYLOAD."
   (with-slots (id name text type value style) this
     (cons (cons "actions" (list (list (cons "id" id)
                                       (cons "name" name)
@@ -236,6 +240,9 @@
                                                        common-payload
                                                        service-id
                                                        after-success)
+  "Fetch suggestion options for THIS select action in TEAM.
+COMMON-PAYLOAD and SERVICE-ID identify the action; AFTER-SUCCESS is
+invoked with the returned options."
   (with-slots (name) this
     (let ((url "https://slack.com/api/chat.attachmentSuggestion")
           (params (list (cons "service_id" service-id)
@@ -275,6 +282,9 @@
                                                         team
                                                         common-payload
                                                         service-id)
+  "Prompt the user to select options for THIS select action in TEAM.
+COMMON-PAYLOAD and SERVICE-ID identify the action context; the value
+depends on the action's data-source."
   (with-slots (data-source) this
     (cond
      ((string= data-source "external")
@@ -332,6 +342,9 @@
                                                    team
                                                    common-payload
                                                    service-id)
+  "Return the run payload for THIS select action, extending COMMON-PAYLOAD.
+TEAM and SERVICE-ID provide the request context used to fetch
+selected options."
   (with-slots (id name text type value style data-source min-query-length) this
     (slack-if-let*
         ((selected-options (slack-attachment-action-selected-options this
@@ -351,6 +364,7 @@
       (error "Option is not selected"))))
 
 (cl-defmethod slack-attachment-action-confirm ((this slack-attachment-action))
+  "Prompt the user to confirm THIS action; return non-nil if confirmed."
   (with-slots (confirm) this
     (if confirm
         (with-slots (title text ok-text dismiss-text) confirm
@@ -362,12 +376,15 @@
       t)))
 
 (cl-defmethod slack-attachment-callback-id ((this slack-attachment))
+  "Return the callback identifier of THIS attachment."
   (oref this callback-id))
 
 (cl-defmethod slack-attachment-id ((this slack-attachment))
+  "Return the identifier of THIS attachment."
   (oref this id))
 
 (cl-defmethod slack-attachment-action-face ((this slack-attachment-action))
+  "Return the face to use when displaying THIS action, based on its style."
   (with-slots (style) this
     (or (and (string= "danger" style)
              'slack-message-action-danger-face)
@@ -376,10 +393,12 @@
         'slack-message-action-face)))
 
 (cl-defmethod slack-attachment-action-display-text ((this slack-attachment-action))
+  "Return the display text for THIS attachment action, with colons replaced."
   (replace-regexp-in-string ":" " " (oref this text)))
 
 
 (cl-defmethod slack-attachment-action-display-text ((this slack-attachment-select-action))
+  "Return the display text for THIS select action, appending the selected option."
   (let ((base (cl-call-next-method)))
     (with-slots (selected-options) this
       (format "%s%s" base (if (and selected-options (car selected-options))
@@ -390,6 +409,7 @@
 
 (cl-defmethod slack-attachment-action-to-string ((action slack-attachment-select-action)
                                                  attachment _team)
+  "Return the propertized string representation of ACTION within ATTACHMENT."
   (with-slots (id name text type data-source style options option-groups) action
     (let* ((callback-id (slack-attachment-callback-id attachment))
            (attachment-id (slack-attachment-id attachment))
@@ -404,6 +424,7 @@
 
 (cl-defmethod slack-attachment-action-to-string ((action slack-attachment-action)
                                                  attachment _team)
+  "Return the propertized string representation of ACTION within ATTACHMENT."
   (with-slots (id name text type value style) action
     (let* ((callback-id (slack-attachment-callback-id attachment))
            (attachment-id (slack-attachment-id attachment))
@@ -418,6 +439,7 @@
 
 
 (cl-defmethod slack-attachment-header ((attachment slack-attachment))
+  "Return the formatted header string of ATTACHMENT."
   (with-slots (title title-link author-name author-subname) attachment
     (if (or title author-name author-subname)
         (concat (propertize (or (and title title-link (slack-linkfy title title-link))
@@ -441,6 +463,7 @@
         (cl-call-next-method)))))
 
 (cl-defmethod slack-attachment-field-to-string ((field slack-attachment-field) &optional pad)
+  "Format FIELD title and value as a two-line string, indented by PAD."
   (unless pad (setq pad ""))
   (let ((title (propertize (or (oref field title) "") 'face 'slack-attachment-field-title))
         (value (mapconcat #'(lambda (e) (concat pad "    " e))
@@ -451,6 +474,7 @@
             value)))
 
 (cl-defmethod slack-attachment-to-alert ((a slack-attachment))
+  "Return the alert string derived from attachment A."
   (with-slots (title fallback pretext) a
     (if (and title (< 0 (length title)))
         title
@@ -459,9 +483,11 @@
         fallback))))
 
 (cl-defmethod slack-selectable-prompt ((this slack-attachment-select-action))
+  "Return the minibuffer prompt used when selecting the attachment select action."
   (format "%s :" (oref this text)))
 
 (cl-defmethod slack-message-to-string ((attachment slack-attachment) team)
+  "Render the attachment as a displayable string."
   (with-slots
       (fallback text ts color from-url footer fields pretext actions files blocks) attachment
     (let* ((pad-raw (propertize "  | " 'face 'slack-attachment-pad))

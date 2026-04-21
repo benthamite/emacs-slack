@@ -40,12 +40,14 @@
     map))
 
 (defun slack-file-display ()
+  "Open the file info buffer for the file link at point."
   (interactive)
   (slack-if-let* ((id (get-text-property (point) 'file))
                   (buf slack-current-buffer))
       (slack-buffer-display-file buf id)))
 
 (cl-defmethod slack-buffer-display-file ((this slack-buffer) file-id)
+  "Fetch info for FILE-ID and display it in a file info buffer next to THIS."
   (let ((team (slack-buffer-team this)))
     (cl-labels
         ((open (file &rest _args)
@@ -60,6 +62,7 @@
   ((file :initarg :file :type slack-file)))
 
 (cl-defmethod slack-buffer-name ((this slack-file-info-buffer))
+  "Return the display buffer name for the file info buffer."
   (let ((file (oref this file))
         (team (slack-buffer-team this)))
     (format "*slack: %s File: %s"
@@ -68,15 +71,19 @@
                 (oref file id)))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-file-info-buffer)) file)
+  "Return the class-level buffer key for the file info buffer."
   (oref file id))
 
 (cl-defmethod slack-buffer-key ((this slack-file-info-buffer))
+  "Return the lookup key identifying the buffer for the file info buffer."
   (slack-buffer-key 'slack-file-info-buffer (oref this file)))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-file-info-buffer)))
+  "Return the team-scoped class-level buffer key for the file info buffer."
   'slack-file-info-buffer)
 
 (defun slack-create-file-info-buffer (team file)
+  "Create and return a new file info buffer instance from PAYLOAD."
   (slack-if-let* ((buffer (slack-buffer-find 'slack-file-info-buffer team file)))
       (progn
         (oset buffer file file)
@@ -84,6 +91,7 @@
     (slack-file-info-buffer :team-id (oref team id) :file file)))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-file-info-buffer))
+  "Initialize and return the display buffer for the file info buffer."
   (let ((buf (cl-call-next-method)))
     (with-current-buffer buf
       (slack-file-info-buffer-mode)
@@ -92,16 +100,19 @@
     buf))
 
 (cl-defmethod slack-buffer-download-file ((this slack-file-info-buffer) file-id)
+  "Download the file at point in the file info buffer."
   (slack-if-let* ((team (slack-buffer-team this))
                   (file (slack-file-find file-id team)))
       (slack-file-download file team)))
 
 (cl-defmethod slack-buffer-run-file-action ((this slack-file-info-buffer) file-id)
+  "Run the file action associated with the file info buffer."
   (slack-if-let* ((team (slack-buffer-team this))
                   (file (slack-file-find file-id team)))
       (slack-file-run-action file this)))
 
 (cl-defmethod slack-buffer-file-content-to-string ((this slack-file-info-buffer))
+  "Return the HTML-with-CSS content of the file shown in buffer THIS as a string."
   (with-slots (file) this
     (slack-if-let* ((content (oref file content))
                     (html (oref content content-highlight-html))
@@ -111,6 +122,7 @@
       "")))
 
 (cl-defmethod slack-file-body-to-string ((file slack-file))
+  "Render the body of the file as a string."
   (let* ((url (oref file url-private))
          (type (slack-file-type file))
          (size (slack-file-size file))
@@ -122,6 +134,7 @@
                                   type))))
 
 (cl-defmethod slack-file-body-to-string ((this slack-file-email))
+  "Render the body of the file email as a string."
   (let* ((label-face '(:foreground "#586e75" :weight bold))
          (from (format "%s %s"
                        (propertize "From:" 'face label-face)
@@ -152,6 +165,7 @@
                "\n")))
 
 (cl-defmethod slack-message-to-string ((this slack-file-comment) team)
+  "Render the file comment as a displayable string."
   (with-slots (user comment) this
     (let ((name (slack-user-name user team))
           (status (slack-user-status user team)))
@@ -161,6 +175,7 @@
               (slack-unescape comment team)))))
 
 (cl-defmethod slack-buffer-file-to-string ((this slack-file-info-buffer))
+  "Render a file attached to a message in the file info buffer as a string."
   (let* ((file (oref this file))
          (team (slack-buffer-team this))
          (user-name (slack-user-name (oref file user) team))
@@ -199,6 +214,7 @@
                 'file-id (oref file id))))
 
 (cl-defmethod slack-buffer-insert ((this slack-file-info-buffer) &optional not-tracked-p)
+  "Insert a rendered representation of the file info buffer into the current buffer."
   (let ((file (oref this file)))
     (let ((lui-time-stamp-position nil))
       (lui-insert-with-text-properties
@@ -217,11 +233,13 @@
   (goto-char (point-min)))
 
 (cl-defmethod slack-buffer-add-reaction-to-message ((this slack-file-info-buffer) reaction _ts)
+  "Add a reaction to the message selected in the file info buffer."
   (let ((file (oref this file))
         (team (slack-buffer-team this)))
     (slack-file-add-reaction (oref file id) reaction team)))
 
 (cl-defmethod slack-buffer-add-star ((this slack-file-info-buffer) _ts)
+  "Star the item at point in the file info buffer."
   (let ((url slack-message-stars-add-url)
         (file (oref this file))
         (team (slack-buffer-team this)))
@@ -230,6 +248,7 @@
                             team)))
 
 (cl-defmethod slack-buffer-remove-star ((this slack-file-info-buffer) _ts)
+  "Remove the star from the item at point in the file info buffer."
   (let ((url slack-message-stars-remove-url)
         (file (oref this file))
         (team (slack-buffer-team this)))
@@ -239,6 +258,7 @@
                             team)))
 
 (cl-defmethod slack-buffer--replace ((this slack-file-info-buffer) _ts)
+  "Replace the rendered message identified by the argument in the file info buffer."
   (slack-if-let* ((buffer (slack-buffer-buffer this)))
       (with-current-buffer buffer
         (let ((inhibit-read-only t))
@@ -246,6 +266,7 @@
           (slack-buffer-insert this)))))
 
 (cl-defmethod slack-buffer-update ((this slack-file-info-buffer))
+  "Update the file info buffer after new data arrives."
   (let ((buffer (slack-buffer-buffer this)))
     (with-current-buffer buffer
       (let ((inhibit-read-only t))
@@ -253,6 +274,7 @@
         (slack-buffer-insert this)))))
 
 (defun slack-file-update ()
+  "Refresh the file info buffer at point by re-requesting its contents."
   (interactive)
   (slack-if-let* ((buf slack-current-buffer)
                   (file (oref buf file))
@@ -265,6 +287,7 @@
                (slack-buffer-replace buffer file))))))
 
 (cl-defmethod slack-file-run-action ((file slack-file) buf)
+  "Prompt the user for an action on FILE shown in BUF and run it."
   (let* ((actions (list (and (not (slack-file-info-buffer-p buf))
                              (cons "View details"
                                    #'(lambda ()

@@ -50,6 +50,7 @@
                                :user-id user-id)))
 
 (cl-defmethod slack-buffer-name ((this slack-user-profile-buffer))
+  "Return the display buffer name for the user profile buffer."
   (let ((user-id (oref this user-id))
         (team (slack-buffer-team this)))
     (format "*slack: %s : Profile - %s*"
@@ -57,16 +58,20 @@
             (slack-user-name user-id team))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-user-profile-buffer)) user-id)
+  "Return the class-level buffer key for the user profile buffer."
   user-id)
 
 (cl-defmethod slack-buffer-key ((this slack-user-profile-buffer))
+  "Return the lookup key identifying the buffer for the user profile buffer."
   (let ((user-id (oref this user-id)))
     (slack-buffer-key 'slack-user-profile-buffer user-id)))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-user-profile-buffer)))
+  "Return the team-scoped class-level buffer key for the user profile buffer."
   'slack-user-profile-buffer)
 
 (cl-defmethod slack-buffer--insert ((this slack-user-profile-buffer))
+  "Render the user or bot profile into the buffer for THIS, fetching if needed."
   (let* ((inhibit-read-only t)
          (team (slack-buffer-team this))
          (user-id (oref this user-id))
@@ -108,6 +113,7 @@
                (slack-buffer--insert this)))))))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-user-profile-buffer))
+  "Initialize and return the display buffer for the user profile buffer."
   (let ((buf (cl-call-next-method)))
     (with-current-buffer buf
       (slack-user-profile-buffer-mode)
@@ -116,10 +122,12 @@
     buf))
 
 (cl-defmethod slack-buffer--replace ((this slack-user-profile-buffer) _ts)
+  "Replace the rendered message identified by the argument in the user profile buffer."
   (with-current-buffer (current-buffer)
     (slack-buffer--insert this)))
 
 (defun slack-user--profile-to-string (user team)
+  "Return a multi-line string describing the profile of USER on TEAM."
   (let* ((profile (slack-user-profile user))
          (header (propertize (slack-user-header user team)
                              'face 'slack-user-profile-header-face))

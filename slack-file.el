@@ -272,10 +272,13 @@ When nil, save directly to `slack-file-dir' using the file's original name."
    (is-intro :initarg :is_intro)
    (comment :initarg :comment :type string)))
 
-(cl-defmethod slack-merge ((old string) _new) old)
-(cl-defmethod slack-equalp ((old string) new) (string= old new))
+(cl-defmethod slack-merge ((old string) _new)
+  "Merge new data into the existing string in place." old)
+(cl-defmethod slack-equalp ((old string) new)
+  "Return non-nil when the string equals the other argument." (string= old new))
 
 (cl-defmethod slack-merge ((old slack-file) new)
+  "Merge new data into the existing file in place."
   (cl-labels
       ((slack-merge-string-list
          (new old)
@@ -287,13 +290,17 @@ When nil, save directly to `slack-file-dir' using the file's original name."
     ))
 
 (defun slack-file-find (id team)
+  "Return the cached file identified by ID in TEAM, or nil."
   (let ((files (oref team files)))
     (gethash id files)))
 
 (cl-defmethod slack-file-pushnew ((f slack-file) team)
+  "Insert file F into TEAM's file cache, merging with any existing entry."
   (slack-team-set-files team (list f)))
 
 (defun slack-file-create-email-from (payload &optional type)
+  "Build an email address object from PAYLOAD.
+TYPE is `to', `cc', or nil (the default, meaning From)."
   (and payload
        (make-instance (or (and (eq type 'to) 'slack-file-email-to)
                           (and (eq type 'cc) 'slack-file-email-cc)
@@ -303,6 +310,7 @@ When nil, save directly to `slack-file-dir' using the file's original name."
                       :address (plist-get payload :address))))
 
 (defun slack-file-create (payload)
+  "Build a file object (or subclass) from API PAYLOAD."
   (setq payload (append payload nil))
   (plist-put payload :channels (append (plist-get payload :channels) nil))
   (plist-put payload :groups (append (plist-get payload :groups) nil))
@@ -332,18 +340,23 @@ When nil, save directly to `slack-file-dir' using the file's original name."
     file))
 
 (cl-defmethod slack-message-equal ((f slack-file) other)
+  "Return non-nil when the file equals OTHER."
   (string= (oref f id) (oref other id)))
 
 (cl-defmethod slack-equalp ((old slack-file) new)
+  "Return non-nil when the file equals the other argument."
   (string= (oref old id) (oref new id)))
 
 (defconst slack-file-info-url "https://slack.com/api/files.info")
 
 (defun slack-file-comment-create (payload)
+  "Build a file comment object from API PAYLOAD."
   (apply 'make-instance 'slack-file-comment
          (slack-collect-slots 'slack-file-comment payload)))
 
 (defun slack-file-request-info (file-id page team &optional after-success)
+  "Fetch `files.info' for FILE-ID on TEAM, for the given PAGE of comments.
+Calls AFTER-SUCCESS with the file and team on success."
   (cl-labels
       ((on-file-info
          (&key data &allow-other-keys)
@@ -375,19 +388,25 @@ When nil, save directly to `slack-file-dir' using the file's original name."
       :success #'on-file-info))))
 
 (cl-defmethod slack-file-gdoc-p ((this slack-file))
+  "Return non-nil when THIS file is a Google Doc."
   (string= (oref this filetype) "gdoc"))
 
 (cl-defmethod slack-message-image-to-string ((file slack-file))
+  "Return the thumbnail image string for FILE."
   (slack-image-string (slack-file-thumb-image-spec file)))
 
 (cl-defmethod slack-file-image-p ((this slack-file))
+  "Return non-nil when THIS file's MIME type is an image."
   (string= (car (split-string (oref this mimetype) "/"))
            "image"))
 
 (cl-defmethod slack-message-large-image-to-string ((file slack-file))
+  "Return the full-size image string for FILE."
   (slack-image-string (slack-file-image-spec file)))
 
 (defun slack-file-select-sharing-channels (current-room-name team)
+  "Prompt for rooms to share into on TEAM, defaulting to CURRENT-ROOM-NAME.
+Return a list of selected room IDs."
   (let* ((channels (slack-room-names
                     (append (slack-team-ims team)
                             (slack-team-channels team)
@@ -406,6 +425,8 @@ When nil, save directly to `slack-file-dir' using the file's original name."
             target-channels)))
 
 (defun slack-file-select-filetype (&optional initial-input)
+  "Prompt for a Slack filetype and return its code.
+INITIAL-INPUT seeds the completing-read prompt."
   (let* ((candidate (mapcar #'(lambda (e)
                                 (cons (format "%s: %s" (car e) (cdr e))
                                       (car e)))
@@ -416,6 +437,8 @@ When nil, save directly to `slack-file-dir' using the file's original name."
     (cdr (cl-assoc selected candidate :test #'string=))))
 
 (defun slack-file-upload-snippet (&optional beg end)
+  "Upload the region between BEG and END as a Slack snippet.
+Prompt for team, channel, title, message, and filetype."
   (interactive "r")
   (slack-if-let*
       ((team (slack-team-select t))
@@ -463,9 +486,11 @@ When nil, save directly to `slack-file-dir' using the file's original name."
 ;;         :success #'on-file-delete)))))
 
 (cl-defmethod slack-file-id ((file slack-file))
+  "Return the Slack-assigned id for FILE."
   (oref file id))
 
 (cl-defmethod slack-file-thumb-image-spec ((file slack-file) &optional (size 360))
+  "Return an image spec for FILE's thumbnail at approximately SIZE pixels."
   (when (and (not (slack-file-deleted-p file))
              (slack-file-image-p file))
     (with-slots (thumb-360 thumb-360-w thumb-360-h thumb-160 thumb-80 thumb-64 thumb-pdf thumb-pdf-w thumb-pdf-h url-private) file
@@ -486,6 +511,7 @@ When nil, save directly to `slack-file-dir' using the file's original name."
           (list nil nil nil)))))
 
 (cl-defmethod slack-file-image-spec ((this slack-file))
+  "Return an image spec for THIS file's full-size image."
   (with-slots (is-public url-download url-private-download) this
     (list url-private-download
           nil
@@ -494,27 +520,34 @@ When nil, save directly to `slack-file-dir' using the file's original name."
           (floor (* 0.9 (frame-pixel-width))))))
 
 (defun slack-file-link-info (file-id text)
+  "Return TEXT propertized as a clickable link to FILE-ID."
   (propertize (or text "<no-text>") ;; apparently we can have nil text sometimes, happened for a slack-shared-message
               'file file-id
               'face '(:underline t :weight bold)
               'keymap slack-file-link-keymap))
 
 (cl-defmethod slack-message-star-added ((this slack-file))
+  "Record that a star was added to the file."
   (oset this is-starred t))
 
 (cl-defmethod slack-message-star-removed ((this slack-file))
+  "Record that a star was removed from the file."
   (oset this is-starred nil))
 
 (cl-defmethod slack-message-star-api-params ((this slack-file))
+  "Return the `stars.add'/`stars.remove' API parameters for the file."
   (list (cons "file" (oref this id))))
 
 (cl-defmethod slack-ts ((this slack-file))
+  "Return the timestamp string identifying the file."
   (number-to-string (oref this created)))
 
 (cl-defmethod slack-thread-message-p ((_this slack-file))
+  "Return non-nil when the file belongs to a thread."
   nil)
 
 (cl-defmethod slack-message-user-ids ((this slack-file))
+  "Return the list of user IDs referenced by the file."
   (with-slots (user) this
     (list user)))
 
@@ -522,6 +555,10 @@ When nil, save directly to `slack-file-dir' using the file's original name."
                                         (page "1")
                                         (count "100")
                                         (after-success nil))
+  "Fetch the file listing for TEAM.
+PAGE selects which page to fetch, COUNT the number of entries per page.
+Invoke AFTER-SUCCESS with the current page number and total pages on
+completion."
   (cl-labels
       ((callback (paging)
          (when (functionp after-success)
@@ -591,9 +628,11 @@ dired at the destination when `slack-file-download-open-dired' is non-nil."
                                       (ding))))))
 
 (cl-defmethod slack-file-downloadable-p ((file slack-file))
+  "Return non-nil when FILE has a non-blank download URL."
   (not (slack-string-blankp (oref file url-private-download))))
 
 (cl-defmethod slack-file-download-button ((file slack-file))
+  "Return a propertized Download button for FILE."
   (propertize " Download "
               'file-id (slack-file-id file)
               'face
@@ -601,6 +640,7 @@ dired at the destination when `slack-file-download-open-dired' is non-nil."
               'keymap slack-file-download-button-keymap))
 
 (cl-defmethod slack-file-action-button ((file slack-file))
+  "Return a propertized Actions button for FILE."
   (propertize " Actions "
               'file-id (slack-file-id file)
               'face '(:box (:line-width 1 :style released-button))
@@ -610,6 +650,7 @@ dired at the destination when `slack-file-download-open-dired' is non-nil."
                         map)))
 
 (cl-defmethod slack-file-size ((file slack-file))
+  "Return FILE's size as a human-readable KB or MB string."
   (if (slack-file-deleted-p file)
       ""
     (let ((size (oref file size))
@@ -624,16 +665,19 @@ dired at the destination when `slack-file-download-open-dired' is non-nil."
       size)))
 
 (cl-defmethod slack-file-title ((file slack-file))
+  "Return a display title for FILE, or a deletion notice if it is deleted."
   (if (slack-file-deleted-p file)
       "This file is deleted"
     (or (oref file title)
         (oref file name))))
 
 (cl-defmethod slack-file-type ((file slack-file))
+  "Return the pretty type of FILE, falling back to its MIME type."
   (or (oref file pretty-type)
       (oref file mimetype)))
 
 (cl-defmethod slack-file-hidden-by-limit-p ((file slack-file))
+  "Return non-nil when FILE is hidden due to the free-plan storage limit."
   (or (oref file is-hidden-by-limit)
       (string= (oref file mode) "hidden_by_limit")))
 
@@ -641,9 +685,11 @@ dired at the destination when `slack-file-download-open-dired' is non-nil."
   "This file can’t be shown because your workspace has passed the free plan’s storage limit.")
 
 (cl-defmethod slack-file-sort-key ((this slack-file))
+  "Return the creation timestamp used to sort THIS file."
   (oref this created))
 
 (cl-defmethod slack-team-set-files ((this slack-team) files)
+  "Merge FILES into THIS team's file cache and re-sort by creation time."
   (let ((table (oref this files)))
     (cl-loop for file in files
              do (slack-if-let* ((old (gethash (oref file id) table)))

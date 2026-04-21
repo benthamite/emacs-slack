@@ -38,6 +38,7 @@
    (next-dnd-end-ts :initarg :next_dnd_end_ts :initform nil :type (or null number))))
 
 (defun slack-create-dnd-status (payload)
+  "Create and return a new dnd status instance from PAYLOAD."
   (make-instance 'slack-dnd-status
                  :dnd_enabled (eq t (plist-get payload :dnd_enabled))
                  :next_dnd_start_ts (plist-get payload :next_dnd_start_ts)
@@ -45,6 +46,7 @@
 
 
 (cl-defmethod slack-dnd-in-range-p ((this slack-dnd-status))
+  "Return non-nil when the current time falls inside the DND window of THIS."
   (with-slots (dnd-enabled next-dnd-start-ts next-dnd-end-ts) this
     (when dnd-enabled
       (let ((current (time-to-seconds)))
@@ -52,6 +54,7 @@
              (<= current next-dnd-end-ts))))))
 
 (defun slack-dnd-status-team-info (team &optional after-success)
+  "Fetch DND status for TEAM's open-im users, then call AFTER-SUCCESS with TEAM."
   (cl-labels
       ((on-success
         (&key data &allow-other-keys)

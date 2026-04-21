@@ -116,6 +116,7 @@
    ))
 
 (defun slack-create-team (plist)
+  "Create and return a new team instance from PAYLOAD."
   (let ((ws (apply #'make-instance 'slack-team-ws
                    (slack-collect-slots 'slack-team-ws plist)))
         (team (apply #'make-instance 'slack-team
@@ -124,15 +125,19 @@
     team))
 
 (cl-defmethod slack-equalp ((this slack-team) other)
+  "Return non-nil when the team equals the other argument."
   (and (oref this id)
        (oref other id)
        (string= (oref this id) (oref other id))))
 
 (cl-defmethod slack-team-set-ws-url ((this slack-team) url)
+  "Store URL as the websocket endpoint for THIS team."
   (with-slots (ws) this
     (oset ws url url)))
 
 (cl-defmethod slack-team-kill-buffers ((this slack-team) &key (except nil))
+  "Kill all Slack buffers belonging to THIS team.
+Slot symbols in EXCEPT are excluded from the kill."
   (let* ((l (list 'slack-message-buffer
                   'slack-file-info-buffer
                   'slack-file-list-buffer
@@ -156,9 +161,11 @@
 (defvar slack-tokens-by-id (make-hash-table :test 'equal))
 (defvar slack-teams-by-token (make-hash-table :test 'equal))
 (defun slack-team-find-by-token (token)
+  "Return the registered team keyed by TOKEN, or nil."
   (gethash token slack-teams-by-token))
 
 (defun slack-team-find (id)
+  "Return the registered team whose team ID is ID, or nil."
   (let ((token (gethash id slack-tokens-by-id)))
     (when token
       (slack-team-find-by-token token))))
@@ -170,14 +177,17 @@
    (hash-table-values slack-teams-by-token)))
 
 (cl-defmethod slack-team--delete ((this slack-team))
+  "Remove THIS team from the global token/id registries."
   (remhash (oref this id) slack-tokens-by-id)
   (remhash (oref this token) slack-teams-by-token))
 
 (cl-defmethod slack-team-equalp ((team slack-team) other)
+  "Return non-nil when TEAM and OTHER share the same token."
   (with-slots (token) team
     (string= token (oref other token))))
 
 (cl-defmethod slack-team-name ((team slack-team))
+  "Return the display name of TEAM."
   (oref team name))
 
 (defun slack-team-canonical (team)
@@ -206,15 +216,19 @@ selection in `slack-current-team'."
       team)))
 
 (cl-defmethod slack-team-connectedp ((team slack-team))
+  "Return non-nil when TEAM's websocket is connected."
   (oref (oref team ws) connected))
 
 (defun slack-team-modeline-enabledp (team)
+  "Return non-nil when TEAM should contribute to the modeline."
   (oref team modeline-enabled))
 
 (cl-defmethod slack-team-event-log-enabledp ((team slack-team))
+  "Return non-nil when websocket event logging is enabled for TEAM."
   (oref team websocket-event-log-enabled))
 
 (cl-defmethod slack-team-mark-as-read-immediatelyp ((team slack-team))
+  "Return non-nil when TEAM marks messages as read immediately."
   (oref team mark-as-read-immediately))
 
 (defvar slack-team-random-numbers-for-client-token
@@ -224,17 +238,20 @@ selection in `slack-current-team'."
     (mapconcat #'number-to-string result "")))
 
 (cl-defmethod slack-team-client-token ((team slack-team))
+  "Return a per-session client token string identifying TEAM."
   (format "EmacsSlack-%s-%s"
           (oref team id)
           slack-team-random-numbers-for-client-token))
 
 (cl-defmethod slack-team-inc-message-id ((team slack-team))
+  "Increment and return TEAM's outgoing websocket message id counter."
   (with-slots (message-id) team
     (if (eq message-id (1- most-positive-fixnum))
         (setq message-id 1)
       (cl-incf message-id))))
 
 (defun slack-team-watch-emoji-download-complete (team paths)
+  "Finalize emoji download for TEAM once every file in PATHS exists."
   (if (eq (length (cl-remove-if #'identity (mapcar #'file-exists-p paths)))
           0)
       (when (timerp (oref team emoji-download-watch-timer))
@@ -249,12 +266,15 @@ selection in `slack-current-team'."
         )))
 
 (cl-defmethod slack-team-token ((this slack-team))
+  "Return the authentication token for THIS team."
   (oref this token))
 
 (cl-defmethod slack-team-enterprise-token ((this slack-team))
+  "Return the enterprise authentication token for THIS team, if any."
   (oref this enterprise-token))
 
 (cl-defmethod slack-team-cookie ((this slack-team))
+  "Return the raw cookie string for THIS team."
   (oref this cookie))
 
 (cl-defmethod slack-team-d-cookie ((this slack-team))
@@ -276,23 +296,29 @@ TODO I should experiment to see if api calls require cookies."
    (slack-team-d-s-cookie this)))
 
 (cl-defmethod slack-team-missing-user-ids ((this slack-team) user-ids)
+  "Return the subset of USER-IDS not yet cached in THIS team's users table."
   (let ((exists-user-ids (hash-table-keys (oref this users))))
     (cl-remove-if #'(lambda (e) (cl-find e exists-user-ids :test #'string=))
                   (cl-remove-duplicates user-ids :test #'string=))))
 
 (cl-defmethod slack-team-visible-threads-p ((this slack-team))
+  "Return non-nil when THIS team shows threads inline in channel buffers."
   (oref this visible-threads))
 
 (cl-defmethod slack-team-animate-image-p ((this slack-team))
+  "Return non-nil when THIS team renders animated images."
   (oref this animate-image))
 
 (cl-defmethod slack-team-channels ((this slack-team))
+  "Return the list of cached channel objects for THIS team."
   (hash-table-values (oref this channels)))
 
 (cl-defmethod slack-team-groups ((this slack-team))
+  "Return the list of cached private-channel objects for THIS team."
   (hash-table-values (oref this groups)))
 
 (cl-defmethod slack-team-ims ((this slack-team))
+  "Return the list of cached direct-message objects for THIS team."
   (hash-table-values (oref this ims)))
 
 (defvar slack-team--conversations-loaded (make-hash-table :test 'equal)
@@ -327,24 +353,29 @@ A nil ID means the rtm.connect handshake never succeeded."
   (null (oref team id)))
 
 (cl-defmethod slack-team-users ((this slack-team))
+  "Return the list of cached user plists for THIS team."
   (hash-table-values (oref this users)))
 
 (cl-defmethod slack-team-set-users ((this slack-team) users)
+  "Add or replace USERS in THIS team's user cache, keyed by user id."
   (cl-loop for user in users
            do (puthash (plist-get user :id)
                        user
                        (oref this users))))
 
 (cl-defmethod slack-team-set-bots ((this slack-team) bots)
+  "Add or replace BOTS in THIS team's bot cache, keyed by bot id."
   (cl-loop for bot in bots
            do (puthash (plist-get bot :id)
                        bot
                        (oref this bots))))
 
 (cl-defmethod slack-team-bots ((this slack-team))
+  "Return the list of cached bot plists for THIS team."
   (hash-table-values (oref this bots)))
 
 (cl-defmethod slack-team-files ((this slack-team))
+  "Return the list of cached file objects for THIS team in insertion order."
   (let ((ret))
     (cl-loop for id in (oref this file-ids)
              do (push (gethash id (oref this files))
@@ -352,6 +383,7 @@ A nil ID means the rtm.connect handshake never succeeded."
     ret))
 
 (cl-defmethod slack-team-id ((this slack-team))
+  "Return the Slack-assigned team id for THIS team."
   (oref this id))
 
 (provide 'slack-team)

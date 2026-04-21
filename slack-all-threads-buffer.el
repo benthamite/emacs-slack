@@ -59,16 +59,20 @@ Buffer-wide bindings:
    (threads :initarg :threads :type list '())))
 
 (cl-defmethod slack-buffer-name ((this slack-all-threads-buffer))
+  "Return the display buffer name for the all threads buffer."
   (format "*slack: %s : All Threads"
           (slack-team-name (slack-buffer-team this))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-all-threads-buffer)))
+  "Return the class-level buffer key for the all threads buffer."
   'slack-all-threads-buffer)
 
 (cl-defmethod slack-buffer-key ((_this slack-all-threads-buffer))
+  "Return the lookup key identifying the buffer for the all threads buffer."
   (slack-buffer-key 'slack-all-threads-buffer))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-all-threads-buffer)))
+  "Return the team-scoped class-level buffer key for the all threads buffer."
   'slack-all-threads-buffer)
 
 (defclass slack-thread-view ()
@@ -77,6 +81,7 @@ Buffer-wide bindings:
    (unread-replies :initarg :unread_replies :type list :initform '())))
 
 (cl-defmethod slack-message-user-ids ((this slack-thread-view))
+  "Return the list of user IDs referenced by the thread view."
   (let ((ret (slack-message-user-ids (oref this root-msg))))
 
     (cl-loop for m in (oref this latest-replies)
@@ -89,6 +94,7 @@ Buffer-wide bindings:
     ret))
 
 (cl-defmethod slack-buffer-find-message ((this slack-all-threads-buffer) ts)
+  "Return the message with timestamp TS across all threads in buffer THIS."
   (cl-block outer
     (cl-loop for thread in (reverse (oref this threads))
              do (cl-loop for message in (append (list (oref thread root-msg))
@@ -98,11 +104,13 @@ Buffer-wide bindings:
                          do (cl-return-from outer message)))))
 
 (cl-defmethod slack-buffer--replace ((this slack-all-threads-buffer) ts)
+  "Replace the rendered message identified by the argument in the all threads buffer."
   (let ((message (slack-buffer-find-message this ts)))
     (when message
       (slack-buffer-replace this message))))
 
 (defun slack-create-thread-view (payload team)
+  "Create and return a new thread view instance from PAYLOAD."
   (let ((room (slack-room-find (plist-get (plist-get payload :root_msg)
                                           :channel)
                                team)))
@@ -114,6 +122,7 @@ Buffer-wide bindings:
                                            (plist-get payload :unread_replies)))))
 
 (defun slack-create-all-threads-buffer (team total-unread-replies new-threads-count threads has-more)
+  "Create and return a new all threads buffer instance from PAYLOAD."
   (slack-if-let* ((buf (slack-buffer-find 'slack-all-threads-buffer team)))
       buf
     (slack-all-threads-buffer :team-id (oref team id)
@@ -123,6 +132,7 @@ Buffer-wide bindings:
                               :has-more has-more)))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-all-threads-buffer))
+  "Initialize and return the display buffer for the all threads buffer."
   (let* ((buf (cl-call-next-method)))
     (with-current-buffer buf
       (let ((inhibit-read-only t))
@@ -159,6 +169,7 @@ Adds `room-id' property so `slack-feed-open-at-point' can find the channel."
     (lui-insert "" t)))
 
 (cl-defmethod slack-buffer-insert-thread ((this slack-all-threads-buffer) thread)
+  "Insert THREAD (header, root message and replies) into buffer THIS."
   (with-slots (root-msg latest-replies unread-replies) thread
     (oset this current-ts (oref root-msg last-read))
     (let* ((lui-time-stamp-position nil)
@@ -181,13 +192,17 @@ Adds `room-id' property so `slack-feed-open-at-point' can find the channel."
              do (slack-buffer-insert this reply t))))
 
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-all-threads-buffer))
+  "Return non-nil when the all threads buffer has more history to load."
   (oref this has-more))
 
-(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-all-threads-buffer)))
+(cl-defmethod slack-buffer-delete-load-more-string ((_this slack-all-threads-buffer))
+  "Remove the \"load more\" marker from the buffer for the all threads buffer.")
 
-(cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-all-threads-buffer)))
+(cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-all-threads-buffer))
+  "Position point so history can be inserted in the all threads buffer.")
 
 (cl-defmethod slack-buffer-insert-history ((this slack-all-threads-buffer))
+  "Insert historical messages into the buffer for the all threads buffer."
   (with-slots (threads current-ts) this
     (cl-loop for thread in (cl-remove-if #'(lambda (e)
                                              (not (string< (oref (oref e root-msg)
@@ -197,9 +212,11 @@ Adds `room-id' property so `slack-feed-open-at-point' can find the channel."
              do (slack-buffer-insert-thread this thread))))
 
 (cl-defmethod slack-buffer-insert--history ((this slack-all-threads-buffer))
+  "Insert loaded history items into the buffer for the all threads buffer."
   (slack-buffer-insert-history this))
 
 (cl-defmethod slack-buffer-request-history ((this slack-all-threads-buffer) after-success)
+  "Request older history for the all threads buffer from the Slack API."
   (let ((cur-point (point)))
     (with-slots (current-ts) this
       (cl-labels
@@ -216,6 +233,7 @@ Adds `room-id' property so `slack-feed-open-at-point' can find the channel."
 
 
 (cl-defmethod slack-buffer-display-thread ((this slack-all-threads-buffer) ts)
+  "Open the thread associated with the message at point in the all threads buffer."
   (with-slots (threads) this
     (slack-if-let* ((thread (cl-find-if #'(lambda (e) (string= ts (slack-ts (oref e root-msg))))
                                         threads))
@@ -243,6 +261,7 @@ Adds `room-id' property so `slack-feed-open-at-point' can find the channel."
                                            :after-success #'success)))))))
 
 (defun slack-all-threads ()
+  "Open the unified all-threads view for a team selected interactively."
   (interactive)
   (let ((team (slack-team-select)))
     (cl-labels
@@ -262,6 +281,7 @@ Adds `room-id' property so `slack-feed-open-at-point' can find the channel."
       (slack-subscriptions-thread-get-view team nil #'success))))
 
 (defun slack-subscriptions-thread-clear-all (team)
+  "Clear all thread subscription unread state for TEAM via the Slack API."
   (let ((current-ts (substring
                      (number-to-string (time-to-seconds (current-time)))
                      0 15)))
@@ -278,6 +298,7 @@ Adds `room-id' property so `slack-feed-open-at-point' can find the channel."
         :success #'success)))))
 
 (defun slack-subscriptions-thread-get-view (team &optional current-ts after-success)
+  "Fetch the all-threads view for TEAM at CURRENT-TS and call AFTER-SUCCESS."
   (let ((current-ts (or current-ts
                         (substring
                          (number-to-string (time-to-seconds (current-time)))

@@ -63,6 +63,7 @@
 
 
 (defun slack-ws-on-timeout (team-id)
+  "Close and reconnect the websocket when opening timed out for TEAM-ID."
   (let* ((team (slack-team-find team-id))
          (ws (oref team ws)))
     (let ((debug-on-error t))
@@ -146,7 +147,7 @@ what is happening in your team."
 Set when SLACK-EMIT-PERIODIC-PRESENCE-P is set.")
 
 (defun slack-ws-close ()
-  "Close websocket."
+  "Close the websocket for every team and stop background workers."
   (interactive)
   (slack-counts-stop-refresh-timer)
   (mapc #'(lambda (team) (slack-ws--close (oref team ws) team t))
@@ -155,6 +156,9 @@ Set when SLACK-EMIT-PERIODIC-PRESENCE-P is set.")
   (slack-request-worker-quit))
 
 (cl-defun slack-ws--close (ws team &optional (close-reconnection nil))
+  "Close websocket WS for TEAM, optionally disabling reconnection.
+Non-nil CLOSE-RECONNECTION also cancels the reconnect timer and sets
+`inhibit-reconnection'."
   (cl-labels
       ((close (ws team)
               (slack-ws-cancel-ping-timer ws)
@@ -179,6 +183,7 @@ Set when SLACK-EMIT-PERIODIC-PRESENCE-P is set.")
     (slack-request-worker-remove-request team)))
 
 (defun slack-ws-payload-ping-p (payload)
+  "Return non-nil when PAYLOAD is a ping-type websocket message."
   (string= "ping" (plist-get payload :type)))
 
 (defun slack-ws-payload-presence-sub-p (payload)
@@ -190,11 +195,13 @@ Set when SLACK-EMIT-PERIODIC-PRESENCE-P is set.")
   (string= "presence_query" (plist-get payload :type)))
 
 (defun slack-ws-retryable-payload-p (payload)
+  "Return non-nil when PAYLOAD should be queued for retry on reconnect."
   (and (not (slack-ws-payload-ping-p payload))
        (not (slack-ws-payload-presence-sub-p payload))
        (not (slack-ws-payload-presence-query-p payload))))
 
 (cl-defmethod slack-ws-send ((ws slack-team-ws) payload team)
+  "Send PAYLOAD over websocket WS for TEAM, queueing it for retry if needed."
   (slack-log-websocket-payload payload team t)
   (with-slots (waiting-send conn) ws
     (when (slack-ws-retryable-payload-p payload)
@@ -213,6 +220,7 @@ Set when SLACK-EMIT-PERIODIC-PRESENCE-P is set.")
         (reconnect)))))
 
 (cl-defmethod slack-ws-resend ((ws slack-team-ws) team)
+  "Re-send every payload queued on WS for TEAM after a reconnect."
   (with-slots (waiting-send) ws
     (let ((candidate waiting-send))
       (setq waiting-send nil)
@@ -220,6 +228,7 @@ Set when SLACK-EMIT-PERIODIC-PRESENCE-P is set.")
                do (slack-ws-send ws msg team)))))
 
 (defun slack-ws-on-ping-timeout (team-id)
+  "Reconnect the websocket for TEAM-ID after a missed ping response."
   (let* ((team (slack-team-find team-id))
          (ws (oref team ws)))
     (slack-log "Slack Websocket PING Timeout." team :level 'warn)
@@ -227,6 +236,7 @@ Set when SLACK-EMIT-PERIODIC-PRESENCE-P is set.")
     (slack-ws-reconnect ws team)))
 
 (defun slack-ws-ping (team-id)
+  "Send a websocket ping for TEAM-ID and arm the ping-timeout check."
   (let ((team (slack-team-find team-id)))
     (when (and team (slack-team-id team))
       (with-slots (message-id ws) team
@@ -287,12 +297,14 @@ Provide AFTER-SUCCESS to run a side effect."
 
 
 (defun slack-ws-abort-reconnect (team-id)
+  "Give up reconnection for TEAM-ID and surface a persistent warning."
   (let* ((team (slack-team-find team-id))
          (ws (oref team ws)))
     (slack-schedule-abandon-reconnect-notice team)
     (slack-ws--close ws team t)))
 
 (defun slack-ws-reconnect-with-reconnect-url (team-id)
+  "Reconnect TEAM-ID using the cached reconnect URL from Slack."
   (let* ((team (slack-team-find team-id))
          (ws (oref team ws)))
     (slack-log "Reconnect with reconnect-url" team)
@@ -398,6 +410,7 @@ This also closes unnecessary buffers and refresh message buffer contents."
     (run-with-timer 5 nil #'slack-prefetch-unread-channels team)))
 
 (defun slack-ws--reconnect (team-id &optional force)
+  "Reconnect the websocket for TEAM-ID, honoring retry limits unless FORCE."
   (let* ((team (slack-team-find team-id))
          (ws (oref team ws)))
     (cl-labels
@@ -455,6 +468,7 @@ TEAM is one of `slack-teams'."
 ;; Message handler
 
 (cl-defmethod slack-ws-handle-pong ((ws slack-team-ws) payload team)
+  "Handle the Slack websocket `pong' event with PAYLOAD for TEAM on WS."
   (slack-ws-remove-from-resend-queue ws payload team)
   (let* ((key (plist-get payload :time))
          (timer (gethash key (oref ws ping-check-timers))))
@@ -487,6 +501,7 @@ TEAM is one of `slack-teams'."
 
 
 (cl-defmethod slack-ws-on-message ((ws slack-team-ws) frame team)
+  "Dispatch a websocket FRAME received on WS for TEAM to the right handler."
   ;; (message "%s" (slack-request-parse-payload
   ;;                (websocket-frame-payload frame)))
   (when (websocket-frame-completep frame)
@@ -638,6 +653,7 @@ The app_mention payload is structurally identical to a message event."
   (slack-ws-handle-message payload team))
 
 (defun slack-ws-handle-pin-added (payload team)
+  "Handle the Slack websocket `pin added' event with PAYLOAD for TEAM."
   (let* ((item (plist-get payload :item))
          (message (plist-get item :message))
          (ts (plist-get message :ts))
@@ -649,6 +665,7 @@ The app_mention payload is structurally identical to a message event."
                     :test #'string=))))
 
 (defun slack-ws-handle-pin-removed (payload team)
+  "Handle the Slack websocket `pin removed' event with PAYLOAD for TEAM."
   (let* ((item (plist-get payload :item))
          (message (plist-get item :message))
          (ts (plist-get message :ts))
@@ -660,9 +677,11 @@ The app_mention payload is structurally identical to a message event."
                                               (oref message pinned-to))))))
 
 (cl-defmethod slack-ws-handle-reconnect-url ((ws slack-team-ws) payload _team)
+  "Handle the Slack websocket `reconnect_url' event by caching it on WS."
   (oset ws reconnect-url (plist-get payload :url)))
 
 (defun slack-ws-handle-user-typing (payload team)
+  "Handle the Slack websocket `user typing' event with PAYLOAD for TEAM."
   (slack-if-let*
       ((user-id (plist-get payload :user))
        (room (slack-room-find (plist-get payload :channel) team))
@@ -696,6 +715,7 @@ The app_mention payload is structurally identical to a message event."
                (update-typing (slack-user-name user-id team))))))))
 
 (defun slack-ws-handle-team-join (payload team)
+  "Handle the Slack websocket `team join' event with PAYLOAD for TEAM."
   (let ((user (slack-decode (plist-get payload :user))))
     (cl-labels
         ((after-success ()
@@ -710,21 +730,26 @@ The app_mention payload is structurally identical to a message event."
                                :after-success #'after-success))))
 
 (defun slack-ws-handle-im-open (payload team)
+  "Handle the Slack websocket `im open' event with PAYLOAD for TEAM."
   (slack-event-update (slack-create-im-open-event payload)
                       team))
 
 (defun slack-ws-handle-close (payload team)
+  "Handle the Slack websocket `close' event with PAYLOAD for TEAM."
   (slack-event-update (slack-create-room-close-event payload)
                       team))
 
 (defun slack-ws-handle-message (payload team)
+  "Handle the Slack websocket `message' event with PAYLOAD for TEAM."
   (slack-event-update (slack-create-message-event payload)
                       team))
 
 (defun slack-ws-payload-pong-p (payload)
+  "Return non-nil when PAYLOAD is a pong-type websocket message."
   (string= "pong" (plist-get payload :type)))
 
 (cl-defmethod slack-ws-remove-from-resend-queue ((ws slack-team-ws) payload team)
+  "Drop the entry matching PAYLOAD from the resend queue on WS for TEAM."
   (unless (slack-ws-payload-pong-p payload)
     (with-slots (waiting-send) ws
       (slack-log (format "waiting-send: %s" (length waiting-send))
@@ -737,6 +762,7 @@ The app_mention payload is structurally identical to a message event."
                  team :level 'trace))))
 
 (cl-defmethod slack-ws-handle-reply ((ws slack-team-ws) payload team)
+  "Handle a websocket reply PAYLOAD for TEAM on WS, logging any error."
   (let ((ok (plist-get payload :ok)))
     (if (eq ok :json-false)
         (let* ((err (plist-get payload :error))
@@ -748,38 +774,47 @@ The app_mention payload is structurally identical to a message event."
       (slack-ws-remove-from-resend-queue ws payload team))))
 
 (defun slack-ws-handle-reaction-added (payload team)
+  "Handle the Slack websocket `reaction added' event with PAYLOAD for TEAM."
   (slack-if-let* ((event (slack-create-reaction-event payload)))
       (slack-event-update event team)))
 
 (defun slack-ws-handle-reaction-removed (payload team)
+  "Handle the Slack websocket `reaction removed' event with PAYLOAD for TEAM."
   (slack-if-let* ((event (slack-create-reaction-event payload)))
       (slack-event-update event team)))
 
 (defun slack-ws-handle-channel-created (payload team)
+  "Handle the Slack websocket `channel created' event with PAYLOAD for TEAM."
   (slack-event-update (slack-create-channel-created-event payload)
                       team))
 
 (defun slack-ws-handle-room-archive (payload team)
+  "Handle the Slack websocket `room archive' event with PAYLOAD for TEAM."
   (slack-event-update (slack-create-room-archive-event payload)
                       team))
 
 (defun slack-ws-handle-room-unarchive (payload team)
+  "Handle the Slack websocket `room unarchive' event with PAYLOAD for TEAM."
   (slack-event-update (slack-create-room-unarchive-event payload)
                       team))
 
 (defun slack-ws-handle-channel-deleted (payload team)
+  "Handle the Slack websocket `channel deleted' event with PAYLOAD for TEAM."
   (slack-event-update (slack-create-channel-deleted-event payload)
                       team))
 
 (defun slack-ws-handle-room-rename (payload team)
+  "Handle the Slack websocket `room rename' event with PAYLOAD for TEAM."
   (slack-event-update (slack-create-room-rename-event payload)
                       team))
 
 (defun slack-ws-handle-group-joined (payload team)
+  "Handle the Slack websocket `group joined' event with PAYLOAD for TEAM."
   (slack-event-update (slack-create-group-joined-event payload)
                       team))
 
 (defun slack-ws-handle-channel-joined (payload team)
+  "Handle the Slack websocket `channel joined' event with PAYLOAD for TEAM."
   (slack-event-update (slack-create-channel-joined-event payload)
                       team))
 
@@ -790,10 +825,12 @@ The app_mention payload is structurally identical to a message event."
     (--each users (puthash it presence (oref team presence)))))
 
 (defun slack-ws-handle-bot (payload team)
+  "Handle the Slack websocket `bot' event with PAYLOAD for TEAM."
   (let ((bot (plist-get payload :bot)))
     (slack-team-set-bots team (list bot))))
 
 (defun slack-ws-handle-file-created (payload team)
+  "Handle the Slack websocket `file created' event with PAYLOAD for TEAM."
   (slack-if-let* ((file-id (plist-get (plist-get payload :file) :id))
                   (buffer (slack-buffer-find 'slack-file-list-buffer team)))
       (slack-file-request-info file-id 1 team
@@ -801,14 +838,17 @@ The app_mention payload is structurally identical to a message event."
                                    (slack-buffer-update buffer file)))))
 
 (defun slack-ws-handle-file-deleted (payload team)
+  "Handle the Slack websocket `file deleted' event with PAYLOAD for TEAM."
   (let ((file-id (plist-get payload :file_id)))
     (remhash file-id (oref team files))))
 
 (defun slack-ws-handle-room-marked (payload team)
+  "Handle the Slack websocket `room marked' event with PAYLOAD for TEAM."
   (slack-event-update (slack-create-room-marked-event payload)
                       team))
 
 (defun slack-ws-handle-thread-marked (payload team)
+  "Handle the Slack websocket `thread marked' event with PAYLOAD for TEAM."
   (let* ((type (plist-get payload :type)))
     (slack-counts-update team)
     (when (string= type "thread")
@@ -816,40 +856,49 @@ The app_mention payload is structurally identical to a message event."
                           team))))
 
 (defun slack-ws-handle-thread-subscribed (payload team)
+  "Handle the Slack websocket `thread subscribed' event with PAYLOAD for TEAM."
   (slack-event-update (slack-create-thread-subscribed-event payload)
                       team))
 
 (defun slack-ws-handle-thread-unsubscribed (payload team)
+  "Handle the Slack websocket `thread unsubscribed' event with PAYLOAD for TEAM."
   (slack-event-update (slack-create-thread-unsubscribed-event payload)
                       team))
 
 (defun slack-ws-handle-user-change (payload team)
+  "Handle the Slack websocket `user change' event with PAYLOAD for TEAM."
   (let ((user (plist-get payload :user)))
     (slack-team-set-users team (list user))))
 
 (defun slack-ws-handle-member-joined-channel (payload team)
+  "Handle the Slack websocket `member joined channel' event with PAYLOAD for TEAM."
   (slack-event-update (slack-create-member-joined-room-event payload)
                       team))
 
 (defun slack-ws-handle-member-left_channel (payload team)
+  "Handle the Slack websocket `member left channel' event with PAYLOAD for TEAM."
   (slack-event-update (slack-create-member-left-room-event payload)
                       team))
 
 (defun slack-ws-handle-dnd-updated (payload team)
+  "Handle the Slack websocket `dnd updated' event with PAYLOAD for TEAM."
   (let* ((user (plist-get payload :user))
          (payload (plist-get payload :dnd_status))
          (status (slack-create-dnd-status payload)))
     (puthash user status (oref team dnd-status))))
 
 (defun slack-ws-handle-star-added (payload team)
+  "Handle the Slack websocket `star added' event with PAYLOAD for TEAM."
   (slack-if-let* ((event (slack-create-star-event payload)))
       (slack-event-update event team)))
 
 (defun slack-ws-handle-star-removed (payload team)
+  "Handle the Slack websocket `star removed' event with PAYLOAD for TEAM."
   (slack-if-let* ((event (slack-create-star-event payload)))
       (slack-event-update event team)))
 
 (defun slack-ws-handle-app-conversation-invite-request (payload team)
+  "Handle the Slack websocket `app conversation invite request' event with PAYLOAD for TEAM."
   (let* ((app-user (plist-get payload :app_user))
          (channel-id (plist-get payload :channel_id))
          (invite-message-ts (plist-get payload :invite_message_ts))
@@ -877,6 +926,8 @@ The app_mention payload is structurally identical to a message event."
 (cl-defun slack-app-conversation-allow-invite-request (team &key channel
                                                             app-user
                                                             invite-message-ts)
+  "Approve the app invite to CHANNEL for APP-USER in TEAM.
+INVITE-MESSAGE-TS identifies the original invite prompt."
   (let ((url "https://slack.com/api/apps.permissions.internal.add")
         (params (list (cons "channel" channel)
                       (cons "app_user" app-user)
@@ -906,6 +957,8 @@ The app_mention payload is structurally identical to a message event."
 (cl-defun slack-app-conversation-deny-invite-request (team &key channel
                                                            app-user
                                                            invite-message-ts)
+  "Decline the app invite to CHANNEL for APP-USER in TEAM.
+INVITE-MESSAGE-TS identifies the original invite prompt."
   (let ((url "https://slack.com/api/apps.permissions.internal.denyAdd")
         (params (list (cons "channel" channel)
                       (cons "app_user" app-user)
@@ -931,6 +984,7 @@ The app_mention payload is structurally identical to a message event."
         :success #'on-success)))))
 
 (defun slack-ws-handle-commands-changed (payload team)
+  "Handle the Slack websocket `commands changed' event with PAYLOAD for TEAM."
   (let ((commands-updated (mapcar #'slack-command-create
                                   (plist-get payload :commands_updated)))
         (commands-removed (mapcar #'slack-command-create
@@ -947,6 +1001,7 @@ The app_mention payload is structurally identical to a message event."
     (oset team commands commands)))
 
 (defun slack-ws-handle-dialog-opened (payload team)
+  "Handle the Slack websocket `dialog opened' event with PAYLOAD for TEAM."
   (slack-if-let*
       ((dialog-id (plist-get payload :dialog_id))
        (client-token (plist-get payload :client_token))
@@ -955,6 +1010,7 @@ The app_mention payload is structurally identical to a message event."
       (slack-dialog-get dialog-id team)))
 
 (defun slack-ws-handle-room-left (payload team)
+  "Handle the Slack websocket `room left' event with PAYLOAD for TEAM."
   (slack-if-let* ((room (slack-room-find (plist-get payload :channel)
                                          team)))
       (progn
@@ -963,10 +1019,12 @@ The app_mention payload is structurally identical to a message event."
                    team :level 'info))))
 
 (defun slack-ws-handle-subteam-created (payload team)
+  "Handle the Slack websocket `subteam created' event with PAYLOAD for TEAM."
   (let ((usergroup (slack-usergroup-create (plist-get payload :subteam))))
     (push usergroup (oref team usergroups))))
 
 (defun slack-ws-handle-subteam-updated (payload team)
+  "Handle the Slack websocket `subteam updated' event with PAYLOAD for TEAM."
   (let ((usergroup (slack-usergroup-create (plist-get payload :subteam))))
     (oset team usergroups (cons usergroup
                                 (cl-remove-if #'(lambda (e)
@@ -987,15 +1045,18 @@ statement to get a message id the ws can respond to."
           (slack-ws-send ws message this)))))
 
 (cl-defmethod slack-team-open-ws ((this slack-team) &key on-open ws-url)
+  "Open the websocket for team THIS, running ON-OPEN after, at WS-URL."
   (with-slots (ws) this
     (slack-ws-open ws this
                    :on-open on-open
                    :ws-url ws-url)))
 
 (cl-defmethod slack-team-disconnect ((team slack-team))
+  "Close the websocket connection for TEAM."
   (slack-ws--close (oref team ws) team))
 
 (defun slack-team-delete ()
+  "Prompt for a team and remove it from `slack-teams' after disconnecting."
   (interactive)
   (let ((selected (slack-team-select t)))
     (if (yes-or-no-p (format "Delete %s from `slack-teams'?"
@@ -1058,6 +1119,7 @@ represent activity."
     (puthash (oref team id) (run-with-timer 7 t 'slack-request-set-presence team "auto") slack-presence-timers)))
 
 (defun slack-authorize (team &optional error-callback success-callback)
+  "Authorize TEAM with Slack, invoking ERROR-CALLBACK or SUCCESS-CALLBACK."
   (let ((authorize-request (oref team authorize-request)))
     (if (and authorize-request (not (request-response-done-p authorize-request)))
         (slack-log "Authorize Already Requested" team)
@@ -1177,6 +1239,7 @@ with lots of public channels."
 
 (defalias 'slack-room-list-update 'slack-conversations-list-update)
 (defun slack-conversations-list-update (&optional team after-success)
+  "Refresh TEAM's list of conversations from the Slack API."
   (interactive)
   (message ">> slack-conversations-list-update running!")
   (let ((team (or team (slack-team-select))))

@@ -45,6 +45,7 @@
    (properties :initarg :properties :initform nil :documnetation "This contains extra property like :is_dormant, useful to calculate if channel is open.")))
 
 (cl-defmethod slack-merge ((this slack-im) other)
+  "Merge new data into the existing im in place."
   (cl-call-next-method)
   (oset this user (oref other user))
   (oset this is-frozen (oref other is-frozen))
@@ -52,22 +53,26 @@
   (oset this is-user-deleted (oref other is-user-deleted)))
 
 (cl-defmethod slack-room-open-p ((room slack-im))
+  "Return non-nil when the im is currently open."
   (and (not (oref room is-frozen))
        (not (oref room is-user-deleted))
        (not (plist-get (oref room properties ) :is_dormant))))
 
 (cl-defmethod slack-im-user-presence ((room slack-im) team)
+  "Return the presence indicator string for the user of ROOM on TEAM."
   (or (slack-user-presence-to-string (slack-user-find room team)
                                      team)
       " "))
 
 (cl-defmethod slack-im-user-dnd-status ((room slack-im) team)
+  "Return the Do Not Disturb indicator string for the user of ROOM on TEAM."
   (or (slack-user-dnd-status-to-string (slack-user-find room
                                                         team)
                                        team)
       " "))
 
 (cl-defmethod slack-room-name ((room slack-im) team)
+  "Return the human-readable name of the im."
   (with-slots (user) room
     (format "DM: %s" (slack-user-name user team))))
 
@@ -86,10 +91,12 @@
       room-name)))
 
 (defun slack-im-user-name (im team)
+  "Return the display name of the user on the other side of IM on TEAM."
   (with-slots (user) im
     (slack-user-name user team)))
 
 (defun slack-im-names (team)
+  "Return an alist mapping display names of open ims of TEAM to their rooms."
   (cl-labels
       ((filter (ims)
          (cl-remove-if #'(lambda (im) (not (slack-room-open-p im)))
@@ -122,38 +129,47 @@ Use `slack-group-mpim-open' for a group of users."
                                                                             (slack-room-display room team)))))))))
 
 (cl-defmethod slack-room-label-prefix ((room slack-im) team)
+  "Return a string combining DND and presence indicators for ROOM on TEAM."
   (format "%s%s"
           (slack-im-user-dnd-status room team)
           (slack-im-user-presence room team)))
 
 (cl-defmethod slack-room-get-members ((room slack-im))
+  "Return a singleton list with the other user's id of the im ROOM."
   (list (oref room user)))
 
 (defun slack-im-find-by-user-id (user-id team)
+  "Return the im in TEAM corresponding to USER-ID, or nil if none."
   (cl-find-if #'(lambda (im) (string= user-id (oref im user)))
               (slack-team-ims team)))
 
 (cl-defmethod slack-room--has-unread-p ((this slack-im) counts)
+  "Return non-nil when the im has unread messages."
   (slack-counts-im-unread-p counts this))
 
 (cl-defmethod slack-room-mention-count ((this slack-im) team)
+  "Return the unread mention count for the im."
   (with-slots (counts) team
     (if counts
         (slack-counts-im-mention-count counts this)
       0)))
 
 (cl-defmethod slack-room-set-mention-count ((this slack-im) count team)
+  "Set the unread mention count for the im."
   (slack-if-let* ((counts (oref team counts)))
       (slack-counts-im-set-mention-count counts this count)))
 
 (cl-defmethod slack-room-set-has-unreads ((this slack-im) value team)
+  "Set the has-unreads flag for the im."
   (slack-if-let* ((counts (oref team counts)))
       (slack-counts-im-set-has-unreads counts this value)))
 
 (cl-defmethod slack-room--update-latest ((this slack-im) counts ts)
+  "Update the latest-message timestamp cached on the im."
   (slack-counts-im-update-latest counts this ts))
 
 (cl-defmethod slack-room--latest ((this slack-im) counts)
+  "Return the timestamp of the latest message in the im."
   (slack-counts-im-latest counts this))
 
 (provide 'slack-im)

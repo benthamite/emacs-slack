@@ -62,6 +62,7 @@
    (members-loaded-p :type boolean :initform nil)))
 
 (cl-defmethod slack-merge ((this slack-group) other)
+  "Merge new data into the existing group in place."
   (cl-call-next-method)
   (oset this name (oref other name))
   (oset this name-normalized (oref other name-normalized))
@@ -88,9 +89,11 @@
   (oset this topic (oref other topic)))
 
 (defun slack-group-names (team &optional filter)
+  "Return an alist of display names and groups for TEAM, optionally filtered by FILTER."
   (slack-room-names (slack-team-groups team) team filter))
 
 (cl-defmethod slack-room-subscribedp ((room slack-group) team)
+  "Return non-nil when the current user is subscribed to the group."
   (with-slots (subscribed-channels) team
     (let ((name (slack-room-name room team)))
       (or (oref room is-mpim) ;; groups conversations we are in need notification
@@ -98,11 +101,13 @@
                (memq (intern name) (append subscribed-channels slack-extra-subscribed-channels)))))))
 
 (cl-defmethod slack-room-muted-p ((this slack-group) team)
+  "Return non-nil when the group is muted for the current user."
   (seq-contains-p
    (plist-get (oref team user-prefs) :muted_channels)
    (oref this id)))
 
 (defun slack-group-list-update (&optional team after-success)
+  "Refresh TEAM's list of group from the Slack API."
   (interactive)
   (let ((team (or team (slack-team-select))))
     (cl-labels
@@ -116,14 +121,17 @@
 
 
 (defun slack-create-group ()
+  "Create and return a new group instance from PAYLOAD."
   (interactive)
   (let ((team (slack-team-select)))
     (slack-conversations-create team "true")))
 
 (cl-defmethod slack-room-archived-p ((room slack-group))
+  "Return non-nil when the group has been archived."
   (oref room is-archived))
 
 (defun slack-group-members-s (group team)
+  "Return a comma-separated string of GROUP's member display names in TEAM."
   (with-slots (members) group
     (mapconcat #'(lambda (user)
                    (slack-user-name user
@@ -156,14 +164,17 @@
                                                                               (slack-room-display room team))))))))))
 
 (cl-defmethod slack-mpim-p ((room slack-group))
+  "Return non-nil when the group is a multi-party IM."
   (oref room is-mpim))
 
 (cl-defmethod slack-room--has-unread-p ((this slack-group) counts)
+  "Return non-nil when the group has unread messages."
   (if (slack-mpim-p this)
       (slack-counts-mpim-unread-p counts this)
     (slack-counts-channel-unread-p counts this)))
 
 (cl-defmethod slack-room-mention-count ((this slack-group) team)
+  "Return the unread mention count for the group."
   (with-slots (counts) team
     (if counts
         (if (slack-mpim-p this)
@@ -172,46 +183,56 @@
       0)))
 
 (cl-defmethod slack-room-set-mention-count ((this slack-group) count team)
+  "Set the unread mention count for the group."
   (slack-if-let* ((counts (oref team counts)))
       (if (slack-mpim-p this)
           (slack-counts-mpim-set-mention-count counts this count)
         (slack-counts-channel-set-mention-count counts this count))))
 
 (cl-defmethod slack-room-set-has-unreads ((this slack-group) value team)
+  "Set the has-unreads flag for the group."
   (slack-if-let* ((counts (oref team counts)))
       (if (slack-mpim-p this)
           (slack-counts-mpim-set-has-unreads counts this value)
         (slack-counts-channel-set-has-unreads counts this value))))
 
 (cl-defmethod slack-room--update-latest ((this slack-group) counts ts)
+  "Update the latest-message timestamp cached on the group."
   (if (slack-mpim-p this)
       (slack-counts-mpim-update-latest counts this ts)
     (slack-counts-channel-update-latest counts this ts)))
 
 (cl-defmethod slack-room--latest ((this slack-group) counts)
+  "Return the timestamp of the latest message in the group."
   (if (slack-mpim-p this)
       (slack-counts-mpim-latest counts this)
     (slack-counts-channel-latest counts this)))
 
 (cl-defmethod slack-room-members ((this slack-group))
+  "Return the list of members of the group."
   (oref this members))
 
 (cl-defmethod slack-room-set-members ((this slack-group) members)
+  "Store the loaded member list on the group."
   (oset this members
         (cl-remove-duplicates (append (oref this members) members)
                               :test #'string=)))
 
 (cl-defmethod slack-room-members-loaded-p ((this slack-group))
+  "Return non-nil when the group's member list is cached."
   (oref this members-loaded-p))
 
 (cl-defmethod slack-room-members-loaded ((this slack-group))
+  "Return the cached member list of the group, or nil."
   (oset this members-loaded-p t))
 
 (cl-defmethod slack-room-hidden-p ((this slack-group))
+  "Return non-nil when the group is hidden from the user."
   (or (not (slack-room-member-p this))
       (slack-room-archived-p this)))
 
 (cl-defmethod slack-room-member-p ((room slack-group))
+  "Return non-nil when the current user is a member of the group."
   (oref room is-member))
 
 (provide 'slack-group)

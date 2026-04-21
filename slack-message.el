@@ -81,14 +81,17 @@
    (ts :initarg :ts :type string)))
 
 (cl-defmethod slack-message-edited-at ((this slack-message))
+  "Return the timestamp at which THIS message was edited, if any."
   (with-slots (edited) this
     (when edited
       (oref edited ts))))
 
 (cl-defmethod slack-message-equal ((m slack-message) n)
+  "Return non-nil when the message equals OTHER."
   (string= (slack-ts m) (slack-ts n)))
 
 (cl-defmethod slack-message-sender-name ((m slack-message) team)
+  "Return the display name of the sender of the message."
   (let ((user (or (and (slot-exists-p m 'user)
                        (slot-boundp m 'user)
                        (oref m user))
@@ -102,24 +105,31 @@
   "")
 
 (cl-defmethod slack-ts ((this slack-message))
+  "Return the timestamp string identifying the message."
   (oref this ts))
 
 (defun slack-ts-to-time (ts)
+  "Convert a Slack TS string to an Emacs time value."
   (seconds-to-time (string-to-number ts)))
 
 (defun slack-message-time-stamp (message)
+  "Return the timestamp of MESSAGE as an Emacs time value."
   (slack-ts-to-time (slack-ts message)))
 
 (cl-defmethod slack-user-find ((_this slack-message) _team)
+  "Return the user referenced by the message in TEAM."
   nil)
 
 (cl-defmethod slack-message-star-added ((m slack-message))
+  "Record that a star was added to the message."
   (oset m is-starred t))
 
 (cl-defmethod slack-message-star-removed ((m slack-message))
+  "Record that a star was removed from the message."
   (oset m is-starred nil))
 
 (cl-defmethod slack-message-star-api-params ((m slack-message) &optional due-in-ms)
+  "Return the `stars.add'/`stars.remove' API parameters for the message."
   (append (list (cons "item_type" "message"))
           (list (cons "item_id" (oref m channel)))
           (list (cons "ts" (slack-ts m)))
@@ -135,23 +145,31 @@
                                 )))))))))
 
 (cl-defmethod slack-reaction-delete ((this slack-message) reaction)
+  "Remove the named reaction from the message."
   (with-slots (reactions) this
     (setq reactions (slack-reaction-delete reaction reactions))))
 
 (cl-defmethod slack-reaction-push ((this slack-message) reaction)
+  "Append REACTION to the reactions list of THIS message."
   (oset this reactions (append (oref this reactions)
                                (list reaction))))
 
 (cl-defmethod slack-reaction-find ((m slack-message) reaction)
+  "Return the reaction in message M that matches REACTION."
   (slack-reaction--find (oref m reactions) reaction))
 
 (cl-defmethod slack-message-reactions ((this slack-message))
+  "Return the list of reactions associated with THIS message."
   (oref this reactions))
 
 (cl-defmethod slack-message-get-param-for-reaction ((m slack-message))
+  "Return the API parameter cons cell identifying message M for reaction calls."
   (cons "timestamp" (slack-ts m)))
 
 (cl-defmethod slack-message-get-text ((m slack-message) team)
+  "Return the textual content of message M in TEAM.
+Use block text when available; otherwise fall back to the unescaped
+message text."
   (let ((block-text (mapconcat #'identity
                                (cl-remove-if #'(lambda (block-message)
                                                  (< (length block-message) 1))
@@ -164,20 +182,24 @@
       block-text)))
 
 (cl-defmethod slack-thread-message-p ((this slack-message))
+  "Return non-nil when the message belongs to a thread."
   (and (oref this thread-ts)
        (not (string= (slack-ts this) (oref this thread-ts)))))
 
 (cl-defmethod slack-message-thread-parentp ((m slack-message))
+  "Return non-nil when message M is the parent of a thread."
   (let* ((thread-ts (slack-thread-ts m)))
     (when thread-ts
       (string= (slack-ts m) thread-ts))))
 
 (cl-defmethod slack-message-pinned-to-room-p ((this slack-message) room)
+  "Return non-nil when THIS message is pinned to ROOM."
   (cl-find (oref room id)
            (oref this pinned-to)
            :test #'string=))
 
 (cl-defmethod slack-message-user-ids ((this slack-message))
+  "Return the list of user IDs referenced by the message."
   (let ((result (append (oref this reply-users) nil))
         (sender-id (slack-message-sender-id this))
         (texts (append (mapcar #'(lambda (e) (oref e text))
@@ -233,32 +255,39 @@
     result))
 
 (cl-defmethod slack-message-visible-p ((this slack-message) team)
+  "Return non-nil when the message should be visible to the current user."
   (if (slack-team-visible-threads-p team)
       t
     (not (slack-thread-message-p this))))
 
 (cl-defmethod slack-thread-ts ((this slack-message))
+  "Return the thread timestamp of THIS message, if any."
   (oref this thread-ts))
 
 (cl-defmethod slack-message-handle-thread-subscribed ((this slack-message) payload)
+  "Mark THIS message as subscribed using fields from PAYLOAD."
   (oset this subscribed t)
   (oset this last-read (plist-get payload :last_read)))
 
 (cl-defmethod slack-message-ephemeral-p ((this slack-message))
+  "Return non-nil when THIS message is ephemeral."
   (oref this is-ephemeral))
 
 (cl-defmethod slack-message-subscribed-thread-message-p ((this slack-message) room)
+  "Return non-nil when THIS message belongs to a subscribed thread in ROOM."
   (and (slack-thread-message-p this)
        (slack-if-let* ((parent (slack-room-find-message room (slack-thread-ts this))))
            (oref parent subscribed))))
 
 (cl-defmethod slack-message-profile-image ((_this slack-message) _team)
+  "Return the avatar image associated with the message."
   nil)
 
 (cl-defmethod slack-message-user-status ((_this slack-message) _team)
   "")
 
 (cl-defmethod slack-message-header ((this slack-message) team)
+  "Return the display header string for THIS message in TEAM."
   (let* ((name (slack-message-sender-name this team))
          (user-id (slack-message-sender-id this))
          (status (slack-message-user-status this team))
@@ -308,15 +337,18 @@
               ""))))
 
 (cl-defmethod slack-message-starred-p ((m slack-message))
+  "Return non-nil when message M is starred."
   (oref m is-starred))
 
 (cl-defmethod slack-message-display-thread-sign-p ((this slack-message) team)
+  "Return non-nil when the thread sign should be shown for the message."
   (and (slack-team-visible-threads-p team)
        (not (null (oref this thread-ts)))
        (not (string= (oref this thread-ts) (slack-ts this)))
        (not (eq major-mode 'slack-thread-message-buffer-mode))))
 
 (cl-defmethod slack-message-body ((m slack-message) team)
+  "Return the body text of the message."
   (if-let* ((blocks (and (not (oref team disable-block-format))
                          (oref m blocks))))
       (slack-unescape (mapconcat #'(lambda (bl)
@@ -331,13 +363,18 @@
       "")))
 
 (cl-defmethod slack-room-find ((this slack-message) team)
+  "Return the message matching the given identifier in TEAM."
   (slack-room-find (oref this channel) team))
 
 (cl-defmethod slack-message-replies ((this slack-message) room)
+  "Return the reply messages for THIS message in ROOM, sorted by timestamp."
   (slack-if-let* ((ids (oref this replies)))
       (slack-room-sorted-messages room ids)))
 
 (defun slack-message-set-replies (room ts messages &optional append-p)
+  "Set the replies of the message TS in ROOM to MESSAGES.
+If APPEND-P is non-nil, append to the existing replies instead of
+replacing them."
   (let ((message (slack-room-find-message room ts))
         (replies (mapcar #'(lambda (m) (slack-ts m)) messages)))
     (oset message replies (cl-remove-if #'(lambda (timestamp) (string= ts timestamp))
