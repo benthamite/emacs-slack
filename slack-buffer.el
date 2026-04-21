@@ -60,6 +60,43 @@
     (define-key map (kbd "RET") #'slack-load-more-message)
     map))
 
+(defvar slack-message-keymap
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "r") #'slack-thread-reply)
+    (define-key map (kbd "t") #'slack-thread-show-or-create)
+    (define-key map (kbd "q") #'slack-quote-and-reply)
+    (define-key map (kbd "e") #'slack-message-edit)
+    (define-key map (kbd "d") #'slack-message-delete)
+    (define-key map (kbd "h") #'slack-message-share)
+    (define-key map (kbd "k") #'slack-message-copy-link)
+    (define-key map (kbd "i") #'slack-message-copy-id)
+    (define-key map (kbd "s") #'slack-message-toggle-save)
+    (define-key map (kbd "b") #'slack-jump-to-browser)
+    (define-key map (kbd "u") #'slack-thread-toggle-subscription)
+    (define-key map (kbd "!") #'slack-message-add-reaction)
+    (define-key map (kbd "=") #'slack-message-remove-reaction)
+    (define-key map (kbd "L") #'slack-message-redisplay)
+    map)
+  "Keymap active on rendered Slack message regions.
+Applies when point is on a message but not on an inner button
+\(reactions, thread-status link, …) and not on the input prompt.
+Letter keys invoke message-level actions; see `slack-menu' for the
+full command index.")
+
+(defun slack-buffer--apply-message-keymap (str)
+  "Attach `slack-message-keymap' to STR where no keymap is already set.
+Walks STR and sets the `keymap' text property on every stretch
+whose current keymap is nil, leaving inner keymaps (reactions,
+buttons, …) untouched.  Returns STR."
+  (let ((pos 0)
+        (len (length str)))
+    (while (< pos len)
+      (let ((next (or (next-single-property-change pos 'keymap str) len)))
+        (unless (get-text-property pos 'keymap str)
+          (put-text-property pos next 'keymap slack-message-keymap str))
+        (setq pos next))))
+  str)
+
 (defvar-local slack-buffer--loading-more-p nil
   "Non-nil while an async load-more request is in flight.")
 
@@ -339,8 +376,9 @@ line-aligned strides to stay under that limit."
         (lui-time-stamp-time (slack-message-time-stamp message))
         (team (slack-buffer-team this)))
     (lui-insert-with-text-properties
-     (slack-buffer--render-native-emoji-string
-      (slack-message-to-string message team))
+     (slack-buffer--apply-message-keymap
+      (slack-buffer--render-native-emoji-string
+       (slack-message-to-string message team)))
      'not-tracked-p not-tracked-p
      'ts (slack-ts message)
      'slack-last-ts lui-time-stamp-last

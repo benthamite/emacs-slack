@@ -65,6 +65,13 @@
   :group 'slack)
 
 (define-derived-mode slack-message-buffer-mode slack-buffer-mode "Slack Message Buffer"
+  "Major mode for a Slack channel, group, or direct-message buffer.
+
+Message-region bindings (active when point is on a message, not on the
+input prompt):
+\\{slack-message-keymap}
+Buffer-wide bindings:
+\\{slack-message-buffer-mode-map}"
   (add-hook 'lui-pre-output-hook 'slack-mrkdwn-add-face nil t)
   (add-hook 'lui-pre-output-hook 'slack-display-inline-action t t)
   (lui-set-prompt lui-prompt-string)
@@ -454,13 +461,14 @@ and forces recomputation of load-more placeholders next time.
 (cl-defmethod slack-buffer-message-text ((this slack-message-buffer) message merge-message-p)
   (let* ((team (slack-buffer-team this))
          (text (slack-message-to-string message team)))
-    (slack-buffer--render-native-emoji-string
-     (or (and merge-message-p
-              (slack-if-let*
-                  ((end (next-single-property-change
-                         0 'slack-message-header text)))
-                  (substring text (1+ end))))
-         text))))
+    (slack-buffer--apply-message-keymap
+     (slack-buffer--render-native-emoji-string
+      (or (and merge-message-p
+               (slack-if-let*
+                   ((end (next-single-property-change
+                          0 'slack-message-header text)))
+                   (substring text (1+ end))))
+          text)))))
 
 (cl-defmethod slack-buffer-insert ((this slack-message-buffer) message
                                    &optional not-tracked-p prev-message)

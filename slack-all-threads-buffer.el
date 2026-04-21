@@ -35,6 +35,12 @@
 (define-derived-mode slack-all-threads-buffer-mode
   slack-buffer-mode
   "Slack All Threads"
+  "Major mode for the Slack all-threads feed.
+
+Message-region bindings (active when point is on a thread entry):
+\\{slack-message-keymap}
+Buffer-wide bindings:
+\\{slack-all-threads-buffer-mode-map}"
   (add-hook 'lui-pre-output-hook 'slack-mrkdwn-add-face nil t)
   (add-hook 'lui-pre-output-hook 'slack-display-inline-action t t)
   (add-hook 'post-command-hook #'slack-buffer--maybe-load-more-at-end nil t)
@@ -143,7 +149,8 @@ Adds `room-id' property so `slack-feed-open-at-point' can find the channel."
         (lui-time-stamp-time (slack-message-time-stamp message))
         (team (slack-buffer-team this)))
     (lui-insert-with-text-properties
-     (slack-message-to-string message team)
+     (slack-buffer--apply-message-keymap
+      (slack-message-to-string message team))
      'not-tracked-p not-tracked-p
      'ts (slack-ts message)
      'room-id (oref message channel)

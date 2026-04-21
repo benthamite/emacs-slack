@@ -31,6 +31,12 @@
 (require 'slack-room-buffer)
 
 (define-derived-mode slack-search-result-buffer-mode slack-buffer-mode "Slack Search Result"
+  "Major mode for a Slack search results buffer.
+
+Message-region bindings (active when point is on a result message):
+\\{slack-message-keymap}
+Buffer-wide bindings:
+\\{slack-search-result-buffer-mode-map}"
   (remove-hook 'lui-post-output-hook 'slack-display-image t)
   (add-hook 'post-command-hook #'slack-buffer--maybe-load-more-at-end nil t))
 
@@ -102,7 +108,9 @@
          (lui-time-stamp-format "[%Y-%m-%d %H:%M] "))
     (if (slack-file-p match)
         (lui-insert (slack-buffer-file-search-result-to-string this match) t)
-      (lui-insert (slack-message-to-string match team) t))
+      (lui-insert (slack-buffer--apply-message-keymap
+                   (slack-message-to-string match team))
+                  t))
     (lui-insert "" t)))
 
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-search-result-buffer))

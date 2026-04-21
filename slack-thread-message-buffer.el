@@ -35,6 +35,13 @@
 (define-derived-mode slack-thread-message-buffer-mode
   slack-buffer-mode
   "Slack Thread Message"
+  "Major mode for a Slack thread reply buffer.
+
+Message-region bindings (active when point is on a reply, not on the
+input prompt):
+\\{slack-message-keymap}
+Buffer-wide bindings:
+\\{slack-thread-message-buffer-mode-map}"
   (lui-set-prompt lui-prompt-string)
   (cursor-sensor-mode)
   (add-hook 'post-command-hook #'slack-buffer--maybe-load-more-at-end nil t)

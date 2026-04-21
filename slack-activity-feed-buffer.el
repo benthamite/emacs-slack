@@ -286,6 +286,12 @@ Run an action on the data returned with AFTER-SUCCESS."
    (pagination :initarg :pagination :type (or null string))
    (last :initarg :last :type (or null integer))))
 (define-derived-mode slack-activity-feed-buffer-mode slack-buffer-mode "Slack Activity Feed"
+  "Major mode for the Slack activity feed.
+
+Message-region bindings (active when point is on an activity entry):
+\\{slack-message-keymap}
+Buffer-wide bindings:
+\\{slack-activity-feed-buffer-mode-map}"
   (add-hook 'lui-pre-output-hook 'slack-mrkdwn-add-face nil t)
   (add-hook 'lui-pre-output-hook 'slack-display-inline-action t t)
   (add-hook 'post-command-hook #'slack-buffer--maybe-load-more-at-end nil t)
@@ -567,7 +573,8 @@ relying on buffer text properties."
               (let ((lui-time-stamp-time time)
                     (lui-time-stamp-format "[%Y-%m-%d %H:%M] "))
                 (lui-insert-with-text-properties
-                 (slack-buffer--render-native-emoji-string message-str)
+                 (slack-buffer--apply-message-keymap
+                  (slack-buffer--render-native-emoji-string message-str))
                  'ts ts
                  'team-id (oref this team-id)
                  'room-id (or room-id channel)

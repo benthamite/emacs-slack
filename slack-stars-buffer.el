@@ -36,6 +36,12 @@
 (require 'slack-message)
 
 (define-derived-mode slack-stars-buffer-mode slack-buffer-mode "Slack Saved Items"
+  "Major mode for the Slack saved items feed.
+
+Message-region bindings (active when point is on a saved item):
+\\{slack-message-keymap}
+Buffer-wide bindings:
+\\{slack-stars-buffer-mode-map}"
   (add-hook 'post-command-hook #'slack-buffer--maybe-load-more-at-end nil t))
 
 (defclass slack-stars-buffer (slack-room-buffer)
@@ -196,7 +202,8 @@ the URL."
                               (string-to-number
                                (slack-ts message)))))
     (lui-insert-with-text-properties
-     (slack-message-to-string message (slack-buffer-team this))
+     (slack-buffer--apply-message-keymap
+      (slack-message-to-string message (slack-buffer-team this)))
      'ts (slack-ts message)
      'team-id (oref (slack-buffer-team this) id)
      'room-id (oref message channel)

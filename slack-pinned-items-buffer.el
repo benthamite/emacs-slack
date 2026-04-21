@@ -29,7 +29,13 @@
 (require 'slack-room-buffer)
 (require 'slack-pinned-item)
 
-(define-derived-mode slack-pinned-items-buffer-mode slack-buffer-mode "Slack Pinned Items")
+(define-derived-mode slack-pinned-items-buffer-mode slack-buffer-mode "Slack Pinned Items"
+  "Major mode for a Slack pinned items buffer.
+
+Message-region bindings (active when point is on a pinned message):
+\\{slack-message-keymap}
+Buffer-wide bindings:
+\\{slack-pinned-items-buffer-mode-map}")
 
 (defclass slack-pinned-items-buffer (slack-room-buffer)
   ((items :initarg :items :type list)))
