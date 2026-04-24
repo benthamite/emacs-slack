@@ -195,23 +195,26 @@ SUCCESS-CALLBACK allows you to run a function on that permalink."
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
                   (message (slack-room-find-message room ts)))
-      (slack-star-api-request slack-message-stars-remove-url
-                              (list (cons "ts" (slack-ts message))
-                                    (cons "item_id" (oref room id))
-                                    (cons "item_type" "message"))
-                              team)))
+      (progn
+        (slack-star-api-request slack-message-stars-remove-url
+                                (list (cons "ts" (slack-ts message))
+                                      (cons "item_id" (oref room id))
+                                      (cons "item_type" "message"))
+                                team)
+        (slack-message-star-removed message))))
 
 (cl-defmethod slack-buffer-add-star ((this slack-room-buffer) ts)
   "Star the item at point in the room buffer."
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
                   (message (slack-room-find-message room ts)))
-      (slack-star-api-request slack-message-stars-add-url
-                              (list (cons "item_id" (oref room id))
-                                    (cons "ts" (slack-ts message))
-                                    (cons "item_type" "message")
-                                    )
-                              team)))
+      (progn
+        (slack-star-api-request slack-message-stars-add-url
+                                (list (cons "item_id" (oref room id))
+                                      (cons "ts" (slack-ts message))
+                                      (cons "item_type" "message"))
+                                team)
+        (slack-message-star-added message))))
 
 (cl-defmethod slack-buffer-add-reaction-to-message ((this slack-room-buffer) reaction ts)
   "Add a reaction to the message selected in the room buffer."

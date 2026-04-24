@@ -222,20 +222,24 @@ Optional FILES are sent as attachments."
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
                   (message (slack-room-find-message room ts)))
-      (slack-star-api-request slack-message-stars-add-url
-                              (append  (list (cons "channel" (oref room id)))
-                                       (slack-message-star-api-params message due-in-ms))
-                              team)))
+      (progn
+        (slack-star-api-request slack-message-stars-add-url
+                                (append (list (cons "channel" (oref room id)))
+                                        (slack-message-star-api-params message due-in-ms))
+                                team)
+        (slack-message-star-added message))))
 
 (cl-defmethod slack-buffer-remove-star ((this slack-thread-message-buffer) ts)
   "Remove the star from the item at point in the thread message buffer."
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
                   (message (slack-room-find-message room ts)))
-      (slack-star-api-request slack-message-stars-remove-url
-                              (append (list (cons "channel" (oref room id)))
-                                      (slack-message-star-api-params message))
-                              team)))
+      (progn
+        (slack-star-api-request slack-message-stars-remove-url
+                                (append (list (cons "channel" (oref room id)))
+                                        (slack-message-star-api-params message))
+                                team)
+        (slack-message-star-removed message))))
 
 (cl-defmethod slack-buffer-update ((this slack-thread-message-buffer) message &key replace)
   "Update the thread message buffer after new data arrives."
