@@ -55,15 +55,29 @@ AFTER-SUCCESS is called with no arguments when the request succeeds."
 
 (defun slack-bots-info-request (bot-ids team &optional after-success)
   "Fetch info for the bots with BOT-IDS on TEAM and cache them.
-AFTER-SUCCESS is called with no arguments when the request succeeds."
+AFTER-SUCCESS is called with no arguments once all requests complete.
+
+Falls back to individual `slack-bot-info-request' calls when the batch
+call returns `bots_not_found', since Slack's `bots.info' endpoint fails
+the entire batch if any one ID is invalid (e.g. a deleted bot)."
   (cl-labels
       ((success (&key data &allow-other-keys)
                 (slack-request-handle-error
-                 (data "slack-bots-info-request")
+                 (data "slack-bots-info-request" #'handle-error)
                  (let ((bots (plist-get data :bots)))
-                   (slack-team-set-bots team bots)))
-                (if after-success
-                    (funcall after-success))))
+                   (slack-team-set-bots team bots))
+                 (when after-success
+                   (funcall after-success))))
+       (handle-error (_err) (fetch-individually))
+       (fetch-individually ()
+         (let ((pending (length bot-ids)))
+           (cl-labels
+               ((one-done ()
+                          (setq pending (1- pending))
+                          (when (and (zerop pending) after-success)
+                            (funcall after-success))))
+             (dolist (bot-id bot-ids)
+               (slack-bot-info-request bot-id team #'one-done))))))
     (slack-request
      (slack-request-create
       slack-bot-info-url
