@@ -185,6 +185,38 @@
                               team)
     (error "Could not find star to remove for ts")))
 
+(defun slack-star--contains-ts-p (star ts)
+  "Return non-nil when STAR has a saved item with timestamp TS."
+  (cl-some (lambda (i) (string= (slack-ts i) ts))
+           (slack-star-items star)))
+
+(defun slack-ts-saved-p (team ts)
+  "Return non-nil when a saved item with TS exists in TEAM's saved list.
+Returns nil when TEAM has not loaded its saved items list yet, so
+callers must treat nil as \"unknown or not saved\", not \"definitely
+not saved\"."
+  (when-let* ((star (oref team star)))
+    (slack-star--contains-ts-p star ts)))
+
+(defun slack-team-mark-saved (team channel ts)
+  "Record that the message at TS in CHANNEL is saved for TEAM.
+Initializes TEAM's saved items list when it has not been loaded, so
+subsequent saved-state checks work even for users who have never
+opened the saved items buffer."
+  (unless (oref team star)
+    (oset team star (make-instance 'slack-star :items nil :cursor nil)))
+  (let ((star (oref team star)))
+    (unless (slack-star--contains-ts-p star ts)
+      (push (slack-create-star-item
+             (list :item_id channel :item_type "message" :ts ts))
+            (oref star items)))))
+
+(defun slack-team-mark-unsaved (team ts)
+  "Record that the message at TS is no longer saved for TEAM."
+  (when-let* ((star (oref team star)))
+    (oset star items
+          (cl-remove-if (lambda (i) (string= (slack-ts i) ts))
+                        (slack-star-items star)))))
 
 (provide 'slack-star)
 ;;; slack-star.el ends here

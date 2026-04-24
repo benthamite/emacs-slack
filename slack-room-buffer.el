@@ -201,7 +201,8 @@ SUCCESS-CALLBACK allows you to run a function on that permalink."
                                       (cons "item_id" (oref room id))
                                       (cons "item_type" "message"))
                                 team)
-        (slack-message-star-removed message))))
+        (slack-message-star-removed message)
+        (slack-team-mark-unsaved team (slack-ts message)))))
 
 (cl-defmethod slack-buffer-add-star ((this slack-room-buffer) ts)
   "Star the item at point in the room buffer."
@@ -214,7 +215,8 @@ SUCCESS-CALLBACK allows you to run a function on that permalink."
                                       (cons "ts" (slack-ts message))
                                       (cons "item_type" "message"))
                                 team)
-        (slack-message-star-added message))))
+        (slack-message-star-added message)
+        (slack-team-mark-saved team (oref room id) (slack-ts message)))))
 
 (cl-defmethod slack-buffer-add-reaction-to-message ((this slack-room-buffer) reaction ts)
   "Add a reaction to the message selected in the room buffer."

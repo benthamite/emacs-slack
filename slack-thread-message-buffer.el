@@ -227,7 +227,8 @@ Optional FILES are sent as attachments."
                                 (append (list (cons "channel" (oref room id)))
                                         (slack-message-star-api-params message due-in-ms))
                                 team)
-        (slack-message-star-added message))))
+        (slack-message-star-added message)
+        (slack-team-mark-saved team (oref room id) (slack-ts message)))))
 
 (cl-defmethod slack-buffer-remove-star ((this slack-thread-message-buffer) ts)
   "Remove the star from the item at point in the thread message buffer."
@@ -239,7 +240,8 @@ Optional FILES are sent as attachments."
                                 (append (list (cons "channel" (oref room id)))
                                         (slack-message-star-api-params message))
                                 team)
-        (slack-message-star-removed message))))
+        (slack-message-star-removed message)
+        (slack-team-mark-unsaved team (slack-ts message)))))
 
 (cl-defmethod slack-buffer-update ((this slack-thread-message-buffer) message &key replace)
   "Update the thread message buffer after new data arrives."

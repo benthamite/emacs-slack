@@ -291,7 +291,13 @@ the URL."
   "Remove THIS star at TS."
   (let ((team (slack-buffer-team this)))
     (with-slots (star) team
-      (slack-star-remove-star star ts team))))
+      (slack-star-remove-star star ts team)
+      (slack-team-mark-unsaved team ts)
+      (when-let* ((room-id (get-text-property (point) 'room-id))
+                  (room (slack-room-find room-id team))
+                  (message (slack-room-find-message room ts)))
+        (slack-message-star-removed message))
+      (slack-buffer-message-delete this ts))))
 
 (cl-defmethod slack-buffer-message-delete ((this slack-stars-buffer) ts)
   "Delete the message at point from the stars buffer."
