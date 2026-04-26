@@ -43,7 +43,9 @@
 (cl-defmethod slack-event-notify ((_this slack-event) _message _team)
   "Trigger user notifications for the event event on TEAM.")
 (cl-defmethod slack-event-update-ui ((this slack-event) message team)
-  "Refresh UI surfaces affected by the event event on TEAM."
+  "Refresh UI surfaces affected by the event event on TEAM.
+THIS is the slack-event instance.
+MESSAGE is the message argument."
   (slack-event-update-buffer this message team)
   (slack-event-notify this message team))
 
@@ -51,12 +53,12 @@
 (cl-defmethod slack-event-find-message ((_this slack-message-event-processable) _team)
   "Return the message referenced by the message event processable event from TEAM, or nil.")
 (cl-defmethod slack-event-save-message ((_this slack-message-event-processable) message team)
-  "Persist the message carried by the message event processable event into TEAM."
+  "Persist the MESSAGE carried by the message event processable event into TEAM."
   (slack-if-let* ((room (slack-room-find message team)))
       (slack-room-push-message room message team)))
 
 (cl-defmethod slack-event-update ((this slack-message-event-processable) team)
-  "Apply the message event processable event to TEAM's in-memory state."
+  "Apply THIS message event processable event to TEAM's in-memory state."
   (let ((message (slack-event-find-message this team)))
     (when message
       (slack-event-save-message this message team)
@@ -68,7 +70,7 @@
 (cl-defmethod slack-event-save-room ((_this slack-room-event-processable) _room _team _cb)
   "Persist any rooms mentioned by the room event processable event into TEAM.")
 (cl-defmethod slack-event-update ((this slack-room-event-processable) team)
-  "Apply the room event processable event to TEAM's in-memory state."
+  "Apply THIS room event processable event to TEAM's in-memory state."
   (let ((room (slack-event-find-room this team)))
     (when room
       (slack-event-save-room this room team nil)

@@ -115,7 +115,7 @@
     `((default :inherit (fixed-pitch shadow) :slant normal :weight normal)
       (((type graphic) (class color) (background dark)) (:background ,dark-bg))
       (((type graphic) (class color) (background light)) (:background ,light-bg))))
-  "Used preview text and code blocks"
+  "Used preview text and code blocks."
   :group 'slack)
 
 (defun slack-message-put-header-property (header)

@@ -40,7 +40,8 @@
     (time_secs . "%H:%M:%S"))
   "Date formats for Slack's date token.
 this format string passed to `format-time-string' function.
-see \"Formatting dates\" section in https://api.slack.com/docs/message-formatting"
+see \"Formatting dates\" section in
+https://api.slack.com/docs/message-formatting"
   :type '(repeat (cons symbol string))
   :group 'slack)
 

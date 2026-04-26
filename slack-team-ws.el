@@ -115,14 +115,16 @@
      (oref ws reconnect-count)))
 
 (cl-defmethod slack-ws-reconnect-backoff ((ws slack-team-ws))
-  "Apply exponential backoff to reconnect delay and return the new delay."
+  "Apply exponential backoff to reconnect delay and return the new delay.
+WS is the ws argument."
   (let* ((current (oref ws reconnect-after-sec))
          (doubled (min (* current 2) (oref ws reconnect-after-sec-max))))
     (oset ws reconnect-after-sec doubled)
     current))
 
 (cl-defmethod slack-ws-reconnect-reset-backoff ((ws slack-team-ws))
-  "Reset reconnect delay to the base value after a successful connection."
+  "Reset reconnect delay to the base value after a successful connection.
+WS is the ws argument."
   (oset ws reconnect-after-sec (oref ws reconnect-after-sec-base)))
 
 (cl-defmethod slack-ws-inc-reconnect-count ((ws slack-team-ws))

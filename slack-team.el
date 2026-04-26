@@ -116,7 +116,8 @@
    ))
 
 (defun slack-create-team (plist)
-  "Create and return a new team instance from PAYLOAD."
+  "Create and return a new team instance from PAYLOAD.
+PLIST is the plist argument."
   (let ((ws (apply #'make-instance 'slack-team-ws
                    (slack-collect-slots 'slack-team-ws plist)))
         (team (apply #'make-instance 'slack-team
@@ -125,7 +126,8 @@
     team))
 
 (cl-defmethod slack-equalp ((this slack-team) other)
-  "Return non-nil when the team equals the other argument."
+  "Return non-nil when the team equals the OTHER argument.
+THIS is the slack-team instance."
   (and (oref this id)
        (oref other id)
        (string= (oref this id) (oref other id))))
@@ -284,11 +286,13 @@ TODO I should experiment to see if api calls require cookies."
   (nth 0 (s-split ";" (oref this cookie))))
 
 (cl-defmethod slack-team-d-s-cookie ((this slack-team))
-  "Get d-s cookie useful to authenticate to websocket."
+  "Get d-s cookie useful to authenticate to websocket.
+THIS is the slack-team instance."
   (ignore-errors (s-trim (s-replace ";" "" (nth 0 (s-split "lc=" (nth 1 (s-split "d-s=" (oref this cookie)))))))))
 
 (cl-defmethod slack-team-lc-cookie ((this slack-team))
-  "Get lc cookie useful to authenticate to websocket."
+  "Get lc cookie useful to authenticate to websocket.
+THIS is the slack-team instance."
   (or
    (ignore-errors
      (s-trim (s-replace ";" "" (nth 1 (s-split "lc=" (nth 1 (s-split "d-s=" (oref this cookie))))))))

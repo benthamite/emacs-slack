@@ -30,7 +30,8 @@
 (defclass slack-thread-event (slack-event slack-message-event-processable) ())
 
 (cl-defmethod slack-event-find-message ((this slack-thread-event) team)
-  "Return the message referenced by the thread event event from TEAM, or nil."
+  "Return the message referenced by the thread event event from TEAM, or nil.
+THIS is the slack-thread-event instance."
   (let* ((payload (oref this payload))
          (subscription (plist-get payload :subscription))
          (channel (plist-get subscription :channel))
@@ -46,7 +47,8 @@
                  :payload payload))
 
 (cl-defmethod slack-event-save-message ((this slack-thread-marked-event) message team)
-  "Persist the message carried by the thread marked event event into TEAM."
+  "Persist the message carried by the thread marked event event into TEAM.
+THIS is the slack-thread-marked-event instance."
   (slack-if-let* ((room (slack-room-find message team)))
       (let* ((payload (oref this payload))
              (subscription (plist-get payload :subscription))
@@ -62,7 +64,8 @@
                  :payload payload))
 
 (cl-defmethod slack-event-save-message ((this slack-thread-subscribed-event) message team)
-  "Persist the message carried by the thread subscribed event event into TEAM."
+  "Persist the message carried by the thread subscribed event event into TEAM.
+THIS is the slack-thread-subscribed-event instance."
   (slack-if-let* ((room (slack-room-find message team)))
       (let* ((payload (oref this payload))
              (subscription (plist-get payload :subscription))
@@ -79,7 +82,8 @@
                  :payload payload))
 
 (cl-defmethod slack-event-save-message ((this slack-thread-unsubscribed-event) message team)
-  "Persist the message carried by the thread unsubscribed event event into TEAM."
+  "Persist the message carried by the thread unsubscribed event event into TEAM.
+THIS is the slack-thread-unsubscribed-event instance."
   (slack-if-let* ((room (slack-room-find message team)))
       (let* ((payload (oref this payload))
              (subscription (plist-get payload :subscription))

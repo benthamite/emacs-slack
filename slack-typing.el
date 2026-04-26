@@ -56,7 +56,8 @@ If USER-NAMES provided, also create `slack-typing-user' instances."
                    :users users)))
 
 (cl-defmethod slack-equalp ((this slack-typing-user) other)
-  "Return non-nil when the typing user equals the other argument."
+  "Return non-nil when the typing user equals the OTHER argument.
+THIS is the slack-typing-user instance."
   (string= (oref this user-name)
            (oref other user-name)))
 

@@ -1,4 +1,4 @@
-;;; slack-util.el ---utility functions               -*- lexical-binding: t; -*-
+;;; slack-util.el --- utility functions               -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2015  yuya.minami
 
@@ -43,7 +43,9 @@
     'if-let))
 
 (cl-defmacro slack-select-from-list ((alist prompt &key initial) &body body)
-  "Bind candidates from selected."
+  "Bind candidates from selected.
+ALIST is the alist argument.
+BODY is the body argument."
   (declare (indent 2) (debug t))
   (let ((key (cl-gensym)))
     `(let* ((,key (let ((completion-ignore-case t))
@@ -529,14 +531,14 @@ if you need them all use `slack-get-positions-by-ts'."
 (defun slack-parse-time-string (time)
   "TIME should be one of:
 - a string giving today’s time like \"11:23pm\"
-  (the acceptable formats are HHMM, H:MM, HH:MM, HHam, HHAM,
-  HHpm, HHPM, HH:MMam, HH:MMAM, HH:MMpm, or HH:MMPM;
-  a period ‘.’ can be used instead of a colon ‘:’ to separate
-  the hour and minute parts);
+(the acceptable formats are HHMM, H:MM, HH:MM, HHam, HHAM,
+HHpm, HHPM, HH:MMam, HH:MMAM, HH:MMpm, or HH:MMPM;
+a period ‘.’ can be used instead of a colon ‘:’ to separate
+the hour and minute parts);
 - a string giving specific date and time like \"1991/03/23 03:00\";
 - a string giving a relative time like \"90\" or \"2 hours 35 minutes\"
-  (the acceptable forms are a number of seconds without units
-  or some combination of values using units in ‘timer-duration-words’);
+(the acceptable forms are a number of seconds without units
+or some combination of values using units in ‘timer-duration-words’);
 - a number of seconds from now;"
   (if (numberp time)
       (setq time (timer-relative-time nil time)))
@@ -613,7 +615,8 @@ ones and overrule settings in the other lists."
     rtn))
 
 (cl-defmethod slack-ts ((ts string))
-  "Return the timestamp string identifying the string."
+  "Return the timestamp string identifying the string.
+TS is the ts argument."
   ts)
 
 (defun slack-propertize-mention-text (face display text)
@@ -674,9 +677,9 @@ Note the input timestamp must drop the last 6 digits.
   "Turn Slack PERMALINK into (:team-domain :room-id :ts :thread-ts).
 
 >> (slack-permalink-to-info
-     \"https://clojurians.slack.com/archives/C099W16KZ/p1730182493679269\")
+\"https://clojurians.slack.com/archives/C099W16KZ/p1730182493679269\")
 => (:team-domain \"clojurians\" :room-id \"C099W16KZ\"
-    :ts \"1730182493.679269\" :thread-ts \"1730182493.679269\")"
+:ts \"1730182493.679269\" :thread-ts \"1730182493.679269\")"
   (with-demoted-errors "slack-permalink-to-info: failed with %S"
     (let* ((_ (string-match "https://\\(.*\\).slack.com/\\(?:[^/]*/\\)?archives/\\(.*\\)/p\\(.*\\)" permalink))
            (team-domain (match-string 1 permalink))
@@ -700,10 +703,10 @@ Note the input timestamp must drop the last 6 digits.
   "Turn Slack INFO (:team-domain :room-id :ts :thread-ts) into permalink.
 
 >> (slack-info-to-permalink
-     (list :team-domain \"clojurians\"
-           :room-id \"C099W16KZ\"
-           :ts \"1730182493.679269\"
-           :thread-ts \"1730182493.679269\"))
+(list :team-domain \"clojurians\"
+:room-id \"C099W16KZ\"
+:ts \"1730182493.679269\"
+:thread-ts \"1730182493.679269\"))
 => \"https://clojurians.slack.com/archives/C099W16KZ/\
 p1730182493679269?thread_ts=1730182493.679269&cid=C099W16KZ\""
   (with-demoted-errors "slack-permalink-to-info: failed with %S"

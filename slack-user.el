@@ -1,4 +1,4 @@
-;;; slack-user.el ---slack user interface            -*- lexical-binding: t; -*-
+;;; slack-user.el --- slack user interface            -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2015  南優也
 
@@ -53,7 +53,7 @@
 
 (defface slack-user-dnd-face
   '((t (:foreground "#2aa198" :weight bold)))
-  "Used to `slack-user-dnd-sign'"
+  "Used to `slack-user-dnd-sign'."
   :group 'slack)
 
 (defcustom slack-user-active-string "*"
@@ -63,11 +63,12 @@
 
 (defface slack-user-active-face
   '((t (:foreground "#2aa198" :weight bold)))
-  "Used to `slack-user-active-string'"
+  "Used to `slack-user-active-string'."
   :group 'slack)
 
 (cl-defmethod slack-user-find ((id string) team)
-  "Return the user referenced by the string in TEAM."
+  "Return the user referenced by the string in TEAM.
+ID is the id argument."
   (gethash id (oref team users)))
 ;; TODO remove this. use `slack-user-find'
 (defun slack-user--find (id team)
@@ -124,7 +125,8 @@
     (slack-user--status user)))
 
 (defun slack-user-names (team &optional filter)
-  "Return all users as alist (\"user-name\" . user) in TEAM."
+  "Return all users as alist (\"user-name\" . user) in TEAM.
+FILTER is the filter argument."
   (let ((users (cl-remove-if #'slack-user-hidden-p
                              (slack-team-users team))))
     (mapcar (lambda (u) (cons (slack-user--name u team) u))
@@ -262,7 +264,9 @@ Optionally expire the message at UNIX-EXPIRE-BY-TIME."
   (string= user-id (oref team self-id)))
 
 (defun slack-user-name-alist (team &key filter)
-  "Return an alist of (label . user) for TEAM users, optionally filtered by FILTER."
+  "Return an alist of (label .
+user) for TEAM users, optionally filtered by
+FILTER."
   (let ((users (slack-team-users team)))
     (mapcar #'(lambda (e) (cons (slack-user-label e team) e))
             (if filter (funcall filter users)
@@ -412,7 +416,8 @@ Download the image from Slack when it is not already cached."
            (oref team presence)))
 
 (defun slack-request-set-presence (team &optional presence)
-  "Issue the `set presence' request against the Slack API."
+  "Issue the `set PRESENCE' request against the Slack API.
+TEAM is the team argument."
   (unless presence
     (let ((current-presence (gethash (oref team self-id)
                                      (oref team presence)
@@ -433,7 +438,9 @@ Download the image from Slack when it is not already cached."
       :params (list (cons "presence" presence))))))
 
 (defun slack-request-dnd-set-snooze (team time)
-  "Issue the `dnd set snooze' request against the Slack API."
+  "Issue the `dnd set snooze' request against the Slack API.
+TEAM is the team argument.
+TIME is the time argument."
   (cl-labels
       ((on-success (&key data &allow-other-keys)
                    (slack-request-handle-error
@@ -452,7 +459,8 @@ Download the image from Slack when it is not already cached."
         :params (list (cons "num_minutes" (format "%s" num-minutes))))))))
 
 (defun slack-request-dnd-end-dnd (team)
-  "Issue the `dnd end dnd' request against the Slack API."
+  "Issue the `dnd end dnd' request against the Slack API.
+TEAM is the team argument."
   (cl-labels
       ((on-success (&key data &allow-other-keys)
                    (slack-request-handle-error
@@ -466,7 +474,9 @@ Download the image from Slack when it is not already cached."
       ))))
 
 (defun slack-user-equal-p (a b)
-  "Return non-nil when the two user arguments are equal."
+  "Return non-nil when the two user arguments are equal.
+A is the a argument.
+B is the b argument."
   (string= (plist-get a :id) (plist-get b :id)))
 
 (defalias 'slack-bot-list-update 'slack-user-list-update)
@@ -506,7 +516,8 @@ Download the image from Slack when it is not already cached."
 (cl-defun slack-user-prefs-update (&optional team)
   "Get preferences for the current user.
 See the following documentation for more information:
-https://github.com/ErikKalkoken/slackApiDoc/blob/master/users.prefs.get.md"
+https://github.com/ErikKalkoken/slackApiDoc/blob/master/users.prefs.get.md
+TEAM is the team argument."
   (interactive)
   (let ((team (or team (slack-team-select))))
     (slack-request

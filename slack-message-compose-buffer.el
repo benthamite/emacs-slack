@@ -52,7 +52,7 @@
   (slack-buffer-select-file slack-current-buffer))
 
 (cl-defmethod slack-buffer-select-file ((this slack-message-compose-buffer))
-  "Prompt the user to select a file from the message compose buffer."
+  "Prompt the user to select a file from THIS message compose buffer."
   (when (null (oref this attachment-buffer))
     (oset this
           attachment-buffer
@@ -69,7 +69,7 @@
                               filename)))
 
 (cl-defmethod slack-buffer-remove-file ((this slack-message-compose-buffer))
-  "Remove the file at point from the message compose buffer."
+  "Remove the file at point from THIS message compose buffer."
   (slack-buffer-remove-file (oref this attachment-buffer)))
 
 (defun slack-message-remove-file ()
@@ -83,19 +83,19 @@
       (oref attachment-buffer files)))
 
 (cl-defmethod slack-buffer-room ((this slack-message-compose-buffer))
-  "Return the room associated with the message compose buffer."
+  "Return THIS buffer."
   (with-slots (room-id) this
     (slack-room-find room-id (slack-buffer-team this))))
 
 (cl-defmethod slack-buffer-send-message ((this slack-message-compose-buffer) _message)
-  "Send a message from the message compose buffer."
+  "Send a message from THIS message compose buffer."
   (when (oref this attachment-buffer)
     (slack-buffer-kill-buffer-window (oref this attachment-buffer)))
 
   (slack-buffer-kill-buffer-window this))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-message-compose-buffer))
-  "Initialize and return the display buffer for the message compose buffer."
+  "Initialize and return the display buffer for THIS buffer."
   (let ((buf (cl-call-next-method)))
     (with-current-buffer buf
       (slack-message-compose-buffer-mode)

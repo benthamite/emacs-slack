@@ -44,7 +44,9 @@ Buffer-wide bindings:
   ((search-result :initarg :search-result :type slack-search-result)))
 
 (cl-defmethod slack-buffer-name ((_class (subclass slack-search-result-buffer)) search-result team)
-  "Return the display buffer name for the search result buffer."
+  "Return the display buffer name for the search result buffer.
+SEARCH-RESULT is the search-result argument.
+TEAM is the team argument."
   (with-slots (query sort sort-dir) search-result
     (format "*slack: %s : %s Search Result - QUERY: %s, ORDER BY: %s %s"
             (oref team name)
@@ -56,7 +58,7 @@ Buffer-wide bindings:
             (upcase sort-dir))))
 
 (cl-defmethod slack-buffer-name ((this slack-search-result-buffer))
-  "Return the display buffer name for the search result buffer."
+  "Return the display buffer name for THIS buffer."
   (with-slots (search-result) this
     (with-slots (query sort sort-dir) search-result
       (format "*slack: %s : %s Search Result - QUERY: %s, ORDER BY: %s %s"
@@ -69,7 +71,8 @@ Buffer-wide bindings:
               (upcase sort-dir)))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-search-result-buffer)) search-result)
-  "Return the class-level buffer key for the search result buffer."
+  "Return the class-level buffer key for the search result buffer.
+SEARCH-RESULT is the search-result argument."
   (with-slots (query sort sort-dir) search-result
     (concat query
             ":"
@@ -82,7 +85,7 @@ Buffer-wide bindings:
             sort-dir)))
 
 (cl-defmethod slack-buffer-key ((this slack-search-result-buffer))
-  "Return the lookup key identifying the buffer for the search result buffer."
+  "Return the lookup key identifying the buffer for THIS buffer."
   (slack-buffer-key 'slack-search-result-buffer (oref this search-result)))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-search-result-buffer)))
@@ -90,7 +93,9 @@ Buffer-wide bindings:
   'slack-search-result-buffer)
 
 (defun slack-create-search-result-buffer (search-result team)
-  "Create and return a new search result buffer instance from PAYLOAD."
+  "Create and return a new search result buffer instance from PAYLOAD.
+SEARCH-RESULT is the search-result argument.
+TEAM is the team argument."
   (slack-if-let* ((buffer (slack-buffer-find 'slack-search-result-buffer team search-result)))
       buffer
     (make-instance 'slack-search-result-buffer
@@ -109,7 +114,8 @@ Buffer-wide bindings:
                         'face 'slack-attachment-footer))))
 
 (cl-defmethod slack-buffer-insert ((this slack-search-result-buffer) match)
-  "Insert a rendered representation of the search result buffer into the current buffer."
+  "Insert a rendered representation of THIS buffer into the current buffer.
+MATCH is the match argument."
   (let* ((team (slack-buffer-team this))
          (time (slack-ts-to-time (slack-ts match)))
          (lui-time-stamp-time time)
@@ -122,12 +128,12 @@ Buffer-wide bindings:
     (lui-insert "" t)))
 
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-search-result-buffer))
-  "Return non-nil when the search result buffer has more history to load."
+  "Return non-nil when THIS buffer has more history to load."
   (with-slots (search-result) this
     (slack-search-has-next-page-p search-result)))
 
 (cl-defmethod slack-buffer-insert-history ((this slack-search-result-buffer))
-  "Insert historical messages into the buffer for the search result buffer."
+  "Insert historical messages into the buffer for THIS buffer."
   (let* ((search-result (oref this search-result))
          (pagination (oref search-result pagination))
          (first (oref pagination first))
@@ -139,14 +145,15 @@ Buffer-wide bindings:
     (goto-char cur-point)))
 
 (cl-defmethod slack-buffer-request-history ((this slack-search-result-buffer) after-success)
-  "Request older history for the search result buffer from the Slack API."
+  "Request older history for THIS buffer from the Slack API.
+AFTER-SUCCESS is the after-success argument."
   (with-slots (search-result) this
     (slack-search-request search-result after-success (slack-buffer-team this)
                           (slack-search-paging-next-page
                            (oref search-result pagination)))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-search-result-buffer))
-  "Initialize and return the display buffer for the search result buffer."
+  "Initialize and return the display buffer for THIS buffer."
   (let ((buffer (cl-call-next-method)))
     (with-current-buffer buffer
       (slack-search-result-buffer-mode)
@@ -158,13 +165,14 @@ Buffer-wide bindings:
     buffer))
 
 (cl-defmethod slack-buffer-delete-load-more-string ((_this slack-search-result-buffer))
-  "Remove the \"load more\" marker from the buffer for the search result buffer.")
+  "Remove the \"load more\" marker from the buffer for the search result
+buffer.")
 
 (cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-search-result-buffer))
   "Position point so history can be inserted in the search result buffer.")
 
 (cl-defmethod slack-buffer-insert--history ((this slack-search-result-buffer))
-  "Insert loaded history items into the buffer for the search result buffer."
+  "Insert loaded history items into the buffer for THIS buffer."
   (slack-buffer-insert-history this)
   (unless (slack-buffer-has-next-page-p this)
     (let ((lui-time-stamp-position nil))

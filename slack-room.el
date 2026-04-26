@@ -57,12 +57,14 @@
   "Return the human-readable name of ROOM for TEAM.")
 
 (cl-defmethod slack-equalp ((this slack-room) other)
-  "Return non-nil when the room equals the other argument."
+  "Return non-nil when THIS room equals the OTHER argument."
   (string= (oref this id)
            (oref other id)))
 
 (cl-defmethod slack-merge ((this slack-room) other)
-  "except MESSAGES"
+  "Except MESSAGES.
+THIS is the slack-room instance.
+OTHER is the other argument."
   (oset this id (oref other id))
   (oset this created (oref other created))
   (oset this unread-count (oref other unread-count))
@@ -84,7 +86,7 @@
   nil)
 
 (cl-defmethod slack-room-hidden-p ((room slack-room))
-  "Return non-nil when the room is hidden from the user."
+  "Return non-nil when the ROOM is hidden from the user."
   (slack-room-hiddenp room))
 
 (defun slack-room-hiddenp (room)
@@ -140,21 +142,23 @@ Optional FILTER restricts the rooms; optional COLLECTER builds each entry."
     (if (< 0 count) (format "(%s)" count) "")))
 
 (cl-defmethod slack-room-mention-count ((this slack-room) team)
-  "Return the unread mention count for the room."
+  "Return the unread mention count for THIS room.
+TEAM is the team argument."
   (with-slots (counts) team
     (if counts
         (slack-counts-channel-mention-count counts this)
       0)))
 
 (cl-defmethod slack-room-set-mention-count ((this slack-room) count team)
-  "Set the unread mention count for the room."
+  "Set the unread mention COUNT for THIS room."
   (slack-if-let* ((counts (oref team counts)))
       (slack-counts-channel-set-mention-count counts
                                               this
                                               count)))
 
 (cl-defmethod slack-room-set-has-unreads ((this slack-room) value team)
-  "Set the has-unreads flag for the room."
+  "Set the has-unreads flag for THIS room.
+VALUE is the value argument."
   (slack-if-let* ((counts (oref team counts)))
       (slack-counts-channel-set-has-unreads counts this value)))
 
@@ -173,7 +177,7 @@ Optional FILTER restricts the rooms; optional COLLECTER builds each entry."
   nil)
 
 (cl-defmethod slack-room-name ((room slack-room) _team)
-  "Return the human-readable name of the room."
+  "Return the human-readable name of the ROOM."
   (oref room name))
 
 (defun slack-room-sort-messages (messages)
@@ -199,11 +203,13 @@ If MESSAGE-IDS is non-nil, use it instead of the room's full id list."
         "0")))
 
 (cl-defmethod slack-room--latest ((this slack-room) counts)
-  "Return the timestamp of the latest message in the room."
+  "Return the timestamp of the latest message in THIS room.
+COUNTS is the counts argument."
   (slack-counts-channel-latest counts this))
 
 (cl-defmethod slack-room--update-latest ((this slack-room) counts ts)
-  "Update the latest-message timestamp cached on the room."
+  "Update the latest-message timestamp cached on THIS room.
+COUNTS is the counts argument."
   (slack-counts-channel-update-latest counts this ts))
 
 (cl-defmethod slack-room-delete-message ((this slack-room) ts)
@@ -286,7 +292,7 @@ Defaults to 100. Used to reduce memory after closing buffers."
   (cl-incf (oref room unread-count-display)))
 
 (cl-defmethod slack-user-find ((room slack-room) team)
-  "Return the user referenced by the room in TEAM."
+  "Return the user referenced by the ROOM in TEAM."
   (slack-user--find (oref room user) team))
 
 (cl-defmethod slack-room-member-p ((_this slack-room))
@@ -298,7 +304,8 @@ Defaults to 100. Used to reduce memory after closing buffers."
   nil)
 
 (cl-defmethod slack-room-find ((id string) team)
-  "Return the string matching the given identifier in TEAM."
+  "Return the string matching the given identifier in TEAM.
+ID is the id argument."
   (if (and id team)
       (cl-labels ((find-room (room)
                              (string= id (oref room id))))
@@ -316,7 +323,8 @@ Defaults to 100. Used to reduce memory after closing buffers."
       (slack-room--has-unread-p this counts))))
 
 (cl-defmethod slack-room--has-unread-p ((this slack-room) counts)
-  "Return non-nil when the room has unread messages."
+  "Return non-nil when THIS room has unread messages.
+COUNTS is the counts argument."
   (slack-counts-channel-unread-p counts this))
 
 (cl-defmethod slack-mpim-p ((_this slack-room))

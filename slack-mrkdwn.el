@@ -30,7 +30,7 @@
 
 (defface slack-mrkdwn-bold-face
   '((t (:weight bold)))
-  "Face used to between `*'"
+  "Face used to between `*'."
   :group 'slack)
 
 (defconst slack-mrkdwn-regex-italic
@@ -38,7 +38,7 @@
 
 (defface slack-mrkdwn-italic-face
   '((t (:slant italic)))
-  "Face used to between `_'"
+  "Face used to between `_'."
   :group 'slack)
 
 (defconst slack-mrkdwn-regex-strike
@@ -46,7 +46,7 @@
 
 (defface slack-mrkdwn-strike-face
   '((t (:strike-through t)))
-  "Face used to between `~'"
+  "Face used to between `~'."
   :group 'slack)
 
 (defconst slack-mrkdwn-regex-code
@@ -54,7 +54,7 @@
 
 (defface slack-mrkdwn-code-face
   '((t (:inherit slack-preview-face)))
-  "Face used to between ``'"
+  "Face used to between ``'."
   :group 'slack)
 
 (defconst slack-mrkdwn-regex-code-block "\\(?:^\\|[[:blank:]]\\)\\(```\\)\\(?:\n\\)?\\(\\(.\\|\n\\)*?\\)\\(\n?```\\)[[:blank:]]*$")
@@ -74,7 +74,7 @@ Group 8 matches the closing parenthesis.")
 
 (defface slack-mrkdwn-code-block-face
   '((t (:inherit slack-preview-face)))
-  "Face used to between ````'"
+  "Face used to between ````'."
   :group 'slack)
 
 (defconst slack-mrkdwn-regex-blockquote
@@ -82,11 +82,11 @@ Group 8 matches the closing parenthesis.")
 
 (defface slack-mrkdwn-blockquote-face
   '((t (:inherit font-lock-doc-face)))
-  "Face used to `>'"
+  "Face used to `>'."
   :group 'slack)
 
 (defcustom slack-mrkdwn-blockquote-sign "┃"
-  "Used to display > when blockquote"
+  "Used to display > when blockquote."
   :group 'slack
   :type 'string)
 
@@ -94,11 +94,11 @@ Group 8 matches the closing parenthesis.")
 
 (defface slack-mrkdwn-list-face
   '((t (:foreground "#A9A9A9" :weight bold)))
-  "Face used to mrkdwn list"
+  "Face used to mrkdwn list."
   :group 'slack)
 
 (defcustom slack-mrkdwn-list-bullet "•"
-  "Used to display unordered list bullet"
+  "Used to display unordered list bullet."
   :group 'slack
   :type 'string)
 

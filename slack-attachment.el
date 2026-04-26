@@ -368,7 +368,7 @@ selected options."
   (with-slots (confirm) this
     (if confirm
         (with-slots (title text ok-text dismiss-text) confirm
-          (yes-or-no-p (format "%s%s"
+          (yes-or-no-p (format "%s%s?"
                                (if title
                                    (format "%s\n" title)
                                  "")
@@ -483,11 +483,13 @@ selected options."
         fallback))))
 
 (cl-defmethod slack-selectable-prompt ((this slack-attachment-select-action))
-  "Return the minibuffer prompt used when selecting the attachment select action."
+  "Return the minibuffer prompt used when selecting the attachment select action.
+THIS is the slack-attachment-select-action instance."
   (format "%s :" (oref this text)))
 
 (cl-defmethod slack-message-to-string ((attachment slack-attachment) team)
-  "Render the attachment as a displayable string."
+  "Render the ATTACHMENT as a displayable string.
+TEAM is the team argument."
   (with-slots
       (fallback text ts color from-url footer fields pretext actions files blocks) attachment
     (let* ((pad-raw (propertize "  | " 'face 'slack-attachment-pad))

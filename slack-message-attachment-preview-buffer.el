@@ -37,7 +37,7 @@
 
 (defface slack-message-attachment-preview-header-face
   '((t (:height 1.2 :weight bold :foreground "#2aa198")))
-  "Used to attachment preview header"
+  "Used to attachment preview header."
   :group 'slack)
 
 (defconst slack-max-message-attachment-count 10)
@@ -113,7 +113,7 @@
    (files :initarg :files :type (or null list) :initform nil)))
 
 (cl-defmethod slack-buffer-name ((this slack-message-attachment-preview-buffer))
-  "Return the display buffer name for the message attachment preview buffer."
+  "Return the display buffer name for THIS buffer."
   (let ((team (slack-buffer-team this))
         (room (slack-buffer-room this)))
     (format "*slack: %s : %s Compose Message Attachment"
@@ -121,11 +121,12 @@
             (slack-room-name room team))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-message-attachment-preview-buffer)) room)
-  "Return the class-level buffer key for the message attachment preview buffer."
+  "Return the class-level buffer key for the message attachment preview buffer.
+ROOM is the room argument."
   (oref room id))
 
 (cl-defmethod slack-buffer-key ((this slack-message-attachment-preview-buffer))
-  "Return the lookup key identifying the buffer for the message attachment preview buffer."
+  "Return the lookup key identifying the buffer for THIS buffer."
   (slack-buffer-key 'slack-message-attachment-preview-buffer
                     (slack-buffer-room this)))
 
@@ -134,7 +135,7 @@
   'slack-message-attachment-preview-buffer)
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-message-attachment-preview-buffer))
-  "Initialize and return the display buffer for the message attachment preview buffer."
+  "Initialize and return the display buffer for THIS buffer."
   (let* ((buf (cl-call-next-method)))
     (with-current-buffer buf
       (slack-message-attachment-preview-buffer-mode)
@@ -142,7 +143,7 @@
     buf))
 
 (cl-defmethod slack-buffer-room ((this slack-message-attachment-preview-buffer))
-  "Return the room associated with the message attachment preview buffer."
+  "Return THIS buffer."
   (with-slots (room-id) this
     (slack-room-find room-id (slack-buffer-team this))))
 
@@ -209,7 +210,7 @@
 
 
 (cl-defmethod slack-buffer-remove-file ((this slack-message-attachment-preview-buffer))
-  "Remove the file at point from the message attachment preview buffer."
+  "Remove the file at point from THIS message attachment preview buffer."
   (let ((index (get-text-property (point) 'slack-file-index))
         (new-files nil))
     (when index

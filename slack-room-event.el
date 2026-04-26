@@ -33,7 +33,7 @@
 (defclass slack-room-event (slack-event slack-room-event-processable) ())
 
 (cl-defmethod slack-event-find-room ((this slack-room-event) team)
-  "Return the room referenced by the room event event from TEAM, or nil."
+  "Return THIS room referenced by the room event event from TEAM, or nil."
   (let* ((payload (oref this payload))
          (id (plist-get payload :channel)))
     (slack-room-find id team)))
@@ -45,7 +45,7 @@
 ;; `slack-room-event') so that events requiring an async save step
 ;; dispatch here instead of to the synchronous base implementation.
 (cl-defmethod slack-event-update ((this slack-room-async-event) team)
-  "Apply the room async event event to TEAM's in-memory state."
+  "Apply THIS room async event event to TEAM's in-memory state."
   (slack-if-let* ((room (slack-event-find-room this team)))
       (slack-event-save-room this room team
                              #'(lambda ()
@@ -60,16 +60,18 @@
                  :payload payload))
 
 (cl-defmethod slack-event-find-room ((this slack-channel-created-event) _team)
-  "Return the room referenced by the channel created event event from TEAM, or nil."
+  "Return THIS room referenced by the channel created event event from TEAM, or nil."
   (with-slots (payload) this
     (slack-room-create (plist-get payload :channel) 'slack-channel)))
 
 (cl-defmethod slack-event-save-room ((_this slack-channel-created-event) room team _cb)
-  "Persist any rooms mentioned by the channel created event event into TEAM."
+  "Persist any rooms mentioned by the channel created event event into TEAM.
+ROOM is the room argument."
   (slack-team-set-channels team (list room)))
 
 (cl-defmethod slack-event-notify ((_this slack-channel-created-event) room team)
-  "Trigger user notifications for the channel created event event on TEAM."
+  "Trigger user notifications for the channel created event event on TEAM.
+ROOM is the room argument."
   (slack-conversations-info (oref room id)
                             team
                             #'(lambda ()
@@ -92,17 +94,19 @@
                           :payload payload)))))
 
 (cl-defmethod slack-event-save-room ((_this slack-channel-archive-event) room team _cb)
-  "Persist any rooms mentioned by the channel archive event event into TEAM."
+  "Persist any rooms mentioned by the channel archive event event into TEAM.
+ROOM is the room argument."
   (oset room is-archived t)
   (slack-team-set-channels team (list room)))
 
 (cl-defmethod slack-event-save-room ((_this slack-group-archive-event) room team _cb)
-  "Persist any rooms mentioned by the group archive event event into TEAM."
+  "Persist any rooms mentioned by the group archive event event into TEAM.
+ROOM is the room argument."
   (oset room is-archived t)
   (slack-team-set-groups team (list room)))
 
 (cl-defmethod slack-event-notify ((_this slack-room-archive-event) room team)
-  "Trigger user notifications for the room archive event event on TEAM."
+  "Trigger user notifications for the ROOM archive event event on TEAM."
   (slack-log (format "Channel: %s is archived"
                      (slack-room-name room team))
              team :level 'info))
@@ -122,17 +126,19 @@
                           :payload payload)))))
 
 (cl-defmethod slack-event-save-room ((_this slack-channel-unarchive-event) room team _cb)
-  "Persist any rooms mentioned by the channel unarchive event event into TEAM."
+  "Persist any rooms mentioned by the channel unarchive event event into TEAM.
+ROOM is the room argument."
   (oset room is-archived nil)
   (slack-team-set-channels team (list room)))
 
 (cl-defmethod slack-event-save-room ((_this slack-group-unarchive-event) room team _cb)
-  "Persist any rooms mentioned by the group unarchive event event into TEAM."
+  "Persist any rooms mentioned by the group unarchive event event into TEAM.
+ROOM is the room argument."
   (oset room is-archived nil)
   (slack-team-set-groups team (list room)))
 
 (cl-defmethod slack-event-notify ((_this slack-room-unarchive-event) room team)
-  "Trigger user notifications for the room unarchive event event on TEAM."
+  "Trigger user notifications for the ROOM unarchive event event on TEAM."
   (slack-log (format "Channel: %s is unarchived"
                      (slack-room-name room team))
              team :level 'info))
@@ -145,12 +151,14 @@
                  :payload payload))
 
 (cl-defmethod slack-event-save-room ((_this slack-channel-deleted-event) room team _cb)
-  "Persist any rooms mentioned by the channel deleted event event into TEAM."
+  "Persist any rooms mentioned by the channel deleted event event into TEAM.
+ROOM is the room argument."
   (remhash (oref room id)
            (oref team channels)))
 
 (cl-defmethod slack-event-notify ((_this slack-channel-deleted-event) room team)
-  "Trigger user notifications for the channel deleted event event on TEAM."
+  "Trigger user notifications for the channel deleted event event on TEAM.
+ROOM is the room argument."
   (slack-log (format "Channel: %s is deleted"
                      (slack-room-name room team))
              team :level 'info))
@@ -171,7 +179,7 @@
                           :payload payload)))))
 
 (cl-defmethod slack-event-find-room ((this slack-room-rename-event) team)
-  "Return the room referenced by the room rename event event from TEAM, or nil."
+  "Return THIS room referenced by the room rename event event from TEAM, or nil."
   (let* ((payload (oref this payload))
          (channel (plist-get payload :channel))
          (id (plist-get channel :id)))
@@ -189,17 +197,21 @@
     (oset room name-normalized name-normalized)))
 
 (cl-defmethod slack-event-save-room ((this slack-channel-rename-event) room team _cb)
-  "Persist any rooms mentioned by the channel rename event event into TEAM."
+  "Persist any rooms mentioned by the channel rename event event into TEAM.
+THIS is the slack-channel-rename-event instance.
+ROOM is the room argument."
   (slack-event-update-name this room team)
   (slack-team-set-channels team (list room)))
 
 (cl-defmethod slack-event-save-room ((this slack-group-rename-event) room team _cb)
-  "Persist any rooms mentioned by the group rename event event into TEAM."
+  "Persist any rooms mentioned by the group rename event event into TEAM.
+THIS is the slack-group-rename-event instance.
+ROOM is the room argument."
   (slack-event-update-name this room team)
   (slack-team-set-groups team (list room)))
 
 (cl-defmethod slack-event-notify ((this slack-room-rename-event) room team)
-  "Trigger user notifications for the room rename event event on TEAM."
+  "Trigger user notifications for THIS ROOM rename event event on TEAM."
   (with-slots (previous-name) this
     (slack-log (format "Channel renamed from %s to %s"
                        previous-name
@@ -220,7 +232,7 @@
   (make-instance 'slack-group-joined-event
                  :payload payload))
 (cl-defmethod slack-event-find-room ((this slack-room-joined-event) team)
-  "Return the room referenced by the room joined event event from TEAM, or nil."
+  "Return THIS room referenced by the room joined event event from TEAM, or nil."
   (let* ((payload (oref this payload))
          (channel (plist-get payload :channel))
          (id (plist-get channel :id))
@@ -231,12 +243,14 @@
         (slack-room-create channel class))))
 
 (cl-defmethod slack-event-save-room ((_this slack-channel-joined-event) room team cb)
-  "Persist any rooms mentioned by the channel joined event event into TEAM."
+  "Persist any rooms mentioned by the channel joined event event into TEAM.
+ROOM is the room argument."
   (slack-team-set-channels team (list room))
   (slack-conversations-info (oref room id) team cb))
 
 (cl-defmethod slack-event-save-room ((_this slack-group-joined-event) room team cb)
-  "Persist any rooms mentioned by the group joined event event into TEAM."
+  "Persist any rooms mentioned by the group joined event event into TEAM.
+ROOM is the room argument."
   (slack-team-set-groups team (list room))
   (slack-conversations-info (oref room id) team cb))
 
@@ -245,14 +259,16 @@
   (slack-counts-update team))
 
 (cl-defmethod slack-event-notify ((_this slack-channel-joined-event) room team)
-  "Trigger user notifications for the channel joined event event on TEAM."
+  "Trigger user notifications for the channel joined event event on TEAM.
+ROOM is the room argument."
   (cl-call-next-method)
   (slack-log (format "Joined channel %s"
                      (slack-room-name room team))
              team :level 'info))
 
 (cl-defmethod slack-event-notify ((_this slack-group-joined-event) room team)
-  "Trigger user notifications for the group joined event event on TEAM."
+  "Trigger user notifications for the group joined event event on TEAM.
+ROOM is the room argument."
   (cl-call-next-method)
   (slack-log (format "Joined group %s"
                      (slack-room-name room team))
@@ -275,7 +291,8 @@
     (make-instance klass :payload payload)))
 
 (cl-defmethod slack-event-update-room ((this slack-room-marked-event) room team)
-  "Apply the room changes from the room marked event event to TEAM."
+  "Apply the room changes from the room marked event event to TEAM.
+THIS is the slack-room-marked-event instance."
   (let* ((payload (oref this payload))
          (ts (plist-get payload :ts))
          (unread-count-display (plist-get payload :unread_count_display))
@@ -286,26 +303,30 @@
     (slack-room-set-has-unreads room (< 0 unread-count-display) team)))
 
 (cl-defmethod slack-event-save-room ((this slack-room-marked-event) room team _cb)
-  "Persist any rooms mentioned by the room marked event event into TEAM."
+  "Persist any rooms mentioned by the room marked event event into TEAM.
+THIS is the slack-room-marked-event instance."
   (slack-event-update-room this room team))
 
 (cl-defmethod slack-event-save-room ((_this slack-channel-marked-event) room team _cb)
-  "Persist any rooms mentioned by the channel marked event event into TEAM."
+  "Persist any rooms mentioned by the channel marked event event into TEAM.
+ROOM is the room argument."
   (cl-call-next-method)
   (slack-team-set-channels team (list room)))
 
 (cl-defmethod slack-event-save-room ((_this slack-group-marked-event) room team _cb)
-  "Persist any rooms mentioned by the group marked event event into TEAM."
+  "Persist any rooms mentioned by the group marked event event into TEAM.
+ROOM is the room argument."
   (cl-call-next-method)
   (slack-team-set-groups team (list room)))
 
 (cl-defmethod slack-event-save-room ((_this slack-im-marked-event) room team _cb)
-  "Persist any rooms mentioned by the im marked event event into TEAM."
+  "Persist any rooms mentioned by the im marked event event into TEAM.
+ROOM is the room argument."
   (cl-call-next-method)
   (slack-team-set-ims team (list room)))
 
 (cl-defmethod slack-event-update-buffer ((_this slack-room-marked-event) room team)
-  "Refresh the buffers affected by the room marked event event for TEAM."
+  "Refresh the buffers affected by the ROOM marked event event for TEAM."
   (slack-update-modeline)
   (slack-if-let*
       ((buffer (slack-buffer-find 'slack-message-buffer team room)))
@@ -319,7 +340,7 @@
                  :payload payload))
 
 (cl-defmethod slack-event-find-room ((this slack-im-open-event) team)
-  "Return the room referenced by the im open event event from TEAM, or nil."
+  "Return THIS room referenced by the im open event event from TEAM, or nil."
   (let* ((payload (oref this payload))
          (channel (plist-get payload :channel)))
     (or (slack-room-find channel team)
@@ -328,13 +349,15 @@
                            'slack-im))))
 
 (cl-defmethod slack-event-save-room ((_this slack-im-open-event) room team cb)
-  "Persist any rooms mentioned by the im open event event into TEAM."
+  "Persist any rooms mentioned by the im open event event into TEAM.
+ROOM is the room argument."
   (oset room properties (plist-put (oref room properties) :is_dormant nil))
   (slack-team-set-ims team (list room))
   (slack-conversations-info (oref room id) team cb))
 
 (cl-defmethod slack-event-notify ((_this slack-im-open-event) room team)
-  "Trigger user notifications for the im open event event on TEAM."
+  "Trigger user notifications for the im open event event on TEAM.
+ROOM is the room argument."
   (slack-log (format "Open direct message with %s"
                      (slack-user-name (oref room user)
                                       team))
@@ -354,23 +377,27 @@
     (make-instance klass :payload payload)))
 
 (cl-defmethod slack-event-save-room ((_this slack-group-close-event) room team _cb)
-  "Persist any rooms mentioned by the group close event event into TEAM."
+  "Persist any rooms mentioned by the group close event event into TEAM.
+ROOM is the room argument."
   (oset room is-member nil)
   (slack-team-set-groups team (list room)))
 
 (cl-defmethod slack-event-notify ((_this slack-group-close-event) room team)
-  "Trigger user notifications for the group close event event on TEAM."
+  "Trigger user notifications for the group close event event on TEAM.
+ROOM is the room argument."
   (slack-log (format "%s closed"
                      (slack-room-name room team))
              team :level 'info))
 
 (cl-defmethod slack-event-save-room ((_this slack-im-close-event) room team _cb)
-  "Persist any rooms mentioned by the im close event event into TEAM."
+  "Persist any rooms mentioned by the im close event event into TEAM.
+ROOM is the room argument."
   (oset room properties (plist-put (oref room properties) :is_dormant t))
   (slack-team-set-ims team (list room)))
 
 (cl-defmethod slack-event-notify ((this slack-im-close-event) _room team)
-  "Trigger user notifications for the im close event event on TEAM."
+  "Trigger user notifications for the im close event event on TEAM.
+THIS is the slack-im-close-event instance."
   (let* ((payload (oref this payload))
          (user (plist-get payload :user)))
     (slack-log (format "Direct message with %s is closed"
@@ -391,19 +418,23 @@
     (make-instance klass :payload payload)))
 
 (cl-defmethod slack-event-update-room ((this slack-member-joined-room-event) room _team)
-  "Apply the room changes from the member joined room event event to TEAM."
+  "Apply THIS ROOM changes from the member joined room event event to TEAM."
   (let* ((payload (oref this payload))
          (user (plist-get payload :user)))
     (cl-pushnew user (oref room members)
                 :test #'string=)))
 
 (cl-defmethod slack-event-save-room ((this slack-member-joined-channel-event) room team _cb)
-  "Persist any rooms mentioned by the member joined channel event event into TEAM."
+  "Persist any rooms mentioned by the member joined channel event event into TEAM.
+THIS is the slack-member-joined-channel-event instance.
+ROOM is the room argument."
   (slack-event-update-room this room team)
   (slack-team-set-channels team (list room)))
 
 (cl-defmethod slack-event-save-room ((this slack-member-joined-group-event) room team _cb)
-  "Persist any rooms mentioned by the member joined group event event into TEAM."
+  "Persist any rooms mentioned by the member joined group event event into TEAM.
+THIS is the slack-member-joined-group-event instance.
+ROOM is the room argument."
   (slack-event-update-room this room team)
   (slack-team-set-groups team (list room)))
 
@@ -421,7 +452,7 @@
     (make-instance klass :payload payload)))
 
 (cl-defmethod slack-event-update-room ((this slack-member-left-room-event) room _team)
-  "Apply the room changes from the member left room event event to TEAM."
+  "Apply THIS ROOM changes from the member left room event event to TEAM."
   (let* ((payload (oref this payload))
          (user (plist-get payload :user)))
     (oset room members
@@ -429,12 +460,16 @@
                         (oref room members)))))
 
 (cl-defmethod slack-event-save-room ((this slack-member-left-channel-event) room team _cb)
-  "Persist any rooms mentioned by the member left channel event event into TEAM."
+  "Persist any rooms mentioned by the member left channel event event into TEAM.
+THIS is the slack-member-left-channel-event instance.
+ROOM is the room argument."
   (slack-event-update-room this room team)
   (slack-team-set-channels team (list room)))
 
 (cl-defmethod slack-event-save-room ((this slack-member-left-group-event) room team _cb)
-  "Persist any rooms mentioned by the member left group event event into TEAM."
+  "Persist any rooms mentioned by the member left group event event into TEAM.
+THIS is the slack-member-left-group-event instance.
+ROOM is the room argument."
   (slack-event-update-room this room team)
   (slack-team-set-groups team (list room)))
 

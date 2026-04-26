@@ -74,11 +74,13 @@
   ((label :initarg :label :type string)))
 
 (cl-defmethod slack-dialog-element-value ((this slack-dialog-element))
-  "Return the current value entered for the dialog element."
+  "Return the current value entered for the dialog element.
+THIS is the slack-dialog-element instance."
   (or (oref this value) ""))
 
 (cl-defmethod slack-dialog-element-value ((this slack-dialog-select-element))
-  "Return the current value entered for the dialog select element."
+  "Return the current value entered for the dialog select element.
+THIS is the slack-dialog-select-element instance."
   (with-slots (data-source selected-options) this
     (or (cond
          ((string= data-source "external")
@@ -89,7 +91,8 @@
         "")))
 
 (cl-defmethod slack-equalp ((this slack-dialog-element) other)
-  "Return non-nil when the dialog element equals the other argument."
+  "Return non-nil when the dialog element equals the OTHER argument.
+THIS is the slack-dialog-element instance."
   (string= (oref this name)
            (oref other name)))
 
@@ -103,15 +106,18 @@
       (and selected-options (car selected-options)))))
 
 (cl-defmethod slack-selectable-text ((this slack-dialog-select-option))
-  "Return the selectable text representation of the dialog select option."
+  "Return the selectable text representation of the dialog select option.
+THIS is the slack-dialog-select-option instance."
   (oref this label))
 
 (cl-defmethod slack-selectable-text ((this slack-dialog-select-option-group))
-  "Return the selectable text representation of the dialog select option group."
+  "Return the selectable text representation of the dialog select option group.
+THIS is the slack-dialog-select-option-group instance."
   (oref this label))
 
 (cl-defmethod slack-selectable-prompt ((this slack-dialog-select-element))
-  "Return the minibuffer prompt used when selecting the dialog select element."
+  "Return the minibuffer prompt used when selecting the dialog select element.
+THIS is the slack-dialog-select-element instance."
   (format "%s :"
           (oref this label)))
 
@@ -167,7 +173,9 @@
            (slack-collect-slots 'slack-dialog payload))))
 
 (cl-defmethod slack-dialog-element-validate ((this slack-dialog-element) value)
-  "Validate user input for the dialog element and return an error message, or nil."
+  "Validate user input for the dialog element and return an error message, or nil.
+THIS is the slack-dialog-element instance.
+VALUE is the value argument."
   (with-slots (optional label) this
     (when (and (not optional)
                (or (null value)
@@ -179,7 +187,9 @@
   (cl-call-next-method))
 
 (cl-defmethod slack-dialog-element-validate ((this slack-dialog-text-element) value)
-  "Validate user input for the dialog text element and return an error message, or nil."
+  "Validate user input for the dialog text element and return an error message, or nil.
+THIS is the slack-dialog-text-element instance.
+VALUE is the value argument."
   (cl-call-next-method)
   (with-slots (min-length max-length label) this
     (when (< max-length (length value))
@@ -188,7 +198,8 @@
       (error "%s must be greater than %s" label min-length))))
 
 (cl-defmethod slack-dialog-execute ((this slack-dialog-text-element) _dialog-id _team)
-  "Execute the dialog text element once the user submits the form."
+  "Execute the dialog text element once the user submits the form.
+THIS is the slack-dialog-text-element instance."
   (with-slots (hint value placeholder label optional) this
     (let* ((prompt (format "%s%s%s : "
                            label
@@ -228,7 +239,9 @@ succeeds."
         :success #'on-success)))))
 
 (cl-defmethod slack-dialog-execute ((this slack-dialog-select-element) dialog-id team)
-  "Execute the dialog select element once the user submits the form."
+  "Execute the dialog select element once the user submits the form.
+THIS is the slack-dialog-select-element instance.
+DIALOG-ID is the dialog-id argument."
   (slack-if-let* ((selected (slack-dialog--execute this dialog-id team)))
       (cdr selected)))
 

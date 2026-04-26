@@ -38,7 +38,8 @@
 (defclass slack-reply-broadcast-message (slack-user-message) ())
 
 (cl-defmethod slack-message-sender-id ((m slack-user-message))
-  "Return the Slack user ID of the sender of the user message."
+  "Return the Slack user ID of the sender of the user message.
+M is the m argument."
   (oref m user))
 
 (cl-defmethod slack-thread-message-p ((_this slack-reply-broadcast-message))
@@ -46,7 +47,8 @@
   t)
 
 (cl-defmethod slack-message-user-ids ((m slack-reply-broadcast-message))
-  "Return the list of user IDs referenced by the reply broadcast message."
+  "Return the list of user IDs referenced by the reply broadcast message.
+M is the m argument."
   (list (oref m user)))
 
 (defvar slack-user-message-keymap
@@ -54,7 +56,9 @@
     keymap))
 
 (cl-defmethod slack-message-sender-equalp ((m slack-user-message) sender-id)
-  "Return non-nil when the user message's sender matches another sender."
+  "Return non-nil when the user message's sender matches another sender.
+M is the m argument.
+SENDER-ID is the sender-id argument."
   (string= (oref m user) sender-id))
 
 (cl-defmethod slack-message-user-status ((this slack-user-message) team)
@@ -63,12 +67,15 @@
                      team))
 
 (cl-defmethod slack-user-find ((this slack-user-message) team)
-  "Return the user referenced by the user message in TEAM."
+  "Return the user referenced by the user message in TEAM.
+THIS is the slack-user-message instance."
   (let ((user-id (slack-message-sender-id this)))
     (slack-user--find user-id team)))
 
 (cl-defmethod slack-message-profile-image ((m slack-user-message) team)
-  "Return the avatar image associated with the user message."
+  "Return the avatar image associated with the user message.
+M is the m argument.
+TEAM is the team argument."
   (slack-user-image (slack-user-find m team) team))
 
 (cl-defmethod slack-message-display-thread-sign-p ((_this slack-reply-broadcast-message) _team)
@@ -90,7 +97,9 @@
   t)
 
 (cl-defmethod slack-buffer-add-star ((this slack-user-message) _ts &optional due-in-ms)
-  "Star the item at point in the user message."
+  "Star the item at point in the user message.
+THIS is the slack-user-message instance.
+DUE-IN-MS is the due-in-ms argument."
   (slack-if-let* ((team slack-current-team)
                   (message this))
       (slack-star-api-request slack-message-stars-add-url

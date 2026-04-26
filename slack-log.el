@@ -77,7 +77,8 @@ One of \\='info, \\='debug"
     (<= current-level user-level)))
 
 (defun slack-message-logger (message level team)
-  "Display MESSAGE with LEVEL using `message'."
+  "Display MESSAGE with LEVEL using `message'.
+TEAM is the team argument."
   (when (slack-log--should-log? level)
     (message "%s [%s] [%s] %s"
              (format-time-string slack-log-time-format)
@@ -88,7 +89,9 @@ One of \\='info, \\='debug"
 (cl-defun slack-log (msg team &key
                          (logger slack-log-logger)
                          (level 'debug))
-  "LEVEL is one of `trace', `debug', `info', `warn', `error'."
+  "LEVEL is one of `trace', `debug', `info', `warn', `error'.
+MSG is the msg argument.
+TEAM is the team argument."
   (when (functionp logger)
     (funcall logger msg level team))
   (when (slack-log--should-log? level)

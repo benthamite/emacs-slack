@@ -1,4 +1,4 @@
-;;; slack-im.el ---slack direct message interface    -*- lexical-binding: t; -*-
+;;; slack-im.el --- slack direct message interface    -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2015  南優也
 
@@ -45,7 +45,9 @@
    (properties :initarg :properties :initform nil :documnetation "This contains extra property like :is_dormant, useful to calculate if channel is open.")))
 
 (cl-defmethod slack-merge ((this slack-im) other)
-  "Merge new data into the existing im in place."
+  "Merge new data into the existing im in place.
+THIS is the slack-im instance.
+OTHER is the other argument."
   (cl-call-next-method)
   (oset this user (oref other user))
   (oset this is-frozen (oref other is-frozen))
@@ -53,7 +55,8 @@
   (oset this is-user-deleted (oref other is-user-deleted)))
 
 (cl-defmethod slack-room-open-p ((room slack-im))
-  "Return non-nil when the im is currently open."
+  "Return non-nil when the im is currently open.
+ROOM is the room argument."
   (and (not (oref room is-frozen))
        (not (oref room is-user-deleted))
        (not (plist-get (oref room properties ) :is_dormant))))
@@ -72,12 +75,16 @@
       " "))
 
 (cl-defmethod slack-room-name ((room slack-im) team)
-  "Return the human-readable name of the im."
+  "Return the human-readable name of the im.
+ROOM is the room argument.
+TEAM is the team argument."
   (with-slots (user) room
     (format "DM: %s" (slack-user-name user team))))
 
 (cl-defmethod slack-room-display-name ((room slack-im) team)
-  "To Display emoji in minibuffer configure `emojify-inhibit-in-buffer-functions'"
+  "To Display emoji in minibuffer configure `emojify-inhibit-in-buffer-functions'.
+ROOM is the room argument.
+TEAM is the team argument."
   (let* ((status (slack-user-status (oref room user) team))
          (room-name (or (and status
                              (format "%s %s"
@@ -144,32 +151,43 @@ Use `slack-group-mpim-open' for a group of users."
               (slack-team-ims team)))
 
 (cl-defmethod slack-room--has-unread-p ((this slack-im) counts)
-  "Return non-nil when the im has unread messages."
+  "Return non-nil when the im has unread messages.
+THIS is the slack-im instance.
+COUNTS is the counts argument."
   (slack-counts-im-unread-p counts this))
 
 (cl-defmethod slack-room-mention-count ((this slack-im) team)
-  "Return the unread mention count for the im."
+  "Return the unread mention count for the im.
+THIS is the slack-im instance.
+TEAM is the team argument."
   (with-slots (counts) team
     (if counts
         (slack-counts-im-mention-count counts this)
       0)))
 
 (cl-defmethod slack-room-set-mention-count ((this slack-im) count team)
-  "Set the unread mention count for the im."
+  "Set the unread mention COUNT for the im.
+THIS is the slack-im instance."
   (slack-if-let* ((counts (oref team counts)))
       (slack-counts-im-set-mention-count counts this count)))
 
 (cl-defmethod slack-room-set-has-unreads ((this slack-im) value team)
-  "Set the has-unreads flag for the im."
+  "Set the has-unreads flag for the im.
+THIS is the slack-im instance.
+VALUE is the value argument."
   (slack-if-let* ((counts (oref team counts)))
       (slack-counts-im-set-has-unreads counts this value)))
 
 (cl-defmethod slack-room--update-latest ((this slack-im) counts ts)
-  "Update the latest-message timestamp cached on the im."
+  "Update the latest-message timestamp cached on the im.
+THIS is the slack-im instance.
+COUNTS is the counts argument."
   (slack-counts-im-update-latest counts this ts))
 
 (cl-defmethod slack-room--latest ((this slack-im) counts)
-  "Return the timestamp of the latest message in the im."
+  "Return the timestamp of the latest message in the im.
+THIS is the slack-im instance.
+COUNTS is the counts argument."
   (slack-counts-im-latest counts this))
 
 (provide 'slack-im)

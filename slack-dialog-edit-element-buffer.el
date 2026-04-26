@@ -67,7 +67,7 @@
       (delete-window win))))
 
 (cl-defmethod slack-buffer-name ((this slack-dialog-edit-element-buffer))
-  "Return the display buffer name for the dialog edit element buffer."
+  "Return the display buffer name for THIS buffer."
   (with-slots (dialog-buffer element) this
     (with-slots (dialog dialog-id) dialog-buffer
       (with-slots (name) element
@@ -76,7 +76,8 @@
                   title dialog-id name (slack-team-name (slack-buffer-team this))))))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-dialog-edit-element-buffer)) dialog-buffer element)
-  "Return the class-level buffer key for the dialog edit element buffer."
+  "Return the class-level buffer key for the dialog edit ELEMENT buffer.
+DIALOG-BUFFER is the dialog-buffer argument."
   (with-slots (dialog-id) dialog-buffer
     (with-slots (name) element
       (concat dialog-id
@@ -84,7 +85,7 @@
               name))))
 
 (cl-defmethod slack-buffer-key ((this slack-dialog-edit-element-buffer))
-  "Return the lookup key identifying the buffer for the dialog edit element buffer."
+  "Return the lookup key identifying the buffer for THIS buffer."
   (with-slots (dialog-buffer element) this
     (slack-buffer-key 'slack-dialog-edit-element-buffer
                       dialog-buffer
@@ -95,7 +96,7 @@
   'slack-dialog-edit-element-buffer)
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-dialog-edit-element-buffer))
-  "Initialize and return the display buffer for the dialog edit element buffer."
+  "Initialize and return the display buffer for THIS buffer."
   (let* ((buf (cl-call-next-method))
          (element (oref this element)))
     (with-current-buffer buf

@@ -150,7 +150,8 @@ download button when the file is downloadable."
                  (concat " " (slack-file-download-button file))))))))
 
 (cl-defmethod slack-file-summary ((file slack-file) _ts team)
-  "Return a short summary string for the file."
+  "Return a short summary string for the FILE.
+TEAM is the team argument."
   (if (slot-boundp file 'permalink)
       (with-slots (mode permalink) file
         (if (slack-file-deleted-p file)
@@ -185,7 +186,8 @@ download button when the file is downloadable."
         (slack-buffer-toggle-email-expand buffer file-id))))
 
 (cl-defmethod slack-file-summary ((this slack-file-email) ts team)
-  "Return a short summary string for the file email."
+  "Return a short summary string for THIS file email.
+TS is the ts argument."
   (with-slots (preview-plain-text plain-text is-expanded) this
     (let* ((has-more (< (length preview-plain-text)
                         (length plain-text)))
@@ -206,7 +208,8 @@ download button when the file is downloadable."
                           'keymap slack-expand-email-keymap)))))
 
 (cl-defmethod slack-message-to-string ((this slack-file) ts team)
-  "Render the file as a displayable string."
+  "Render THIS file as a displayable string.
+TS is the ts argument."
   (if (slack-file-hidden-by-limit-p this)
       (slack-file-hidden-by-limit-message this)
     (let ((body (or (condition-case err

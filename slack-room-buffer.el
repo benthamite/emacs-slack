@@ -66,12 +66,12 @@
   :abstract t)
 
 (cl-defmethod slack-buffer-room ((this slack-room-buffer))
-  "Return the room associated with the room buffer."
+  "Return the room associated with THIS buffer."
   (slack-room-find (oref this room-id)
                    (slack-buffer-team this)))
 
 (cl-defmethod slack-buffer-toggle-reaction ((this slack-room-buffer) reaction)
-  "Toggle the reaction on the message at point in the room buffer."
+  "Toggle the REACTION on the message at point in THIS buffer."
   (let* ((reaction-users (oref reaction users))
          (reaction-name (oref reaction name))
          (team (slack-buffer-team this))
@@ -87,7 +87,8 @@
                                             (slack-get-ts)))))
 
 (cl-defmethod slack-buffer-reaction-help-text ((this slack-room-buffer) reaction)
-  "Return the help text displayed next to reactions in the room buffer."
+  "Return the help text displayed next to reactions in THIS buffer.
+REACTION is the reaction argument."
   (slack-reaction-help-text reaction (slack-buffer-team this)))
 
 (cl-defmethod slack-buffer-delete-message ((this slack-room-buffer) ts)
@@ -112,14 +113,15 @@
           (message "Canceled")))))
 
 (cl-defmethod slack-buffer-message-delete ((this slack-room-buffer) ts)
-  "Delete the message at point from the room buffer."
+  "Delete the message at point from THIS buffer.
+TS is the ts argument."
   (let ((buffer (slack-buffer-buffer this)))
     (with-current-buffer buffer
       (lui-delete #'(lambda () (equal (get-text-property (point) 'ts)
                                       ts))))))
 
 (cl-defmethod slack-buffer-copy-link ((this slack-room-buffer) ts &optional success-callback)
-  "Use slack permakink api to retrieve an http link to the message at TS.
+  "Use slack permakink api to retrieve an http link to THIS message at TS.
 SUCCESS-CALLBACK allows you to run a function on that permalink."
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
@@ -143,13 +145,15 @@ SUCCESS-CALLBACK allows you to run a function on that permalink."
           :success #'on-success)))))
 
 (cl-defmethod slack-buffer--replace ((this slack-room-buffer) ts)
-  "Replace the rendered message identified by the argument in the room buffer."
+  "Replace the rendered message identified by the argument in THIS buffer.
+TS is the ts argument."
   (slack-if-let* ((room (slack-buffer-room this))
                   (message (slack-room-find-message room ts)))
       (slack-buffer-replace this message)))
 
 (cl-defmethod slack-buffer-toggle-email-expand ((this slack-room-buffer) file-id)
-  "Toggle the expanded/collapsed state of the email at point in the room buffer."
+  "Toggle the expanded/collapsed state of the email at point in THIS buffer.
+FILE-ID is the file-id argument."
   (slack-if-let* ((room (slack-buffer-room this))
                   (ts (get-text-property (point) 'ts))
                   (message (slack-room-find-message room ts))
@@ -177,21 +181,24 @@ SUCCESS-CALLBACK allows you to run a function on that permalink."
       ))))
 
 (cl-defmethod slack-buffer-pins-remove ((this slack-room-buffer) ts)
-  "Unpin the message at point from the room buffer."
+  "Unpin the message at point from THIS buffer.
+TS is the ts argument."
   (slack-pins-request slack-message-pins-remove-url
                       (slack-buffer-room this)
                       (slack-buffer-team this)
                       ts))
 
 (cl-defmethod slack-buffer-pins-add ((this slack-room-buffer) ts)
-  "Pin the message at point in the room buffer."
+  "Pin the message at point in THIS buffer.
+TS is the ts argument."
   (slack-pins-request slack-message-pins-add-url
                       (slack-buffer-room this)
                       (slack-buffer-team this)
                       ts))
 
 (cl-defmethod slack-buffer-remove-star ((this slack-room-buffer) ts)
-  "Remove the star from the item at point in the room buffer."
+  "Remove the star from the item at point in THIS buffer.
+TS is the ts argument."
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
                   (message (slack-room-find-message room ts)))
@@ -205,7 +212,8 @@ SUCCESS-CALLBACK allows you to run a function on that permalink."
         (slack-team-mark-unsaved team (slack-ts message)))))
 
 (cl-defmethod slack-buffer-add-star ((this slack-room-buffer) ts)
-  "Star the item at point in the room buffer."
+  "Star the item at point in THIS buffer.
+TS is the ts argument."
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
                   (message (slack-room-find-message room ts)))
@@ -219,14 +227,15 @@ SUCCESS-CALLBACK allows you to run a function on that permalink."
         (slack-team-mark-saved team (oref room id) (slack-ts message)))))
 
 (cl-defmethod slack-buffer-add-reaction-to-message ((this slack-room-buffer) reaction ts)
-  "Add a reaction to the message selected in the room buffer."
+  "Add a REACTION to the message selected in THIS buffer."
   (slack-message-reaction-add reaction
                               ts
                               (slack-buffer-room this)
                               (slack-buffer-team this)))
 
 (cl-defmethod slack-buffer-remove-reaction-from-message ((this slack-room-buffer) ts)
-  "Remove a reaction from the message at point in the room buffer."
+  "Remove a reaction from the message at point in THIS buffer.
+TS is the ts argument."
   (let* ((team (slack-buffer-team this))
          (room (slack-buffer-room this))
          (message (slack-room-find-message room ts))
@@ -235,14 +244,16 @@ SUCCESS-CALLBACK allows you to run a function on that permalink."
     (slack-message-reaction-remove reaction ts room team)))
 
 (cl-defmethod slack-buffer-share-message ((this slack-room-buffer) ts)
-  "Share the message at point from the room buffer to another conversation."
+  "Share the message at point from THIS buffer to another conversation.
+TS is the ts argument."
   (let* ((team (slack-buffer-team this))
          (room (slack-buffer-room this))
          (buf (slack-create-message-share-buffer room team ts)))
     (slack-buffer-display buf)))
 
 (cl-defmethod slack-buffer-display-edit-message-buffer ((this slack-room-buffer) ts)
-  "Open an edit buffer for the message at point in the room buffer."
+  "Open an edit buffer for the message at point in THIS buffer.
+TS is the ts argument."
   (let* ((team (slack-buffer-team this))
          (room (slack-buffer-room this))
          (buf (slack-create-edit-message-buffer room team ts)))
@@ -346,7 +357,8 @@ SUCCESS-CALLBACK allows you to run a function on that permalink."
             (slack-subscriptions-thread-get room ts team #'on-success #'on-error)))))))
 
 (cl-defmethod slack-buffer-execute-message-action ((this slack-room-buffer) ts)
-  "Execute a message action on the message at point in the room buffer."
+  "Execute a message action on the message at point in THIS buffer.
+TS is the ts argument."
   (let ((team (slack-buffer-team this))
         (room (slack-buffer-room this)))
     (cl-labels
@@ -385,7 +397,8 @@ SUCCESS-CALLBACK allows you to run a function on that permalink."
 
 (defun slack-message-copy-link (&optional success-callback)
   "Copy permalink at point.
-Optionally pass SUCCESS-CALLBACK to perform an action on the permalink obtained."
+Optionally pass SUCCESS-CALLBACK to perform an action on the permalink
+obtained."
   (interactive)
   (slack-buffer-copy-link slack-current-buffer (slack-get-ts) success-callback))
 
@@ -677,7 +690,7 @@ SELECTED-PAIR, when non-nil, is a cons cell appended to ACTION."
                 (cons "value" value)))))
 
 (cl-defmethod slack-buffer-execute-button-block-action ((this slack-room-buffer))
-  "Execute a button block element action from the room buffer."
+  "Execute a button block element action from THIS buffer."
   (slack-with-block-action this
     (when (slack-block-handle-confirm block-element)
       (slack-if-let* ((url (oref block-element url)))
@@ -685,7 +698,7 @@ SELECTED-PAIR, when non-nil, is a cons cell appended to ACTION."
         (slack-block-action--execute-with-selection this message action team)))))
 
 (cl-defmethod slack-buffer-execute-conversation-select-block-action ((this slack-room-buffer))
-  "Execute a conversation-select block element action from the room buffer."
+  "Execute a conversation-select block element action from THIS buffer."
   (slack-with-block-action this
     (slack-if-let* ((selected (slack-room-select (append (slack-team-channels team)
                                                          (slack-team-groups team)
@@ -697,7 +710,7 @@ SELECTED-PAIR, when non-nil, is a cons cell appended to ACTION."
            (cons "selected_conversation" (oref selected id)))))))
 
 (cl-defmethod slack-buffer-execute-channel-select-block-action ((this slack-room-buffer))
-  "Execute a channel-select block element action from the room buffer."
+  "Execute a channel-select block element action from THIS buffer."
   (slack-with-block-action this
     (slack-if-let* ((selected (slack-room-select (append (slack-team-channels team) nil) team)))
         (when (slack-block-handle-confirm block-element)
@@ -706,7 +719,7 @@ SELECTED-PAIR, when non-nil, is a cons cell appended to ACTION."
            (cons "selected_channel" (oref selected id)))))))
 
 (cl-defmethod slack-buffer-execute-user-select-block-action ((this slack-room-buffer))
-  "Execute a user-select block element action from the room buffer."
+  "Execute a user-select block element action from THIS buffer."
   (slack-with-block-action this
     (slack-if-let* ((selected (slack-select-from-list
                                   ((slack-user-name-alist
@@ -728,7 +741,7 @@ SELECTED-PAIR, when non-nil, is a cons cell appended to ACTION."
                 blocks)))
 
 (cl-defmethod slack-buffer-execute-static-select-block-action ((this slack-room-buffer))
-  "Execute a static-select block element action from the room buffer."
+  "Execute a static-select block element action from THIS buffer."
   (slack-with-block-action this
     (slack-if-let* ((selected (slack-block-select-option block-element)))
         (when (slack-block-handle-confirm block-element)
@@ -737,7 +750,7 @@ SELECTED-PAIR, when non-nil, is a cons cell appended to ACTION."
            (slack-block-action--option-payload selected))))))
 
 (cl-defmethod slack-buffer-execute-external-select-block-action ((this slack-room-buffer))
-  "Execute an external-select block element action from the room buffer."
+  "Execute an external-select block element action from THIS buffer."
   (slack-with-block-action this
     (cl-labels
         ((success (options option-groups)
@@ -756,7 +769,7 @@ SELECTED-PAIR, when non-nil, is a cons cell appended to ACTION."
        #'success))))
 
 (cl-defmethod slack-buffer-execute-overflow-menu-block-action ((this slack-room-buffer))
-  "Execute an overflow menu block element action from the room buffer."
+  "Execute an overflow menu block element action from THIS buffer."
   (slack-with-block-action this
     (slack-if-let* ((options (oref block-element options))
                     (selected (slack-block-select-from-options block-element options)))
@@ -766,7 +779,7 @@ SELECTED-PAIR, when non-nil, is a cons cell appended to ACTION."
            (slack-block-action--option-payload selected))))))
 
 (cl-defmethod slack-buffer-execute-datepicker-block-action ((this slack-room-buffer))
-  "Execute a datepicker block element action from the room buffer."
+  "Execute a datepicker block element action from THIS buffer."
   (slack-with-block-action this
     (slack-if-let* ((selected-date (read-from-minibuffer "Date (YYYY-MM-DD): "
                                                          (oref block-element initial-date))))

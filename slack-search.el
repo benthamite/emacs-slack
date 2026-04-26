@@ -86,7 +86,9 @@
    (type :initarg :type :type string)))
 
 (cl-defmethod slack-merge ((this slack-search-result) other)
-  "Merge new data into the existing search result in place."
+  "Merge new data into the existing search result in place.
+THIS is the slack-search-result instance.
+OTHER is the other argument."
   (oset this query (oref other query))
   (oset this sort (oref other sort))
   (oset this sort-dir (oref other sort-dir))
@@ -95,7 +97,9 @@
   (oset this pagination (oref other pagination)))
 
 (cl-defmethod slack-message-to-string ((this slack-search-message) team)
-  "Render the search message as a displayable string."
+  "Render the search message as a displayable string.
+THIS is the slack-search-message instance.
+TEAM is the team argument."
   (with-slots (channel username) this
     (let* ((room (slack-room-find (oref channel id) team))
            (header (propertize (format "%s%s"
@@ -111,7 +115,8 @@
                   'permalink (ignore-errors (oref this permalink))))))
 
 (cl-defmethod slack-ts ((this slack-search-message))
-  "Return the timestamp string identifying the search message."
+  "Return the timestamp string identifying the search message.
+THIS is the slack-search-message instance."
   (slack-ts (oref this message)))
 
 (cl-defmethod slack-search-has-next-page-p ((this slack-search-result))
@@ -221,9 +226,11 @@ If QUERY is non-nil, use it as the search query without prompting."
     (list team query sort sort-dir)))
 
 (cl-defmethod slack-search-request-url ((_this slack-search-result))
+  "Return the API URL for searching messages."
   "https://slack.com/api/search.messages")
 
 (cl-defmethod slack-search-request-url ((_this slack-file-search-result))
+  "Return the API URL for searching files."
   "https://slack.com/api/search.files")
 
 (cl-defmethod slack-search-request ((this slack-search-result)
@@ -268,7 +275,8 @@ merged into THIS."
             :success #'on-success))))))
 
 (cl-defmethod slack-message-user-ids ((this slack-search-message))
-  "Return the list of user IDs referenced by the search message."
+  "Return the list of user IDs referenced by the search message.
+THIS is the slack-search-message instance."
   (with-slots (message) this
     (slack-message-user-ids message)))
 

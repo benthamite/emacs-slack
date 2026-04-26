@@ -87,11 +87,15 @@
       (oref edited ts))))
 
 (cl-defmethod slack-message-equal ((m slack-message) n)
-  "Return non-nil when the message equals OTHER."
+  "Return non-nil when the message equals OTHER.
+M is the m argument.
+N is the n argument."
   (string= (slack-ts m) (slack-ts n)))
 
 (cl-defmethod slack-message-sender-name ((m slack-message) team)
-  "Return the display name of the sender of the message."
+  "Return the display name of the sender of the message.
+M is the m argument.
+TEAM is the team argument."
   (let ((user (or (and (slot-exists-p m 'user)
                        (slot-boundp m 'user)
                        (oref m user))
@@ -105,7 +109,7 @@
   "")
 
 (cl-defmethod slack-ts ((this slack-message))
-  "Return the timestamp string identifying the message."
+  "Return the timestamp string identifying THIS message."
   (oref this ts))
 
 (defun slack-ts-to-time (ts)
@@ -121,15 +125,19 @@
   nil)
 
 (cl-defmethod slack-message-star-added ((m slack-message))
-  "Record that a star was added to the message."
+  "Record that a star was added to the message.
+M is the m argument."
   (oset m is-starred t))
 
 (cl-defmethod slack-message-star-removed ((m slack-message))
-  "Record that a star was removed from the message."
+  "Record that a star was removed from the message.
+M is the m argument."
   (oset m is-starred nil))
 
 (cl-defmethod slack-message-star-api-params ((m slack-message) &optional due-in-ms)
-  "Return the `stars.add'/`stars.remove' API parameters for the message."
+  "Return the `stars.add'/`stars.remove' API parameters for the message.
+M is the m argument.
+DUE-IN-MS is the due-in-ms argument."
   (append (list (cons "item_type" "message"))
           (list (cons "item_id" (oref m channel)))
           (list (cons "ts" (slack-ts m)))
@@ -145,7 +153,7 @@
                                 )))))))))
 
 (cl-defmethod slack-reaction-delete ((this slack-message) reaction)
-  "Remove the named reaction from the message."
+  "Remove the named REACTION from THIS message."
   (with-slots (reactions) this
     (setq reactions (slack-reaction-delete reaction reactions))))
 
@@ -182,7 +190,7 @@ message text."
       block-text)))
 
 (cl-defmethod slack-thread-message-p ((this slack-message))
-  "Return non-nil when the message belongs to a thread."
+  "Return non-nil when THIS message belongs to a thread."
   (and (oref this thread-ts)
        (not (string= (slack-ts this) (oref this thread-ts)))))
 
@@ -199,7 +207,7 @@ message text."
            :test #'string=))
 
 (cl-defmethod slack-message-user-ids ((this slack-message))
-  "Return the list of user IDs referenced by the message."
+  "Return the list of user IDs referenced by THIS message."
   (let ((result (append (oref this reply-users) nil))
         (sender-id (slack-message-sender-id this))
         (texts (append (mapcar #'(lambda (e) (oref e text))
@@ -255,7 +263,8 @@ message text."
     result))
 
 (cl-defmethod slack-message-visible-p ((this slack-message) team)
-  "Return non-nil when the message should be visible to the current user."
+  "Return non-nil when THIS message should be visible to the current user.
+TEAM is the team argument."
   (if (slack-team-visible-threads-p team)
       t
     (not (slack-thread-message-p this))))
@@ -341,14 +350,17 @@ message text."
   (oref m is-starred))
 
 (cl-defmethod slack-message-display-thread-sign-p ((this slack-message) team)
-  "Return non-nil when the thread sign should be shown for the message."
+  "Return non-nil when the thread sign should be shown for THIS message.
+TEAM is the team argument."
   (and (slack-team-visible-threads-p team)
        (not (null (oref this thread-ts)))
        (not (string= (oref this thread-ts) (slack-ts this)))
        (not (eq major-mode 'slack-thread-message-buffer-mode))))
 
 (cl-defmethod slack-message-body ((m slack-message) team)
-  "Return the body text of the message."
+  "Return the body text of the message.
+M is the m argument.
+TEAM is the team argument."
   (if-let* ((blocks (and (not (oref team disable-block-format))
                          (oref m blocks))))
       (slack-unescape (mapconcat #'(lambda (bl)
@@ -363,7 +375,7 @@ message text."
       "")))
 
 (cl-defmethod slack-room-find ((this slack-message) team)
-  "Return the message matching the given identifier in TEAM."
+  "Return THIS message matching the given identifier in TEAM."
   (slack-room-find (oref this channel) team))
 
 (cl-defmethod slack-message-replies ((this slack-message) room)

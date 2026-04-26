@@ -1,4 +1,4 @@
-;;; slack-request.el ---slack request function       -*- lexical-binding: t; -*-
+;;; slack-request.el --- slack request function       -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2015  南優也
 
@@ -101,7 +101,7 @@ token for endpoints recorded in `slack-token-preference'."
   (json-parse-buffer :object-type 'plist :array-type 'list :false-object :json-false :null-object nil))
 
 (defun slack-request-parse-payload (payload)
-  "Issue the `parse payload' request against the Slack API."
+  "Issue the `parse PAYLOAD' request against the Slack API."
   (condition-case err-var
       (json-parse-string payload :object-type 'plist :array-type 'list :false-object :json-false :null-object nil)
     (error (message "[Slack] Error on parse JSON: %S, ERR: %S"
@@ -132,7 +132,9 @@ token for endpoints recorded in `slack-token-preference'."
 
 (cl-defun slack-request-create
     (url team &key type success error params data parser sync files headers (timeout slack-request-timeout) without-auth no-retry)
-  "Issue the `create' request against the Slack API."
+  "Issue the `create' request against the Slack API.
+URL is the url argument.
+TEAM is the team argument."
   (let ((args (list
                :url url :team team :type type
                :success success :error error
@@ -150,7 +152,8 @@ token for endpoints recorded in `slack-token-preference'."
     (apply #'make-instance 'slack-request-request ret)))
 
 (cl-defmethod slack-equalp ((this slack-request-request) other)
-  "Return non-nil when the request request equals the other argument."
+  "Return non-nil when the request request equals the OTHER argument.
+THIS is the slack-request-request instance."
   (and (slack-equalp (oref this team)
                      (oref other team))
        (string= "GET" (oref this type))
@@ -307,7 +310,8 @@ request's own success and error handlers run."
 
 
 (cl-defmacro slack-request-handle-error ((data req-name &optional handler) &body body)
-  "Bind error to e if present in DATA."
+  "Bind error to e if present in DATA.
+BODY is the body argument."
   `(if (eq (plist-get ,data :ok) :json-false)
        (if ,handler
            (funcall ,handler (plist-get ,data :error))
@@ -337,7 +341,9 @@ request's own success and error handlers run."
   (make-instance 'slack-request-worker))
 
 (cl-defmethod slack-request-worker-push ((this slack-request-worker) req)
-  "Enqueue the request worker on the shared request worker."
+  "Enqueue the request worker on the shared request worker.
+THIS is the slack-request-worker instance.
+REQ is the req argument."
   (cl-pushnew req (oref this queue) :test #'slack-equalp))
 
 (defun slack-request-worker-on-timeout ()
@@ -399,7 +405,8 @@ Stop after `slack-request-worker-max-request-limit'."
                                      )))))))
 
 (cl-defmethod slack-request-worker-push ((req slack-request-request))
-  "Enqueue the request request on the shared request worker."
+  "Enqueue the request request on the shared request worker.
+REQ is the req argument."
   (unless slack-request-worker-instance
     (setq slack-request-worker-instance
           (slack-request-worker-create)))

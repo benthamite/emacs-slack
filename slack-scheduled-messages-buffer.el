@@ -56,7 +56,9 @@
     `((channel_id . ,channel-id)))))
 
 (defun slack--build-multipart-part (name value)
-  "Helper to build one part of a multipart/form-data body."
+  "Helper to build one part of a multipart/form-data body.
+NAME is the name argument.
+VALUE is the value argument."
   (format "Content-Disposition: form-data; name=\"%s\"\r\n\r\n%s" name value))
 
 (defun slack--build-multipart-body (parts)
@@ -92,7 +94,8 @@
       ))))
 
 (defun slack-list-scheduled-messages-request (team after-success)
-  "Request a list of scheduled drafts for TEAM."
+  "Request a list of scheduled drafts for TEAM.
+AFTER-SUCCESS is the after-success argument."
   (let ((data-parts
          `(("token" . ,(oref team token))
            ("is_active" . "true")
@@ -146,17 +149,20 @@
 ;;; Class Methods
 
 (cl-defmethod slack-buffer-name ((_class slack-scheduled-messages-buffer) team)
-  "Return the display buffer name for the scheduled messages buffer."
+  "Return the display buffer name for the scheduled messages buffer.
+TEAM is the team argument."
   (format "*slack %s Scheduled Msgs*" (oref team name)))
 
 (cl-defmethod slack-buffer-name ((this slack-scheduled-messages-buffer))
-  "Return the display buffer name for the scheduled messages buffer."
+  "Return the display buffer name for THIS buffer."
   (format "*slack %s Scheduled Msgs*" (slack-team-name (slack-buffer-team this))))
 
 (cl-defmethod slack-buffer-key ((_class slack-scheduled-messages-buffer))
+  "Return the class-level buffer key for the scheduled-messages buffer."
   "scheduled-messages")
 
 (cl-defmethod slack-buffer-key ((_class slack-scheduled-messages-buffer) &rest _x)
+  "Return the class-level buffer key for the scheduled-messages buffer."
   "scheduled-messages")
 
 (cl-defmethod slack-team-buffer-key ((_class slack-scheduled-messages-buffer))
@@ -164,7 +170,9 @@
   'slack-scheduled-messages-buffer)
 
 (cl-defmethod slack-scheduled-message-to-string ((msg slack-scheduled-message) team)
-  "Format a scheduled message for display."
+  "Format a scheduled message for display.
+MSG is the msg argument.
+TEAM is the team argument."
   (with-slots (draft-id channel-id post-at last-updated-ts text) msg
     (let ((room (slack-room-find channel-id team)))
       (propertize
@@ -184,7 +192,7 @@
     (lui-insert "\n\n")))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-scheduled-messages-buffer))
-  "Initialize the scheduled messages buffer."
+  "Initialize THIS buffer."
   (let ((buffer (cl-call-next-method)))
     (with-current-buffer buffer
       (slack-scheduled-messages-buffer-mode)
@@ -214,7 +222,8 @@
   "Return the buffer position where the loading indicator ends in the scheduled messages buffer.")
 
 (cl-defmethod slack-buffer-delete-load-more-string ((_this slack-scheduled-messages-buffer))
-  "Remove the \"load more\" marker from the buffer for the scheduled messages buffer.")
+  "Remove the \"load more\" marker from the buffer for the scheduled messages
+buffer.")
 
 (cl-defmethod slack-buffer-prepare-marker-for-history ((_this slack-scheduled-messages-buffer))
   "Position point so history can be inserted in the scheduled messages buffer.")

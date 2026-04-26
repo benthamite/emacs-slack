@@ -42,12 +42,12 @@
   :group 'slack)
 
 (defcustom slack-render-image-p (display-graphic-p)
-  "If t, images in messages are rendered"
+  "If t, images in messages are rendered."
   :type 'boolean
   :group 'slack)
 
 (defun slack-image-path (image-url)
-  "Compute cache path for IMAGE-URL"
+  "Compute cache path for IMAGE-URL."
   (and
    image-url
    (let* ((splitted (split-string image-url "?"))
@@ -167,7 +167,9 @@ so that `image-animate' can drive them from
   (file-exists-p (slack-image-path (car image-spec))))
 
 (defun slack-image-string (spec &optional pad no-token)
-  "SPEC: (list URL WIDTH HEIGHT MAX-HEIGHT MAX-WIDTH)"
+  "SPEC: (list URL WIDTH HEIGHT MAX-HEIGHT MAX-WIDTH).
+PAD is the pad argument.
+NO-TOKEN is the no-token argument."
   (if (and slack-render-image-p spec)
       (slack-if-let* ((path (slack-image-path (car spec))))
           (if (file-exists-p path)

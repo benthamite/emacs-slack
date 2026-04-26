@@ -43,7 +43,9 @@
   ((is-member :initarg :is_member :initform nil :type boolean)))
 
 (cl-defmethod slack-room-name ((room slack-channel) team)
-  "Return the human-readable name of the channel."
+  "Return the human-readable name of the channel.
+ROOM is the room argument.
+TEAM is the team argument."
   (if (slack-mpim-p room)
       (format "MPIM: %s"
               (string-join (mapcar (lambda (userid)
@@ -56,7 +58,8 @@
   (slack-room-names (slack-team-channels team) team filter))
 
 (defun slack-channel-list-update (&optional team after-success)
-  "Refresh TEAM's list of channel from the Slack API."
+  "Refresh TEAM's list of channel from the Slack API.
+AFTER-SUCCESS is the after-success argument."
   (interactive)
   (let ((team (or team (slack-team-select))))
     (cl-labels
@@ -75,7 +78,9 @@
     (slack-conversations-create team "false")))
 
 (cl-defmethod slack-room-subscribedp ((room slack-channel) team)
-  "Return non-nil when the current user is subscribed to the channel."
+  "Return non-nil when the current user is subscribed to the channel.
+ROOM is the room argument.
+TEAM is the team argument."
   (with-slots (subscribed-channels) team
     (let ((name (slack-room-name room team)))
       (or
@@ -84,15 +89,19 @@
             (memq (intern name) (append subscribed-channels slack-extra-subscribed-channels)))))))
 
 (cl-defmethod slack-room-hidden-p ((room slack-channel))
-  "Return non-nil when the channel is hidden from the user."
+  "Return non-nil when the channel is hidden from the user.
+ROOM is the room argument."
   (slack-room-archived-p room))
 
 (cl-defmethod slack-room-member-p ((this slack-channel))
-  "Return non-nil when the current user is a member of the channel."
+  "Return non-nil when the current user is a member of the channel.
+THIS is the slack-channel instance."
   (oref this is-member))
 
 (cl-defmethod slack-room-muted-p ((this slack-channel) team)
-  "Return non-nil when the channel is muted for the current user."
+  "Return non-nil when the channel is muted for the current user.
+THIS is the slack-channel instance.
+TEAM is the team argument."
   (seq-contains-p
    (plist-get (oref team user-prefs) :muted_channels)
    (oref this id)))

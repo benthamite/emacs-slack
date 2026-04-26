@@ -41,7 +41,7 @@ Buffer-wide bindings:
   ((items :initarg :items :type list)))
 
 (cl-defmethod slack-buffer-name ((this slack-pinned-items-buffer))
-  "Return the display buffer name for the pinned items buffer."
+  "Return the display buffer name for THIS buffer."
   (let ((team (slack-buffer-team this))
         (room (slack-buffer-room this)))
     (concat "*Slack - "
@@ -51,11 +51,12 @@ Buffer-wide bindings:
             " Pinned Items")))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-pinned-items-buffer)) room)
-  "Return the class-level buffer key for the pinned items buffer."
+  "Return the class-level buffer key for the pinned items buffer.
+ROOM is the room argument."
   (oref room id))
 
 (cl-defmethod slack-buffer-key ((this slack-pinned-items-buffer))
-  "Return the lookup key identifying the buffer for the pinned items buffer."
+  "Return the lookup key identifying the buffer for THIS buffer."
   (slack-buffer-key 'slack-pinned-items-buffer (slack-buffer-room this)))
 
 (cl-defmethod slack-team-buffer-key ((_class (subclass slack-pinned-items-buffer)))
@@ -78,7 +79,7 @@ Buffer-wide bindings:
           (lui-insert "No Pinned Items" t))))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-pinned-items-buffer))
-  "Initialize and return the display buffer for the pinned items buffer."
+  "Initialize and return the display buffer for THIS buffer."
   (let* ((buf (cl-call-next-method)))
     (with-current-buffer buf
       (slack-pinned-items-buffer-mode)
@@ -87,7 +88,9 @@ Buffer-wide bindings:
     buf))
 
 (defun slack-create-pinned-items-buffer (room team items)
-  "Create and return a new pinned items buffer instance from PAYLOAD."
+  "Create and return a new pinned items buffer instance from PAYLOAD.
+ROOM is the room argument.
+TEAM is the team argument."
   (slack-if-let* ((buf (slack-buffer-find 'slack-pinned-items-buffer team room)))
       (progn
         (oset buf items items)
@@ -97,7 +100,8 @@ Buffer-wide bindings:
                                :items items)))
 
 (cl-defmethod slack-buffer--replace ((this slack-pinned-items-buffer) ts)
-  "Replace the rendered message identified by the argument in the pinned items buffer."
+  "Replace the rendered message identified by the argument in THIS buffer.
+TS is the ts argument."
   (with-slots (items) this
     (slack-if-let* ((message (cl-find-if #'(lambda (m) (string= ts (slack-ts m)))
                                          items)))

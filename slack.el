@@ -52,7 +52,7 @@ otherwise accumulates because each reload orphans the previous
 websocket instead of closing it.  Any slack websocket process not
 currently referenced by some team's `ws.conn' slot is considered
 a zombie from a prior load and is deleted.  The live websocket
-(if any) is preserved so that reloading while connected does not
+\(if any) is preserved so that reloading while connected does not
 force a reconnect."
   (let ((alive (slack--live-websocket-processes)))
     (dolist (p (process-list))
@@ -122,7 +122,7 @@ force a reconnect."
 (require 'slack-menu)
 
 (defgroup slack nil
-  "Emacs Slack Client"
+  "Emacs Slack Client."
   :prefix "slack-"
   :group 'tools)
 
@@ -266,7 +266,8 @@ You can add it to append custom instructions that depend on context."
 
 ;;;###autoload
 (defun slack-stop (force)
-  "Quit all slack teams."
+  "Quit all slack teams.
+FORCE is the force argument."
   (interactive "P")
   (run-hooks 'slack-before-quit-hook)
   (slack-ws-close)
@@ -283,27 +284,27 @@ You can add it to append custom instructions that depend on context."
   "PLIST must contain :name and :token.
 Available options (property name, type, default value)
 :subscribed-channels [ list symbol ] nil
-  notified when new message arrived in these channels.
+notified when new message arrived in these channels.
 :default [boolean] nil
-  set this team as `slack-current-team' at registration time,
-  so interactive commands use it without prompting.
+set this team as `slack-current-team' at registration time,
+so interactive commands use it without prompting.
 :full-and-display-names [boolean] nil
-  if t, use full name to display user name.
+if t, use full name to display user name.
 :mark-as-read-immediately [boolean] these
-  if t, mark messages as read when open channel.
-  if nil, mark messages as read when cursor hovered.
+if t, mark messages as read when open channel.
+if nil, mark messages as read when cursor hovered.
 :modeline-enabled [boolean] nil
-  if t, display mention count and has unread in modeline.
+if t, display mention count and has unread in modeline.
 :modeline-name [or nil string] nil
-  use this value in modeline.
-  if nil, use team name.
+use this value in modeline.
+if nil, use team name.
 :visible-threads [boolean] nil
-  if t, thread replies are also displayed in channel buffer.
+if t, thread replies are also displayed in channel buffer.
 :websocket-event-log-enabled [boolean] nil
-  if t, websocket event is logged.
-  use `slack-log-open-event-buffer' to open the buffer.
+if t, websocket event is logged.
+use `slack-log-open-event-buffer' to open the buffer.
 :animate-image [boolean] nil
-  if t, animate gif images."
+if t, animate gif images."
   (interactive
    (let* ((name (read-from-minibuffer "Team Name: "))
           (token (read-from-minibuffer "Token: "))
@@ -360,7 +361,7 @@ Available options (property name, type, default value)
 (defun slack-refresh-token ()
   "Extract Slack credentials interactively via browser DevTools.
 Opens the Slack customize page, then prompts for the token and
-(when needed) cookies.  Displays the collected credentials in a
+\(when needed) cookies.  Displays the collected credentials in a
 results buffer so they can be stored externally (e.g. in `pass').
 
 For xoxc tokens, cookies must be copied from the browser

@@ -59,7 +59,9 @@ In this context an indentation level is a pair of spaces."
 (cl-defun slack-message-send-internal (message room team &key (on-success nil) (on-error nil) (payload nil) (files nil) (joined nil))
   "Send MESSAGE to ROOM on TEAM, joining the channel first if needed.
 FILES is a list of file paths to upload.  JOINED prevents infinite
-recursion when the join/open callback re-invokes this function."
+recursion when the join/open callback re-invokes this function.
+ON-SUCCESS is the on-success argument.
+ON-ERROR is the on-error argument."
   (when (slack-string-blankp message)
     (error "Empty message"))
   ;; Phase 1: ensure membership (mpim rooms can report is-member=false
@@ -154,7 +156,8 @@ response."
 (defun slack-chat-post-message--echo (data team)
   "Echo the sent message from chat.postMessage response DATA locally.
 Creates the message from the API response and pushes it through
-the standard buffer-update machinery so it appears immediately."
+the standard buffer-update machinery so it appears immediately.
+TEAM is the team argument."
   (let* ((channel (plist-get data :channel))
          (msg-data (plist-get data :message))
          (room (and channel (slack-room-find channel team))))

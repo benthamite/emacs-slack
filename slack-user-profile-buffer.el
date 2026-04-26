@@ -50,7 +50,7 @@
                                :user-id user-id)))
 
 (cl-defmethod slack-buffer-name ((this slack-user-profile-buffer))
-  "Return the display buffer name for the user profile buffer."
+  "Return the display buffer name for THIS buffer."
   (let ((user-id (oref this user-id))
         (team (slack-buffer-team this)))
     (format "*slack: %s : Profile - %s*"
@@ -58,11 +58,12 @@
             (slack-user-name user-id team))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-user-profile-buffer)) user-id)
-  "Return the class-level buffer key for the user profile buffer."
+  "Return the class-level buffer key for the user profile buffer.
+USER-ID is the user-id argument."
   user-id)
 
 (cl-defmethod slack-buffer-key ((this slack-user-profile-buffer))
-  "Return the lookup key identifying the buffer for the user profile buffer."
+  "Return the lookup key identifying the buffer for THIS buffer."
   (let ((user-id (oref this user-id)))
     (slack-buffer-key 'slack-user-profile-buffer user-id)))
 
@@ -113,7 +114,7 @@
                (slack-buffer--insert this)))))))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-user-profile-buffer))
-  "Initialize and return the display buffer for the user profile buffer."
+  "Initialize and return the display buffer for THIS buffer."
   (let ((buf (cl-call-next-method)))
     (with-current-buffer buf
       (slack-user-profile-buffer-mode)
@@ -122,7 +123,7 @@
     buf))
 
 (cl-defmethod slack-buffer--replace ((this slack-user-profile-buffer) _ts)
-  "Replace the rendered message identified by the argument in the user profile buffer."
+  "Replace the rendered message identified by the argument in THIS buffer."
   (with-current-buffer (current-buffer)
     (slack-buffer--insert this)))
 

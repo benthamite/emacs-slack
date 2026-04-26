@@ -34,7 +34,7 @@
   (slack-reply-event :type "" :payload payload))
 
 (cl-defmethod slack-event-find-message ((this slack-reply-event) team)
-  "Return the message referenced by the reply event event from TEAM, or nil."
+  "Return THIS message referenced by the reply event event from TEAM, or nil."
   (slack-if-let* ((payload (oref this payload))
                   (reply-to (plist-get payload :reply_to))
                   (table (oref team sent-message))
@@ -45,7 +45,8 @@
         sent-message)))
 
 (cl-defmethod slack-event-update-buffer ((_this slack-reply-event) message team)
-  "Refresh the buffers affected by the reply event event for TEAM."
+  "Refresh the buffers affected by the reply event event for TEAM.
+MESSAGE is the message argument."
   (slack-message-update-buffer message team)
   (slack-if-let* ((room (slack-room-find message team))
                   (buffer (slack-buffer-find 'slack-message-buffer team room))

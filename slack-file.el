@@ -273,12 +273,13 @@ When nil, save directly to `slack-file-dir' using the file's original name."
    (comment :initarg :comment :type string)))
 
 (cl-defmethod slack-merge ((old string) _new)
-  "Merge new data into the existing string in place." old)
+  "Merge new data into the existing string in place." OLD)
 (cl-defmethod slack-equalp ((old string) new)
-  "Return non-nil when the string equals the other argument." (string= old new))
+  "Return non-nil when the string equals the other argument." (string= OLD new))
 
 (cl-defmethod slack-merge ((old slack-file) new)
-  "Merge new data into the existing file in place."
+  "Merge NEW data into the existing file in place.
+OLD is the old argument."
   (cl-labels
       ((slack-merge-string-list
          (new old)
@@ -340,11 +341,14 @@ TYPE is `to', `cc', or nil (the default, meaning From)."
     file))
 
 (cl-defmethod slack-message-equal ((f slack-file) other)
-  "Return non-nil when the file equals OTHER."
+  "Return non-nil when the file equals OTHER.
+F is the f argument."
   (string= (oref f id) (oref other id)))
 
 (cl-defmethod slack-equalp ((old slack-file) new)
-  "Return non-nil when the file equals the other argument."
+  "Return non-nil when the file equals the other argument.
+OLD is the old argument.
+NEW is the new argument."
   (string= (oref old id) (oref new id)))
 
 (defconst slack-file-info-url "https://slack.com/api/files.info")
@@ -426,7 +430,7 @@ Return a list of selected room IDs."
 
 (defun slack-file-select-filetype (&optional initial-input)
   "Prompt for a Slack filetype and return its code.
-INITIAL-INPUT seeds the completing-read prompt."
+INITIAL-INPUT seeds the `completing-read' prompt."
   (let* ((candidate (mapcar #'(lambda (e)
                                 (cons (format "%s: %s" (car e) (cdr e))
                                       (car e)))
@@ -527,19 +531,19 @@ Prompt for team, channel, title, message, and filetype."
               'keymap slack-file-link-keymap))
 
 (cl-defmethod slack-message-star-added ((this slack-file))
-  "Record that a star was added to the file."
+  "Record that a star was added to THIS file."
   (oset this is-starred t))
 
 (cl-defmethod slack-message-star-removed ((this slack-file))
-  "Record that a star was removed from the file."
+  "Record that a star was removed from THIS file."
   (oset this is-starred nil))
 
 (cl-defmethod slack-message-star-api-params ((this slack-file))
-  "Return the `stars.add'/`stars.remove' API parameters for the file."
+  "Return the `stars.add'/`stars.remove' API parameters for THIS file."
   (list (cons "file" (oref this id))))
 
 (cl-defmethod slack-ts ((this slack-file))
-  "Return the timestamp string identifying the file."
+  "Return the timestamp string identifying THIS file."
   (number-to-string (oref this created)))
 
 (cl-defmethod slack-thread-message-p ((_this slack-file))
@@ -547,7 +551,7 @@ Prompt for team, channel, title, message, and filetype."
   nil)
 
 (cl-defmethod slack-message-user-ids ((this slack-file))
-  "Return the list of user IDs referenced by the file."
+  "Return the list of user IDs referenced by THIS file."
   (with-slots (user) this
     (list user)))
 

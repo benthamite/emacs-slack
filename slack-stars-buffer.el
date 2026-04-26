@@ -48,7 +48,7 @@ Buffer-wide bindings:
   ())
 
 (cl-defmethod slack-buffer-room ((this slack-stars-buffer))
-  "Return the room for the message at point.
+  "Return the room for THIS message at point.
 Each saved item may belong to a different room, so the room is
 resolved from the `room-id' text property."
   (let ((team (slack-buffer-team this))
@@ -60,7 +60,8 @@ resolved from the `room-id' text property."
   "Prefetch uncached messages for STAR-ITEMS in parallel, then call CALLBACK.
 Fires async API requests for all messages not already in cache,
 and invokes CALLBACK (with no arguments) once every request has
-completed (or immediately if all messages are cached)."
+completed (or immediately if all messages are cached).
+TEAM is the team argument."
   (let ((pending (list 0)))
     (dolist (item star-items)
       (let* ((ts (oref item ts))
@@ -173,7 +174,7 @@ the URL."
     (match-string 1 permalink)))
 
 (cl-defmethod slack-buffer-name ((this slack-stars-buffer))
-  "Return the display buffer name for the stars buffer."
+  "Return the display buffer name for THIS buffer."
   (let ((team (slack-buffer-team this)))
     (format "*slack: %s : Saved items*" (oref team name))))
 
@@ -190,7 +191,8 @@ the URL."
   'slack-stars-buffer)
 
 (cl-defmethod slack-buffer-toggle-email-expand ((this slack-stars-buffer) file-id)
-  "Toggle the expanded/collapsed state of the email at point in the stars buffer."
+  "Toggle the expanded/collapsed state of THIS buffer.
+FILE-ID is the file-id argument."
   (slack-if-let* ((team (slack-buffer-team this))
                   (ts (get-text-property (point) 'ts))
                   (items (slack-star-items (oref team star)))
@@ -202,7 +204,8 @@ the URL."
         (slack-buffer--replace this ts))))
 
 (cl-defmethod slack-buffer-insert ((this slack-stars-buffer) message &optional not-tracked-p)
-  "Insert a rendered representation of the stars buffer into the current buffer."
+  "Insert a rendered representation of THIS buffer into the current buffer.
+MESSAGE is the message argument."
   (let ((lui-time-stamp-format "[%Y-%m-%d %H:%M] ")
         (lui-time-stamp-time (seconds-to-time
                               (string-to-number
@@ -218,7 +221,7 @@ the URL."
     (lui-insert "" t)))
 
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-stars-buffer))
-  "Return non-nil when the stars buffer has more history to load."
+  "Return non-nil when THIS buffer has more history to load."
   (let ((team (slack-buffer-team this)))
     (slack-star-has-next-page-p (oref team star))))
 
@@ -234,13 +237,15 @@ the URL."
              when m do (slack-buffer-insert this m))))
 
 (cl-defmethod slack-stars--insert-tail ((this slack-stars-buffer))
-  "Insert end-of-list marker when all items have been loaded."
+  "Insert end-of-list marker when all items have been loaded.
+THIS is the slack-stars-buffer instance."
   (unless (slack-buffer-has-next-page-p this)
     (let ((lui-time-stamp-position nil))
       (lui-insert "(no more items)\n" t))))
 
 (cl-defmethod slack-buffer-load-more ((this slack-stars-buffer))
-  "Load the next page of saved items and append at the bottom."
+  "Load the next page of saved items and append at the bottom.
+THIS is the slack-stars-buffer instance."
   (when (and (slack-buffer-has-next-page-p this)
              (not slack-buffer--loading-more-p))
     (setq slack-buffer--loading-more-p t)
@@ -261,7 +266,7 @@ the URL."
                 (setq slack-buffer--loading-more-p nil))))))))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-stars-buffer))
-  "Initialize and return the display buffer for the stars buffer."
+  "Initialize and return the display buffer for THIS buffer."
   (let* ((buf (cl-call-next-method))
          (team (slack-buffer-team this))
          (star (oref team star))
@@ -280,7 +285,8 @@ the URL."
     buf))
 
 (defun slack-create-stars-buffer (team)
-  "Create and return a new stars buffer instance from PAYLOAD."
+  "Create and return a new stars buffer instance from PAYLOAD.
+TEAM is the team argument."
   (slack-if-let* ((buf (slack-buffer-find 'slack-stars-buffer team)))
       buf
     (make-instance 'slack-stars-buffer
@@ -300,7 +306,8 @@ the URL."
       (slack-buffer-message-delete this ts))))
 
 (cl-defmethod slack-buffer-message-delete ((this slack-stars-buffer) ts)
-  "Delete the message at point from the stars buffer."
+  "Delete the message at point from THIS buffer.
+TS is the ts argument."
   (let ((buffer (slack-buffer-buffer this))
         (inhibit-read-only t))
     (with-current-buffer buffer
@@ -309,7 +316,7 @@ the URL."
           (delete-region beg end)))))
 
 (cl-defmethod slack-buffer--replace ((this slack-stars-buffer) ts)
-  "Replace the message at TS in the stars buffer.
+  "Replace the message at TS in THIS buffer.
 Locates the message by its `ts' text property rather than
 `lui-replace', which cannot navigate backward past separator
 lines inserted by `slack-buffer-insert'."

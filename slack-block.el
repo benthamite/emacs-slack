@@ -79,7 +79,8 @@ You need to install `language-detection' for this to work.")
   nil)
 
 (cl-defmethod slack-block-to-string ((this slack-layout-block) &optional _option)
-  "Render the layout block as a propertized string."
+  "Render the layout block as a propertized string.
+THIS is the slack-layout-block instance."
   (format "Implement `slack-block-to-string' for %S" (oref this payload)))
 
 (defun slack-create-layout-block (payload)
@@ -123,12 +124,14 @@ You need to install `language-detection' for this to work.")
    ))
 
 (cl-defmethod slack-block-to-string ((this slack-layout-header-block) &optional _option)
-  "Render the layout header block as a propertized string."
+  "Render the layout header block as a propertized string.
+THIS is the slack-layout-header-block instance."
   ;; 1.2x height matches Slack's header block styling
   (propertize (slack-block-to-string (oref this text)) 'face '(:weight bold :height 1.2)))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-layout-header-block) &optional _option)
-  "Render the layout header block as Slack-flavoured Markdown text."
+  "Render the layout header block as Slack-flavoured Markdown text.
+THIS is the slack-layout-header-block instance."
   (format "# %s" (slack-block-to-string (oref this text))))
 
 (defun slack-create-layout-header-block (payload)
@@ -146,13 +149,17 @@ You need to install `language-detection' for this to work.")
    ))
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-block) &optional option)
-  "Render the rich text block as a propertized string."
+  "Render the rich text block as a propertized string.
+THIS is the slack-rich-text-block instance.
+OPTION is the option argument."
   (mapconcat #'(lambda (element) (slack-block-to-string element option))
              (oref this elements)
              ""))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-block) &optional option)
-  "Render the rich text block as Slack-flavoured Markdown text."
+  "Render the rich text block as Slack-flavoured Markdown text.
+THIS is the slack-rich-text-block instance.
+OPTION is the option argument."
   (mapconcat #'(lambda (element) (slack-block-to-mrkdwn element option))
              (oref this elements)
              ""))
@@ -171,7 +178,8 @@ You need to install `language-detection' for this to work.")
    (join-url :initarg :join_url :type string)))
 
 (cl-defmethod slack-block-to-string ((this slack-call-layout-block) &optional _option)
-  "Render the call layout block as a propertized string."
+  "Render the call layout block as a propertized string.
+THIS is the slack-call-layout-block instance."
   (concat "Join URL: " (oref this join-url)))
 
 (defun slack-create-call-layout-block (payload)
@@ -364,12 +372,12 @@ You need to install `language-detection' for this to work.")
    (source :initarg :source :type string)))
 
 (cl-defmethod slack-block-to-string ((this slack-file-layout-block) &optional _option)
-  "Render the file layout block as a propertized string."
+  "Render THIS file layout block as a propertized string."
   (propertize (format "[File: %s]" (oref this external-id))
               'face 'slack-mrkdwn-code-face))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-file-layout-block) &optional _option)
-  "Render the file layout block as Slack-flavoured Markdown text."
+  "Render THIS file layout block as Slack-flavoured Markdown text."
   (format "[File: %s]" (oref this external-id)))
 
 (defun slack-create-file-layout-block (payload)
@@ -392,7 +400,8 @@ You need to install `language-detection' for this to work.")
    (dispatch-action :initarg :dispatch-action :type boolean :initform nil)))
 
 (cl-defmethod slack-block-to-string ((this slack-input-layout-block) &optional _option)
-  "Render the input layout block as a propertized string."
+  "Render the input layout block as a propertized string.
+THIS is the slack-input-layout-block instance."
   (let ((label-str (slack-block-to-string (oref this label)))
         (hint-str (when (oref this hint)
                     (slack-block-to-string (oref this hint)))))
@@ -402,7 +411,8 @@ You need to install `language-detection' for this to work.")
             "\n[interactive input]")))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-input-layout-block) &optional _option)
-  "Render the input layout block as Slack-flavoured Markdown text."
+  "Render the input layout block as Slack-flavoured Markdown text.
+THIS is the slack-input-layout-block instance."
   (let ((label-str (slack-block-to-string (oref this label))))
     (concat "*" label-str "*"
             (when (oref this optional-p) " (optional)")
@@ -428,11 +438,13 @@ You need to install `language-detection' for this to work.")
    (payload :initarg :payload :type (or null list) :initform nil)))
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-block-element) &optional _option)
-  "Render the rich text block element as a propertized string."
+  "Render the rich text block element as a propertized string.
+THIS is the slack-rich-text-block-element instance."
   (format "Implement `slack-block-to-string' for %S\n" (oref this payload)))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-block-element) &optional _option)
-  "Render the rich text block element as Slack-flavoured Markdown text."
+  "Render the rich text block element as Slack-flavoured Markdown text.
+THIS is the slack-rich-text-block-element instance."
   (format "Implement `slack-block-to-mrkdwn' for %S\n" (oref this payload)))
 
 (defun slack-create-rich-text-block-element (payload)
@@ -458,13 +470,17 @@ You need to install `language-detection' for this to work.")
 (defclass slack-rich-text-section (slack-rich-text-block-element) ())
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-section) &optional option)
-  "Render the rich text section as a propertized string."
+  "Render the rich text section as a propertized string.
+THIS is the slack-rich-text-section instance.
+OPTION is the option argument."
   (mapconcat #'(lambda (element) (slack-block-to-string element option))
              (oref this elements)
              ""))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-section) &optional option)
-  "Render the rich text section as Slack-flavoured Markdown text."
+  "Render the rich text section as Slack-flavoured Markdown text.
+THIS is the slack-rich-text-section instance.
+OPTION is the option argument."
   (mapconcat #'(lambda (element) (slack-block-to-mrkdwn element option))
              (oref this elements)
              ""))
@@ -480,7 +496,9 @@ You need to install `language-detection' for this to work.")
 (defclass slack-rich-text-preformatted (slack-rich-text-block-element) ())
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-preformatted) &optional option)
-  "Render the rich text preformatted as a propertized string."
+  "Render the rich text preformatted as a propertized string.
+THIS is the slack-rich-text-preformatted instance.
+OPTION is the option argument."
   (let ((text (mapconcat #'(lambda (element) (slack-block-to-string element option))
                          (oref this elements)
                          "")))
@@ -517,7 +535,9 @@ You need to install `language-detection' for this to work.")
          "\n")))))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-preformatted) &optional option)
-  "Render the rich text preformatted as Slack-flavoured Markdown text."
+  "Render the rich text preformatted as Slack-flavoured Markdown text.
+THIS is the slack-rich-text-preformatted instance.
+OPTION is the option argument."
   (let ((text (mapconcat #'(lambda (element) (slack-block-to-mrkdwn element option))
                          (oref this elements)
                          "")))
@@ -534,7 +554,9 @@ You need to install `language-detection' for this to work.")
 (defclass slack-rich-text-quote (slack-rich-text-block-element) ())
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-quote) &optional option)
-  "Render the rich text quote as a propertized string."
+  "Render the rich text quote as a propertized string.
+THIS is the slack-rich-text-quote instance.
+OPTION is the option argument."
   (let* ((text (mapconcat #'(lambda (element) (slack-block-to-string element option))
                           (oref this elements)
                           ""))
@@ -549,7 +571,9 @@ You need to install `language-detection' for this to work.")
                 'face 'slack-mrkdwn-blockquote-face)))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-quote) &optional option)
-  "Render the rich text quote as Slack-flavoured Markdown text."
+  "Render the rich text quote as Slack-flavoured Markdown text.
+THIS is the slack-rich-text-quote instance.
+OPTION is the option argument."
   (let* ((text (mapconcat #'(lambda (element) (slack-block-to-mrkdwn element option))
                           (oref this elements)
                           ""))
@@ -573,7 +597,9 @@ You need to install `language-detection' for this to work.")
    ))
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-list) &optional option)
-  "Render the rich text list as a propertized string."
+  "Render the rich text list as a propertized string.
+THIS is the slack-rich-text-list instance.
+OPTION is the option argument."
   (let ((indent (make-string (* 2 (oref this indent)) ? ))
         (texts (mapcar #'(lambda (element) (slack-block-to-string element option))
                        (oref this elements)))
@@ -594,7 +620,9 @@ You need to install `language-detection' for this to work.")
             "\n")))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-list) &optional option)
-  "Render the rich text list as Slack-flavoured Markdown text."
+  "Render the rich text list as Slack-flavoured Markdown text.
+THIS is the slack-rich-text-list instance.
+OPTION is the option argument."
   (let* ((indent (make-string (* 2 (oref this indent)) ? ))
          (dot "-")
          (i 1))
@@ -639,7 +667,8 @@ You need to install `language-detection' for this to work.")
                 'font-lock-face face)))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-element-style) text)
-  "Render the rich text element style as Slack-flavoured Markdown text."
+  "Render the rich TEXT element style as Slack-flavoured Markdown text.
+THIS is the slack-rich-text-element-style instance."
   (or (and (oref this bold) (format "*%s*" text))
       (and (oref this italic) (format "_%s_" text))
       (and (oref this strike) (format "~%s~" text))
@@ -661,11 +690,13 @@ You need to install `language-detection' for this to work.")
    (payload :initarg :payload :type (or null list) :initform nil)))
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-element) &optional _option)
-  "Render the rich text element as a propertized string."
+  "Render the rich text element as a propertized string.
+THIS is the slack-rich-text-element instance."
   (format "Implement `slack-block-to-string' for %S\n" (oref this payload)))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-element) &optional _option)
-  "Render the rich text element as Slack-flavoured Markdown text."
+  "Render the rich text element as Slack-flavoured Markdown text.
+THIS is the slack-rich-text-element instance."
   (format "Implement `slack-block-to-mrkdwn' for %S\n" (oref this payload)))
 
 (defun slack-create-rich-text-element (payload)
@@ -708,14 +739,16 @@ You need to install `language-detection' for this to work.")
   ((text :initarg :text :type string)))
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-text-element) &optional _option)
-  "Render the rich text text element as a propertized string."
+  "Render the rich text text element as a propertized string.
+THIS is the slack-rich-text-text-element instance."
   (let ((style (oref this style))
         (text (oref this text)))
     (if style (slack-block-to-string style text)
       (propertize text 'face 'slack-message-output-text))))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-text-element) &optional _option)
-  "Render the rich text text element as Slack-flavoured Markdown text."
+  "Render the rich text text element as Slack-flavoured Markdown text.
+THIS is the slack-rich-text-text-element instance."
   (let ((style (oref this style))
         (text (oref this text)))
     (if style (slack-block-to-mrkdwn style text)
@@ -734,7 +767,9 @@ You need to install `language-detection' for this to work.")
   ((channel-id :initarg :channel_id :type string)))
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-channel-element) option)
-  "Render the rich text channel element as a propertized string."
+  "Render the rich text channel element as a propertized string.
+THIS is the slack-rich-text-channel-element instance.
+OPTION is the option argument."
   (let* ((team (plist-get option :team))
          (id (oref this channel-id))
          (room (slack-room-find id team))
@@ -748,7 +783,9 @@ You need to install `language-detection' for this to work.")
                 'face 'slack-channel-button-face)))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-channel-element) option)
-  "Render the rich text channel element as Slack-flavoured Markdown text."
+  "Render the rich text channel element as Slack-flavoured Markdown text.
+THIS is the slack-rich-text-channel-element instance.
+OPTION is the option argument."
   (let ((team (plist-get option :team))
         (id (oref this channel-id)))
     (unless team
@@ -770,7 +807,9 @@ You need to install `language-detection' for this to work.")
   ((user-id :initarg :user_id :type string)))
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-user-element) option)
-  "Render the rich text user element as a propertized string."
+  "Render the rich text user element as a propertized string.
+THIS is the slack-rich-text-user-element instance.
+OPTION is the option argument."
   (let ((team (plist-get option :team))
         (id (oref this user-id)))
     (unless team
@@ -779,7 +818,9 @@ You need to install `language-detection' for this to work.")
                 'face 'slack-message-mention-face)))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-user-element) option)
-  "Render the rich text user element as Slack-flavoured Markdown text."
+  "Render the rich text user element as Slack-flavoured Markdown text.
+THIS is the slack-rich-text-user-element instance.
+OPTION is the option argument."
   (let ((team (plist-get option :team))
         (id (oref this user-id)))
     (unless team
@@ -800,12 +841,15 @@ You need to install `language-detection' for this to work.")
   ((name :initarg :name :type string)))
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-emoji-element) &optional _option)
-  "Render the rich text emoji element as a propertized string."
+  "Render the rich text emoji element as a propertized string.
+THIS is the slack-rich-text-emoji-element instance."
   (let ((name (oref this name)))
     (format ":%s:" name)))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-emoji-element) &optional option)
-  "Render the rich text emoji element as Slack-flavoured Markdown text."
+  "Render the rich text emoji element as Slack-flavoured Markdown text.
+THIS is the slack-rich-text-emoji-element instance.
+OPTION is the option argument."
   (slack-block-to-string this option))
 
 (defun slack-create-rich-text-emoji-element (payload)
@@ -819,13 +863,15 @@ You need to install `language-detection' for this to work.")
    (text :initarg :text :type (or null string) :initform nil)))
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-link-element) &optional _option)
-  "Render the rich text link element as a propertized string."
+  "Render the rich text link element as a propertized string.
+THIS is the slack-rich-text-link-element instance."
   (let ((text (oref this text))
         (url (oref this url)))
     (format "<%s|%s>" url (or text url))))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-link-element) &optional _option)
-  "Render the rich text link element as Slack-flavoured Markdown text."
+  "Render the rich text link element as Slack-flavoured Markdown text.
+THIS is the slack-rich-text-link-element instance."
   (let ((text (oref this text))
         (url (oref this url)))
     (if text
@@ -993,14 +1039,16 @@ You need to install `language-detection' for this to work.")
   ((team-id :initarg :team_id :type string)))
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-team-element) &optional _option)
-  "Render the rich text team element as a propertized string."
+  "Render the rich text team element as a propertized string.
+THIS is the slack-rich-text-team-element instance."
   (let* ((team-id (oref this team-id))
          (team (slack-team-find team-id)))
     (propertize (format "%s" (slack-team-name team))
                 'face 'slack-message-mention-face)))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-team-element) &optional _option)
-  "Render the rich text team element as Slack-flavoured Markdown text."
+  "Render the rich text team element as Slack-flavoured Markdown text.
+THIS is the slack-rich-text-team-element instance."
   (slack-block-to-string this))
 
 (defun slack-create-rich-text-team-element (payload)
@@ -1015,7 +1063,9 @@ You need to install `language-detection' for this to work.")
   ((usergroup-id :initarg :usergroup_id :type string)))
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-usergroup-element) &optional option)
-  "Render the rich text usergroup element as a propertized string."
+  "Render the rich text usergroup element as a propertized string.
+THIS is the slack-rich-text-usergroup-element instance.
+OPTION is the option argument."
   (let ((team (plist-get option :team))
         (id (oref this usergroup-id)))
 
@@ -1027,7 +1077,9 @@ You need to install `language-detection' for this to work.")
                   'face 'slack-message-mention-keyword-face))))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-usergroup-element) &optional option)
-  "Render the rich text usergroup element as Slack-flavoured Markdown text."
+  "Render the rich text usergroup element as Slack-flavoured Markdown text.
+THIS is the slack-rich-text-usergroup-element instance.
+OPTION is the option argument."
   (let ((team (plist-get option :team))
         (id (oref this usergroup-id)))
 
@@ -1049,7 +1101,8 @@ You need to install `language-detection' for this to work.")
   ((timestamp :initarg :timestamp :type number)))
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-date-element) &optional _option)
-  "Render the rich text date element as a propertized string."
+  "Render the rich text date element as a propertized string.
+THIS is the slack-rich-text-date-element instance."
   (slack-format-ts (oref this timestamp)))
 
 (defun slack-create-rich-text-date-element (payload)
@@ -1065,12 +1118,14 @@ You need to install `language-detection' for this to work.")
    ))
 
 (cl-defmethod slack-block-to-string ((this slack-rich-text-broadcast-element) &optional _option)
-  "Render the rich text broadcast element as a propertized string."
+  "Render the rich text broadcast element as a propertized string.
+THIS is the slack-rich-text-broadcast-element instance."
   (propertize (format "@%s" (oref this range))
               'face 'slack-message-mention-keyword-face))
 
 (cl-defmethod slack-block-to-mrkdwn ((this slack-rich-text-broadcast-element) &optional _option)
-  "Render the rich text broadcast element as Slack-flavoured Markdown text."
+  "Render the rich text broadcast element as Slack-flavoured Markdown text.
+THIS is the slack-rich-text-broadcast-element instance."
   (slack-propertize-mention-text 'slack-message-mention-keyword-face
                                  (format "@%s" (oref this range))
                                  (format "<!%s>" (oref this range))))
@@ -1101,7 +1156,8 @@ You need to install `language-detection' for this to work.")
                    :accessory accessory)))
 
 (cl-defmethod slack-block-to-string ((this slack-section-layout-block) &optional _option)
-  "Render the section layout block as a propertized string."
+  "Render the section layout block as a propertized string.
+THIS is the slack-section-layout-block instance."
   (with-slots (fields accessory text) this
     (slack-format-message (slack-block-to-string text)
                           (mapconcat #'identity
@@ -1111,7 +1167,8 @@ You need to install `language-detection' for this to work.")
                           (slack-block-to-string accessory))))
 
 (cl-defmethod slack-block-find-action ((this slack-section-layout-block) action-id)
-  "Return the action-id matching element in the section layout block, or nil."
+  "Return the ACTION-ID matching element in the section layout block, or nil.
+THIS is the slack-section-layout-block instance."
   (with-slots (accessory) this
     (when (and accessory
                (string= (slack-block-action-id accessory)
@@ -1154,7 +1211,8 @@ You need to install `language-detection' for this to work.")
                  :image_bytes (plist-get payload :image_bytes)))
 
 (cl-defmethod slack-block-to-string ((this slack-image-layout-block) &optional _option)
-  "Render the image layout block as a propertized string."
+  "Render the image layout block as a propertized string.
+THIS is the slack-image-layout-block instance."
   (with-slots (image-url alt-text title image-height image-width image-bytes) this
     (let ((spec (list image-url
                       image-width
@@ -1179,7 +1237,8 @@ You need to install `language-detection' for this to work.")
                  :block_id (plist-get payload :block_id)))
 
 (cl-defmethod slack-block-to-string ((this slack-actions-layout-block) &optional _option)
-  "Render the actions layout block as a propertized string."
+  "Render the actions layout block as a propertized string.
+THIS is the slack-actions-layout-block instance."
   (with-slots (elements) this
     (mapconcat #'identity
                (mapcar #'slack-block-to-string
@@ -1187,7 +1246,8 @@ You need to install `language-detection' for this to work.")
                " ")))
 
 (cl-defmethod slack-block-find-action ((this slack-actions-layout-block) action-id)
-  "Return the action-id matching element in the actions layout block, or nil."
+  "Return the ACTION-ID matching element in the actions layout block, or nil.
+THIS is the slack-actions-layout-block instance."
   (with-slots (elements) this
     (cl-find-if #'(lambda (e) (string= action-id (slack-block-action-id e)))
                 elements)))
@@ -1207,7 +1267,8 @@ You need to install `language-detection' for this to work.")
                  :block_id (plist-get payload :block_id)))
 
 (cl-defmethod slack-block-to-string ((this slack-context-layout-block) &optional _option)
-  "Render the context layout block as a propertized string."
+  "Render the context layout block as a propertized string.
+THIS is the slack-context-layout-block instance."
   (with-slots (elements) this
     (mapconcat #'identity
                ;; Context block images are small inline thumbnails (30px cap)
@@ -1216,7 +1277,8 @@ You need to install `language-detection' for this to work.")
                " ")))
 
 (cl-defmethod slack-block-find-action ((this slack-context-layout-block) action-id)
-  "Return the action-id matching element in the context layout block, or nil."
+  "Return the ACTION-ID matching element in the context layout block, or nil.
+THIS is the slack-context-layout-block instance."
   (with-slots (elements) this
     (cl-find-if #'(lambda (e) (string= action-id (slack-block-action-id e)))
                 elements)))
@@ -1234,7 +1296,8 @@ You need to install `language-detection' for this to work.")
   (oref this action-id))
 
 (cl-defmethod slack-block-to-string ((this slack-block-element) &optional _option)
-  "Render the block element as a propertized string."
+  "Render the block element as a propertized string.
+THIS is the slack-block-element instance."
   (format "Implement `slack-block-to-string' for %S" (oref this payload)))
 
 (cl-defmethod slack-block-handle-confirm ((this slack-block-element))
@@ -1251,7 +1314,8 @@ Return non-nil when the action should proceed."
     (slack-select-from-list (alist "Select Option: "))))
 
 (defun slack-create-block-element (payload block-id)
-  "Create and return a new block element instance from PAYLOAD."
+  "Create and return a new block element instance from PAYLOAD.
+BLOCK-ID is the block-id argument."
   (when payload
     (let ((type (plist-get payload :type)))
       (cond
@@ -1295,7 +1359,9 @@ Return non-nil when the action should proceed."
                  :image_bytes (plist-get payload :image_bytes)))
 
 (cl-defmethod slack-block-to-string ((this slack-image-block-element) &optional option)
-  "Render the image block element as a propertized string."
+  "Render the image block element as a propertized string.
+THIS is the slack-image-block-element instance.
+OPTION is the option argument."
   (with-slots (image-url image-height image-width) this
     (let ((spec (list image-url
                       image-width
@@ -1316,7 +1382,8 @@ Return non-nil when the action should proceed."
    (confirm :initarg :confirm :initform nil :type (or null slack-confirmation-dialog-message-composition-object))))
 
 (defun slack-create-button-block-element (payload block-id)
-  "Create and return a new button block element instance from PAYLOAD."
+  "Create and return a new button block element instance from PAYLOAD.
+BLOCK-ID is the block-id argument."
   (make-instance 'slack-button-block-element
                  :text (slack-create-text-message-composition-object
                         (plist-get payload :text))
@@ -1338,7 +1405,8 @@ Return non-nil when the action should proceed."
       (slack-buffer-execute-button-block-action buf)))
 
 (cl-defmethod slack-block-to-string ((this slack-button-block-element) &optional _option)
-  "Render the button block element as a propertized string."
+  "Render the button block element as a propertized string.
+THIS is the slack-button-block-element instance."
   (with-slots (text style) this
     (let ((face (cond ((string= "danger" style) 'slack-button-danger-block-element-face)
                       ((string= "primary" style) 'slack-button-primary-block-element-face)
@@ -1353,21 +1421,22 @@ Return non-nil when the action should proceed."
 
 (defface slack-button-block-element-face
   '((t (:box (:line-width 1 :style released-button :color "#2aa198"))))
-  "Used to button block element"
+  "Used to button block element."
   :group 'slack)
 
 (defface slack-button-danger-block-element-face
   '((t (:inherit slack-button-block-element-face :color "#dc322f")))
-  "Used to danger button block element"
+  "Used to danger button block element."
   :group 'slack)
 
 (defface slack-button-primary-block-element-face
   '((t (:inherit slack-button-block-element-face :color "#859900")))
-  "Used to primary button block element"
+  "Used to primary button block element."
   :group 'slack)
 
 (cl-defmethod slack-block-action-payload ((this slack-button-block-element))
-  "Return the API payload describing the selected button block element action."
+  "Return the API payload describing the selected button block element action.
+THIS is the slack-button-block-element instance."
   (with-slots (block-id action-id value text) this
     (cl-remove-if #'null
                   (list (cons "block_id" (or block-id ""))
@@ -1383,7 +1452,8 @@ Return non-nil when the action should proceed."
    (confirm :initarg :confirm :initform nil :type (or null slack-confirmation-dialog-message-composition-object))))
 
 (cl-defmethod slack-block-to-string ((this slack-select-block-element) &optional _option)
-  "Render the select block element as a propertized string."
+  "Render the select block element as a propertized string.
+THIS is the slack-select-block-element instance."
   (format "Implement `slack-block-to-string' for %S" (oref this payload)))
 
 (cl-defmethod slack-block-select-from-option-groups ((_this slack-select-block-element) option-groups)
@@ -1395,7 +1465,7 @@ Return non-nil when the action should proceed."
 
 (defface slack-select-block-element-face
   '((t (:box (:line-width 1 :style released-button :color "#2aa198"))))
-  "Used to select block element"
+  "Used to select block element."
   :group 'slack)
 
 (defclass slack-static-select-block-element (slack-select-block-element)
@@ -1407,7 +1477,8 @@ Return non-nil when the action should proceed."
    (block-id :initarg :block_id :type (or null string) :initform nil)))
 
 (defun slack-create-static-select-block-element (payload block-id)
-  "Create and return a new static select block element instance from PAYLOAD."
+  "Create and return a new static select block element instance from PAYLOAD.
+BLOCK-ID is the block-id argument."
   (let* ((options (plist-get payload :options))
          (option-groups (plist-get payload :option_groups))
          (initial-option (plist-get payload :initial_option)))
@@ -1437,7 +1508,8 @@ Return non-nil when the action should proceed."
       (slack-buffer-execute-static-select-block-action buf)))
 
 (cl-defmethod slack-block-to-string ((this slack-static-select-block-element) &optional _option)
-  "Render the static select block element as a propertized string."
+  "Render the static select block element as a propertized string.
+THIS is the slack-static-select-block-element instance."
   (with-slots (initial-option placeholder) this
     (propertize (slack-block-to-string (or initial-option placeholder))
                 'face 'slack-select-block-element-face
@@ -1447,7 +1519,8 @@ Return non-nil when the action should proceed."
                           map))))
 
 (cl-defmethod slack-block-action-payload ((this slack-static-select-block-element))
-  "Return the API payload describing the selected static select block element action."
+  "Return the API payload describing the selected static select block element action.
+THIS is the slack-static-select-block-element instance."
   (with-slots (type action-id block-id placeholder) this
     (list (cons "type" type)
           (cons "action_id" action-id)
@@ -1479,7 +1552,8 @@ Return non-nil when the action should proceed."
       (slack-buffer-execute-external-select-block-action buf)))
 
 (cl-defmethod slack-block-to-string ((this slack-external-select-block-element))
-  "Render the external select block element as a propertized string."
+  "Render the external select block element as a propertized string.
+THIS is the slack-external-select-block-element instance."
   (with-slots (placeholder initial-option) this
     (propertize (slack-block-to-string (or initial-option placeholder))
                 'face 'slack-select-block-element-face
@@ -1489,7 +1563,8 @@ Return non-nil when the action should proceed."
                           map))))
 
 (defun slack-create-external-select-block-element (payload block-id)
-  "Create and return a new external select block element instance from PAYLOAD."
+  "Create and return a new external select block element instance from PAYLOAD.
+BLOCK-ID is the block-id argument."
   (make-instance 'slack-external-select-block-element
                  :placeholder (slack-create-text-message-composition-object
                                (plist-get payload :placeholder))
@@ -1502,7 +1577,8 @@ Return non-nil when the action should proceed."
                            (plist-get payload :confirm))))
 
 (cl-defmethod slack-block-action-payload ((this slack-external-select-block-element))
-  "Return the API payload describing the selected external select block element action."
+  "Return the API payload describing the selected external select block element action.
+THIS is the slack-external-select-block-element instance."
   (with-slots (action-id block-id type) this
     (list (cons "type" type)
           (cons "action_id" action-id)
@@ -1548,7 +1624,8 @@ groups returned by the API."
    (block-id :initarg :block_id :type (or null string) :initform nil)))
 
 (defun slack-create-user-select-block-element (payload block-id)
-  "Create and return a new user select block element instance from PAYLOAD."
+  "Create and return a new user select block element instance from PAYLOAD.
+BLOCK-ID is the block-id argument."
   (make-instance 'slack-user-select-block-element
                  :placeholder (slack-create-text-message-composition-object
                                (plist-get payload :placeholder))
@@ -1568,7 +1645,8 @@ groups returned by the API."
       (slack-buffer-execute-user-select-block-action buf)))
 
 (cl-defmethod slack-block-to-string ((this slack-user-select-block-element) &optional _option)
-  "Render the user select block element as a propertized string."
+  "Render the user select block element as a propertized string.
+THIS is the slack-user-select-block-element instance."
   (with-slots (initial-user placeholder) this
     (let ((props (list
                   'face 'slack-select-block-element-face
@@ -1584,7 +1662,8 @@ groups returned by the API."
         (apply #'propertize (slack-block-to-string placeholder) props)))))
 
 (cl-defmethod slack-block-action-payload ((this slack-user-select-block-element))
-  "Return the API payload describing the selected user select block element action."
+  "Return the API payload describing the selected user select block element action.
+THIS is the slack-user-select-block-element instance."
   (with-slots (type action-id block-id) this
     (list (cons "type" type)
           (cons "action_id" action-id)
@@ -1596,7 +1675,8 @@ groups returned by the API."
    (block-id :initarg :block_id :type (or null string) :initform nil)))
 
 (defun slack-create-conversation-select-block-element (payload block-id)
-  "Create and return a new conversation select block element instance from PAYLOAD."
+  "Create and return a new conversation select block element instance from PAYLOAD.
+BLOCK-ID is the block-id argument."
   (make-instance 'slack-conversation-select-block-element
                  :placeholder (slack-create-text-message-composition-object
                                (plist-get payload :placeholder))
@@ -1616,7 +1696,8 @@ groups returned by the API."
       (slack-buffer-execute-conversation-select-block-action buf)))
 
 (cl-defmethod slack-block-to-string ((this slack-conversation-select-block-element) &optional _option)
-  "Render the conversation select block element as a propertized string."
+  "Render the conversation select block element as a propertized string.
+THIS is the slack-conversation-select-block-element instance."
   (with-slots (initial-conversation placeholder) this
     (let ((props (list 'face 'slack-select-block-element-face
                        'slack-action-payload (slack-block-action-payload this)
@@ -1631,7 +1712,8 @@ groups returned by the API."
         (apply #'propertize (slack-block-to-string placeholder) props)))))
 
 (cl-defmethod slack-block-action-payload ((this slack-conversation-select-block-element))
-  "Return the API payload describing the selected conversation select block element action."
+  "Return the API payload describing the selected conversation select block element action.
+THIS is the slack-conversation-select-block-element instance."
   (with-slots (type action-id block-id) this
     (list (cons "type" type)
           (cons "action_id" action-id)
@@ -1644,7 +1726,8 @@ groups returned by the API."
    (block-id :initarg :block_id :type (or null string) :initform nil)))
 
 (defun slack-create-channel-select-block-element (payload block-id)
-  "Create and return a new channel select block element instance from PAYLOAD."
+  "Create and return a new channel select block element instance from PAYLOAD.
+BLOCK-ID is the block-id argument."
   (make-instance 'slack-channel-select-block-element
                  :placeholder (slack-create-text-message-composition-object
                                (plist-get payload :placeholder))
@@ -1664,7 +1747,8 @@ groups returned by the API."
       (slack-buffer-execute-channel-select-block-action buf)))
 
 (cl-defmethod slack-block-to-string ((this slack-channel-select-block-element) &optional _option)
-  "Render the channel select block element as a propertized string."
+  "Render the channel select block element as a propertized string.
+THIS is the slack-channel-select-block-element instance."
   (with-slots (placeholder initial-channel) this
     (let ((props (list
                   'face 'slack-select-block-element-face
@@ -1680,7 +1764,8 @@ groups returned by the API."
         (apply #'propertize (slack-block-to-string placeholder) props)))))
 
 (cl-defmethod slack-block-action-payload ((this slack-channel-select-block-element))
-  "Return the API payload describing the selected channel select block element action."
+  "Return the API payload describing the selected channel select block element action.
+THIS is the slack-channel-select-block-element instance."
   (with-slots (block-id action-id type) this
     (list (cons "type" type)
           (cons "action_id" action-id)
@@ -1694,7 +1779,8 @@ groups returned by the API."
    (confirm :initarg :confirm :initform nil :type (or null slack-confirmation-dialog-message-composition-object))))
 
 (defun slack-create-overflow-block-element (payload block-id)
-  "Create and return a new overflow block element instance from PAYLOAD."
+  "Create and return a new overflow block element instance from PAYLOAD.
+BLOCK-ID is the block-id argument."
   (make-instance 'slack-overflow-menu-block-element
                  :action_id (plist-get payload :action_id)
                  :block_id block-id
@@ -1705,7 +1791,7 @@ groups returned by the API."
 
 (defface slack-overflow-block-element-face
   '((t (:box (:line-width 1 :style released-button :color "#2aa198"))))
-  "Used to overflow block element"
+  "Used to overflow block element."
   :group 'slack)
 
 (cl-defgeneric slack-buffer-execute-overflow-menu-block-action (buffer)
@@ -1718,7 +1804,8 @@ groups returned by the API."
       (slack-buffer-execute-overflow-menu-block-action buf)))
 
 (cl-defmethod slack-block-to-string ((this slack-overflow-menu-block-element) &optional _option)
-  "Render the overflow menu block element as a propertized string."
+  "Render the overflow menu block element as a propertized string.
+THIS is the slack-overflow-menu-block-element instance."
   (propertize " … "
               'face 'slack-overflow-block-element-face
               'slack-action-payload (slack-block-action-payload this)
@@ -1727,7 +1814,8 @@ groups returned by the API."
                         map)))
 
 (cl-defmethod slack-block-action-payload ((this slack-overflow-menu-block-element))
-  "Return the API payload describing the selected overflow menu block element action."
+  "Return the API payload describing the selected overflow menu block element action.
+THIS is the slack-overflow-menu-block-element instance."
   (with-slots (type action-id block-id) this
     (list (cons "type" type)
           (cons "action_id" action-id)
@@ -1742,7 +1830,8 @@ groups returned by the API."
    (confirm :initarg :confirm :initform nil :type (or null slack-confirmation-dialog-message-composition-object))))
 
 (defun slack-create-datepicker-block-element (payload block-id)
-  "Create and return a new datepicker block element instance from PAYLOAD."
+  "Create and return a new datepicker block element instance from PAYLOAD.
+BLOCK-ID is the block-id argument."
   (make-instance 'slack-date-picker-block-element
                  :action_id (plist-get payload :action_id)
                  :block_id block-id
@@ -1762,7 +1851,8 @@ groups returned by the API."
       (slack-buffer-execute-datepicker-block-action buf)))
 
 (cl-defmethod slack-block-to-string ((this slack-date-picker-block-element) &optional _option)
-  "Render the date picker block element as a propertized string."
+  "Render the date picker block element as a propertized string.
+THIS is the slack-date-picker-block-element instance."
   (with-slots (placeholder initial-date) this
     (let ((text (or initial-date
                     (slack-block-to-string placeholder)
@@ -1776,11 +1866,12 @@ groups returned by the API."
 
 (defface slack-date-picker-block-element-face
   '((t (:box (:line-width 1 :style released-button :color "#2aa198"))))
-  "Used to date picker block element"
+  "Used to date picker block element."
   :group 'slack)
 
 (cl-defmethod slack-block-action-payload ((this slack-date-picker-block-element))
-  "Return the API payload describing the selected date picker block element action."
+  "Return the API payload describing the selected date picker block element action.
+THIS is the slack-date-picker-block-element instance."
   (with-slots (type action-id block-id initial-date) this
     (list (cons "type" type)
           (cons "action_id" action-id)
@@ -1794,7 +1885,7 @@ groups returned by the API."
   "")
 
 (cl-defmethod slack-block-to-string ((this slack-message-composition-object) &optional _option)
-  "Render the message composition object as a propertized string."
+  "Render THIS message composition object as a propertized string."
   (format "Implement `slack-block-to-string' for %S" (eieio-object-class-name this)))
 
 (defclass slack-text-message-composition-object (slack-message-composition-object)
@@ -1804,14 +1895,16 @@ groups returned by the API."
    (verbatim :initarg :verbatim :type (or null boolean) :initform nil)))
 
 (cl-defmethod slack-block-to-string ((this slack-text-message-composition-object) &optional _option)
-  "Render the text message composition object as a propertized string."
+  "Render the text message composition object as a propertized string.
+THIS is the slack-text-message-composition-object instance."
   (with-slots (text type) this
     (propertize text 'slack-text-type (cond ((string= "plain_text" type) 'plain)
                                             ((string= "mrkdwn" type) 'mrkdwn)
                                             (t nil)))))
 
 (cl-defmethod slack-block-action-payload ((this slack-text-message-composition-object))
-  "Return the API payload describing the selected text message composition object action."
+  "Return the API payload describing the selected text message composition object action.
+THIS is the slack-text-message-composition-object instance."
   (with-slots (type text emoji verbatim) this
     (list (cons "type" type)
           (cons "text" text)
@@ -1835,7 +1928,7 @@ groups returned by the API."
 (cl-defmethod slack-block-handle-confirm ((this slack-confirmation-dialog-message-composition-object))
   "Prompt the user with the title and text of THIS confirmation dialog."
   (with-slots (title text) this
-    (yes-or-no-p (format "%s\n%s"
+    (yes-or-no-p (format "%s\n%s?"
                          (slack-block-to-string title)
                          (slack-block-to-string text)))))
 
@@ -1869,7 +1962,8 @@ groups returned by the API."
                    :value (or (plist-get payload :value) ""))))
 
 (cl-defmethod slack-block-to-string ((this slack-option-message-composition-object))
-  "Render the option message composition object as a propertized string."
+  "Render the option message composition object as a propertized string.
+THIS is the slack-option-message-composition-object instance."
   (with-slots (text) this
     (slack-block-to-string text)))
 
@@ -1885,7 +1979,8 @@ groups returned by the API."
       (slack-select-from-list (options-alist (format "Select Option (%s): " (slack-block-to-string this))))))
 
 (cl-defmethod slack-block-to-string ((this slack-option-group-message-composition-object))
-  "Render the option group message composition object as a propertized string."
+  "Render the option group message composition object as a propertized string.
+THIS is the slack-option-group-message-composition-object instance."
   (with-slots (label) this
     (slack-block-to-string label)))
 

@@ -33,7 +33,8 @@
   ((message :initarg :message)))
 
 (cl-defmethod slack-message-user-ids ((this slack-pinned-item))
-  "Return the list of user IDs referenced by the pinned item."
+  "Return the list of user IDs referenced by the pinned item.
+THIS is the slack-pinned-item instance."
   (with-slots (message) this
     (slack-message-user-ids message)))
 
@@ -54,11 +55,14 @@
     (slack-pinned-item :message message)))
 
 (cl-defmethod slack-ts ((this slack-pinned-item))
-  "Return the timestamp string identifying the pinned item."
+  "Return the timestamp string identifying the pinned item.
+THIS is the slack-pinned-item instance."
   (slack-ts (oref this message)))
 
 (cl-defmethod slack-message-to-string ((this slack-pinned-item) team)
-  "Render the pinned item as a displayable string."
+  "Render the pinned item as a displayable string.
+THIS is the slack-pinned-item instance.
+TEAM is the team argument."
   (with-slots (message) this
     (if (or (slack-file-p message)
             (slack-file-email-p message))

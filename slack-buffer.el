@@ -45,7 +45,7 @@
 
 (defcustom slack-default-directory
   (expand-file-name (concat (or (getenv "HOME") "~") "/"))
-  "default directory at Slack Buffer."
+  "Default directory at Slack Buffer."
   :type 'string
   :group 'slack)
 
@@ -131,7 +131,7 @@ buttons, …) untouched.  Returns STR."
   :group 'slack)
 
 (defcustom slack-buffer-create-on-notify nil
-  "Create a room buffer when notification received if it does not yet exist"
+  "Create a room buffer when notification received if it does not yet exist."
   :type 'boolean
   :group 'slack)
 
@@ -212,7 +212,7 @@ to modify text properties (faces, buttons, display)."
   (error "Implement this"))
 
 (cl-defmethod slack-team-buffer-key ((this slack-buffer))
-  "Return the team-scoped buffer key for the buffer."
+  "Return the team-scoped buffer key for THIS buffer."
   (slack-team-buffer-key (eieio-object-class-name this)))
 
 (cl-defmethod slack-buffer-find ((class (subclass slack-buffer)) team &rest args)
@@ -279,7 +279,7 @@ been populated because rtm.connect never completed).")
         buf)))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-buffer))
-  "Initialize and return the display buffer for the buffer."
+  "Initialize and return the display buffer for THIS buffer."
   (oref this buf))
 
 (cl-defmethod slack-buffer-init-buffer :after ((this slack-buffer))
@@ -302,7 +302,7 @@ their previous buffer."
           (kill-buffer b))))))
 
 (cl-defmethod slack-buffer-create-kill-hook ((this slack-buffer))
-  "Return a kill-buffer-hook that removes THIS from its team's buffer table."
+  "Return a `kill-buffer-hook' that removes THIS from its team's buffer table."
   #'(lambda ()
       (with-demoted-errors "slack-buffer-create-kill-hook: there was an error %S"
         (let* ((key (slack-buffer-key this))
@@ -388,7 +388,9 @@ line-aligned strides to stay under that limit."
           (emojify-redisplay-emojis-in-region chunk-start (point)))))))
 
 (cl-defmethod slack-buffer-insert ((this slack-buffer) message &optional not-tracked-p)
-  "Insert a rendered representation of the buffer into the current buffer."
+  "Insert a rendered representation of THIS buffer into the current buffer.
+MESSAGE is the message argument.
+NOT-TRACKED-P is the not-tracked-p argument."
   (let ((lui-time-stamp-format "[%Y-%m-%d %H:%M] ")
         (lui-time-stamp-time (slack-message-time-stamp message))
         (team (slack-buffer-team this)))
@@ -422,7 +424,7 @@ line-aligned strides to stay under that limit."
   (next-single-property-change (point-min) 'loading-message))
 
 (cl-defmethod slack-buffer-delete-load-more-string ((this slack-buffer))
-  "Remove the \"load more\" marker from the buffer for the buffer."
+  "Remove the \"load more\" marker from the buffer for THIS buffer."
   (let ((loading-message-end
          (slack-buffer-loading-message-end-point this)))
     (delete-region (point-min) loading-message-end)))
@@ -432,7 +434,7 @@ line-aligned strides to stay under that limit."
   (set-marker lui-output-marker (point-min)))
 
 (cl-defmethod slack-buffer-insert--history ((this slack-buffer))
-  "Insert loaded history items into the buffer for the buffer."
+  "Insert loaded history items into the buffer for THIS buffer."
   (if (slack-buffer-has-next-page-p this)
       (slack-buffer-insert-load-more this)
     (let ((lui-time-stamp-position nil))
@@ -441,7 +443,7 @@ line-aligned strides to stay under that limit."
   (slack-buffer-insert-history this))
 
 (cl-defmethod slack-buffer-load-more ((this slack-buffer))
-  "Fetch additional history to display in the buffer."
+  "Fetch additional history to display in THIS buffer."
   (when (and (slack-buffer-has-next-page-p this)
              (not slack-buffer--loading-more-p))
     (setq slack-buffer--loading-more-p t)
@@ -462,76 +464,78 @@ line-aligned strides to stay under that limit."
   (error "Can't execute this command from %s" (eieio-object-class-name this)))
 
 (cl-defmethod slack-buffer-update ((this slack-buffer) _message &key _replace)
-  "Update the buffer after new data arrives."
+  "Update the buffer after new data arrives.
+THIS is the slack-buffer instance."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-display-pins-list ((this slack-buffer))
-  "Open the pinned-items buffer for the buffer."
+  "Open the pinned-items buffer for THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-pins-add ((this slack-buffer) _ts)
-  "Pin the message at point in the buffer."
+  "Pin the message at point in THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-pins-remove ((this slack-buffer) _ts)
-  "Unpin the message at point from the buffer."
+  "Unpin the message at point from THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-display-user-profile ((this slack-buffer))
-  "Display the selected user's profile from the buffer."
+  "Display the selected user's profile from THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-copy-link ((this slack-buffer) _ts &optional _success-callback)
   "Copy a permalink to the message at TS in THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-file-upload-params ((this slack-buffer))
-  "Return the HTTP parameters used to upload the buffer."
+  "Return THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-message-action ((this slack-buffer) _ts)
-  "Execute a message action on the message at point in the buffer."
+  "Execute a message action on the message at point in THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-add-reaction-to-message ((this slack-buffer) _reaction _ts)
-  "Add a reaction to the message selected in the buffer."
+  "Add a reaction to the message selected in THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-send-message ((this slack-buffer) _message)
-  "Send a message from the buffer."
+  "Send a message from THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-room ((this slack-buffer))
-  "Return the room associated with the buffer."
+  "Return THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-button-block-action ((this slack-buffer))
   "Execute a button block element action from THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-conversation-select-block-action ((this slack-buffer))
-  "Execute a conversation-select block element action from the buffer."
+  "Execute a conversation-select block element action from THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-channel-select-block-action ((this slack-buffer))
-  "Execute a channel-select block element action from the buffer."
+  "Execute a channel-select block element action from THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-user-select-block-action ((this slack-buffer))
-  "Execute a user-select block element action from the buffer."
+  "Execute a user-select block element action from THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-static-select-block-action ((this slack-buffer))
-  "Execute a static-select block element action from the buffer."
+  "Execute a static-select block element action from THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-external-select-block-action ((this slack-buffer))
-  "Execute an external-select block element action from the buffer."
+  "Execute an external-select block element action from THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-overflow-menu-block-action ((this slack-buffer))
-  "Execute an overflow menu block element action from the buffer."
+  "Execute an overflow menu block element action from THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-execute-datepicker-block-action ((this slack-buffer))
-  "Execute a datepicker block element action from the buffer."
+  "Execute a datepicker block element action from THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer--replace ((this slack-buffer) _ts)
-  "Replace the rendered message identified by the argument in the buffer."
+  "Replace the rendered message identified by the argument in THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-buffer))
-  "Return non-nil when the buffer has more history to load."
+  "Return non-nil when the buffer has more history to load.
+THIS is the slack-buffer instance."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-insert-history ((this slack-buffer))
-  "Insert historical messages into the buffer for the buffer."
+  "Insert historical messages into the buffer for THIS buffer."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-request-history ((this slack-buffer) _after-success)
-  "Request older history for the buffer from the Slack API."
+  "Request older history for THIS buffer from the Slack API."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-select-file ((this slack-buffer))
-  "Prompt the user to select a file from the buffer."
+  "Prompt the user to select a file from THIS buffer."
   (slack-buffer-cant-execute this))
 
 (defun slack-current-room-and-team ()
@@ -593,7 +597,7 @@ bind to ROOM and TEAM respectively."
     (slack-buffer-ts-eq (point-min) (point-max) ts)))
 
 (cl-defmethod slack-buffer-replace ((this slack-buffer) message)
-  "Replace the rendered message identified by the argument in the buffer."
+  "Replace the rendered MESSAGE identified by the argument in THIS buffer."
   (let ((team (slack-buffer-team this)))
     (with-current-buffer (slack-buffer-buffer this)
       (lui-replace (slack-buffer--render-native-emoji-string
@@ -1121,7 +1125,9 @@ INITIAL-COMMENT and THREAD-TS are optional."
         :success #'on-get-url)))))
 
 (defun slack--file-complete-upload (team file-id title channel-id &optional initial-comment thread-ts)
-  "Complete a v2 file upload by calling files.completeUploadExternal."
+  "Complete a v2 file upload by calling files.completeUploadExternal.
+TEAM is the team argument.
+FILE-ID is the file-id argument."
   (cl-labels
       ((on-complete (&key data &allow-other-keys)
          (slack-request-handle-error
@@ -1194,7 +1200,9 @@ Default to the current buffer."
 
 ;; support drag and drop
 (defun slack--dnd-upload (uri action)
-  "Upload dropped file to current Slack buffer; return `copy' when handled."
+  "Upload dropped file to current Slack buffer; return `copy' when handled.
+URI is the uri argument.
+ACTION is the action argument."
   (ignore action)
   (when (and (boundp 'slack-current-buffer) slack-current-buffer)
     (let* ((path (dnd-get-local-file-name uri t)))
@@ -1216,7 +1224,7 @@ Default to the current buffer."
            'copy))))))
 
 (defun slack-dnd-ensure-first ()
-  "Make sure dnd-protocol-alist keeps slack first to avoid issues with projectile."
+  "Make sure `dnd-protocol-alist' keeps slack first to avoid issues with projectile."
   (add-to-list 'dnd-protocol-alist '("^file:" . slack--dnd-upload)))
 
 (with-eval-after-load 'dnd

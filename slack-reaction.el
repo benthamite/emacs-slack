@@ -97,7 +97,9 @@ Triggers a fetch when some user records are missing locally."
               reactions))
 
 (cl-defmethod slack-reaction-delete ((this slack-reaction) reactions)
-  "Remove the named reaction from the reaction."
+  "Remove the named reaction from the reaction.
+THIS is the slack-reaction instance.
+REACTIONS is the reactions argument."
   (cl-delete-if #'(lambda (e) (slack-reaction-equalp e this))
                 reactions))
 
@@ -109,7 +111,8 @@ Triggers a fetch when some user records are missing locally."
     (setq count (length users))))
 
 (cl-defmethod slack-merge ((old slack-reaction) new)
-  "Merge new data into the existing reaction in place."
+  "Merge NEW data into the existing reaction in place.
+OLD is the old argument."
   (with-slots (count users) old
     (setq count (oref new count))
     (setq users (cl-remove-duplicates (append users (oref new users))

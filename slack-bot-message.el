@@ -42,7 +42,8 @@
     (oref this bot-id)))
 
 (cl-defmethod slack-user-find ((this slack-bot-message) team)
-  "Return the user referenced by the bot message in TEAM."
+  "Return the user referenced by the bot message in TEAM.
+THIS is the slack-bot-message instance."
   (with-slots (bot-id user) this
     (if (slack-string-blankp bot-id)
         (slack-user--find user team)
@@ -58,11 +59,14 @@
       "Unknown Bot"))
 
 (cl-defmethod slack-message-sender-name ((m slack-bot-message) team)
-  "Return the display name of the sender of the bot message."
+  "Return the display name of the sender of the bot message.
+M is the m argument.
+TEAM is the team argument."
   (slack-bot-name m team))
 
 (cl-defmethod slack-message-sender-id ((m slack-bot-message))
-  "Return the Slack user ID of the sender of the bot message."
+  "Return the Slack user ID of the sender of the bot message.
+M is the m argument."
   (or (slack-message-bot-id m)
       (oref m user)))
 
@@ -99,7 +103,9 @@
         (slack-find-bot bot-id team)))))
 
 (cl-defmethod slack-message-profile-image ((m slack-bot-message) team)
-  "Return the avatar image associated with the bot message."
+  "Return the avatar image associated with the bot message.
+M is the m argument.
+TEAM is the team argument."
   (let ((bot (slack-bot-find m team)))
     (slack-bot-image bot team)))
 

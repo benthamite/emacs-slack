@@ -31,8 +31,11 @@
 (declare-function company-begin-backend "company")
 
 (defun company-slack-backend (command &optional arg &rest _ignored)
-  "Completion backend for slack chats.  It currently understands
-@USER; adding #CHANNEL should be a simple matter of programming."
+  "Completion backend for slack chats.
+It currently understands
+@USER; adding #CHANNEL should be a simple matter of programming.
+COMMAND is the command argument.
+ARG is the arg argument."
   (interactive (list 'interactive))
   (cl-labels
       ((start-from-line-beginning (str)

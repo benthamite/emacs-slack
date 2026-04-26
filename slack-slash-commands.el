@@ -51,11 +51,13 @@
   ((service-name :initarg :service_name :type string)))
 
 (cl-defmethod slack-equalp ((this slack-command) other)
-  "Return non-nil when the command equals the other argument."
+  "Return non-nil when the command equals the OTHER argument.
+THIS is the slack-command instance."
   (string= (oref this name) (oref other name)))
 
 (defun slack-slash-commands-parse (text team)
-  "Parse TEXT, then return (command . arguments) or nil."
+  "Parse TEXT, then return (command . arguments) or nil.
+TEAM is the team argument."
   (when (string-prefix-p "/" text)
     (let* ((tokens (split-string text " "))
            (maybe-command (car tokens))

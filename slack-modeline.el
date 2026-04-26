@@ -38,7 +38,7 @@
   "Total mention count across all connected Slack teams.")
 
 (defcustom slack-enable-global-mode-string nil
-  "If true, add `slack-modeline' to `global-mode-string'"
+  "If true, add `slack-modeline' to `global-mode-string'."
   :type 'boolean
   :group 'slack)
 
@@ -69,17 +69,17 @@ quick succession.  The periodic timer bypasses this limit."
 
 (defface slack-modeline-has-unreads-face
   '((t (:weight bold :foreground "#d33682")))
-  "Face used to team has unreads message in modeline"
+  "Face used to team has unreads message in modeline."
   :group 'slack)
 
 (defface slack-modeline-thread-has-unreads-face
   '((t (:weight bold :foreground "#d33682")))
-  "Face used to thread has unreads message in modeline"
+  "Face used to thread has unreads message in modeline."
   :group 'slack)
 
 (defface slack-modeline-channel-has-unreads-face
   '((t (:weight bold :foreground "#d33682")))
-  "Face used to channel has unreads message in modeline"
+  "Face used to channel has unreads message in modeline."
   :group 'slack)
 
 (defun slack-default-modeline-formatter (alist)
@@ -149,7 +149,7 @@ exactly.  Skips the call if less than
 (defun slack-team-counts-summary (team)
   "Return an alist summarizing unread state for TEAM.
 The result has the form `((thread . (HAS-UNREADS . COUNT))
-(channel . (HAS-UNREADS . COUNT)))', aggregating the mention
+\(channel . (HAS-UNREADS . COUNT)))', aggregating the mention
 counts tracked by `slack-counts'."
   (with-slots (counts) team
     (if counts

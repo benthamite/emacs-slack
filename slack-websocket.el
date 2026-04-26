@@ -76,7 +76,8 @@
   "Attempt to open Slack websocket for interactive experience.
 The websocket makes sure your status is communicated, your
 message buffer reacts to new messages and emacs-slack is aware of
-what is happening in your team."
+what is happening in your TEAM.
+WS is the ws argument."
   (let ((websocket-nowait-p (oref ws websocket-nowait))
         (ws-url (or ws-url
                     (concat
@@ -257,7 +258,8 @@ Non-nil CLOSE-RECONNECTION also cancels the reconnect timer and sets
 (defun slack-schedule-abandon-reconnect-notice (team)
   "Schedule a recurring idle-timer warning that reconnection was abandoned.
 The timer fires every 5 seconds of idle time so the user sees the
-message when they return to Emacs."
+message when they return to Emacs.
+TEAM is the team argument."
   (unless slack-disconnected-timer
     (setq slack-disconnected-timer
           (run-with-idle-timer 5 t
@@ -322,8 +324,8 @@ same time as other updates and rate limit the token.")
 (defun slack--update-user-list-with-lock (team)
   "Call slack-user-list-update for TEAM.
 Locking the operation via `slack--lock-user-list-update' to avoid
- multiple calls that rate limit the token and make emacs-slack
- unusable."
+multiple calls that rate limit the token and make emacs-slack
+unusable."
   (unless slack--lock-user-list-update
     (slack-user-list-update team)
     (setq slack--lock-user-list-update t)
@@ -455,7 +457,8 @@ This also closes unnecessary buffers and refresh message buffer contents."
   "Reconnect if `reconnect-count' does not exceed `reconnect-count-max'.
 Uses exponential backoff: delay doubles each attempt (capped at
 `reconnect-after-sec-max'), resets on successful reconnection.
-TEAM is one of `slack-teams'."
+TEAM is one of `slack-teams'.
+WS is the ws argument."
   (unless (or (oref ws inhibit-reconnection)
               (null (slack-team-id team)))
     (let ((delay (slack-ws-reconnect-backoff ws)))
@@ -488,7 +491,8 @@ TEAM is one of `slack-teams'."
 
 ;; (:type error :error (:msg Socket URL has expired :code 1))
 (cl-defmethod slack-ws-handle-error ((ws slack-team-ws) payload team)
-  "Try to recover from a websocket error given its PAYLOAD."
+  "Try to recover from a websocket error given its PAYLOAD.
+WS is the ws argument."
   (let* ((err (plist-get payload :error))
          (code (plist-get err :code)))
     (cond
@@ -629,14 +633,17 @@ TEAM is one of `slack-teams'."
 
 (defun slack-ws-handle-app-rate-limited (payload team)
   "Handle an app_rate_limited event from Slack.
-PAYLOAD contains :minute_rate_limited indicating when rate limiting began."
+PAYLOAD contains :minute_rate_limited indicating when rate limiting began.
+TEAM is the team argument."
   (let ((minute (plist-get payload :minute_rate_limited)))
     (slack-log (format "Rate limited by Slack API at minute %s. Requests will be throttled."
                        minute)
                team :level 'warn)))
 
 (defun slack-ws-handle-update-thread-state (payload team)
-  "Handle update_thread_state: update thread counts and modeline."
+  "Handle update_thread_state: update thread counts and modeline.
+PAYLOAD is the payload argument.
+TEAM is the team argument."
   (let* ((has-unreads (eq t (plist-get payload :has_unreads)))
          (mention-count (plist-get payload :mention_count))
          (channel (plist-get payload :channel))
@@ -649,7 +656,8 @@ PAYLOAD contains :minute_rate_limited indicating when rate limiting began."
 
 (defun slack-ws-handle-app-mention (payload team)
   "Handle app_mention events by routing through the message handler.
-The app_mention payload is structurally identical to a message event."
+The app_mention PAYLOAD is structurally identical to a message event.
+TEAM is the team argument."
   (slack-ws-handle-message payload team))
 
 (defun slack-ws-handle-pin-added (payload team)
@@ -677,7 +685,8 @@ The app_mention payload is structurally identical to a message event."
                                               (oref message pinned-to))))))
 
 (cl-defmethod slack-ws-handle-reconnect-url ((ws slack-team-ws) payload _team)
-  "Handle the Slack websocket `reconnect_url' event by caching it on WS."
+  "Handle the Slack websocket `reconnect_url' event by caching it on WS.
+PAYLOAD is the payload argument."
   (oset ws reconnect-url (plist-get payload :url)))
 
 (defun slack-ws-handle-user-typing (payload team)
@@ -819,7 +828,9 @@ The app_mention payload is structurally identical to a message event."
                       team))
 
 (defun slack-ws-handle-presence-change (payload team)
-  "Handle user presence changes for RTM API."
+  "Handle user presence changes for RTM API.
+PAYLOAD is the payload argument.
+TEAM is the team argument."
   (let ((presence (plist-get payload :presence))
         (users (plist-get payload :users)))
     (--each users (puthash it presence (oref team presence)))))
@@ -904,7 +915,7 @@ The app_mention payload is structurally identical to a message event."
          (invite-message-ts (plist-get payload :invite_message_ts))
          (scope-info (plist-get payload :scope_info))
          (room (slack-room-find channel-id team)))
-    (if (yes-or-no-p (format "%s\n%s\n"
+    (if (yes-or-no-p (format "%s\n%s\n?"
                              (format "%s would like to do following in %s"
                                      (slack-user-name app-user team)
                                      (slack-room-name room team))
@@ -1193,7 +1204,8 @@ This way instead of getting all channels in the workspace, you
 only get the ones you are a member of, which reduces the amount
 of requests that are being made to Slack and therefore lowers the
 risk of getting rate-limited.  Especially good for workspaces
-with lots of public channels."
+with lots of public channels.
+TEAM is the team argument."
   (interactive)
   (let ((team (or team (slack-team-select))))
     (slack-request
@@ -1239,7 +1251,8 @@ with lots of public channels."
 
 (defalias 'slack-room-list-update 'slack-conversations-list-update)
 (defun slack-conversations-list-update (&optional team after-success)
-  "Refresh TEAM's list of conversations from the Slack API."
+  "Refresh TEAM's list of conversations from the Slack API.
+AFTER-SUCCESS is the after-success argument."
   (interactive)
   (message ">> slack-conversations-list-update running!")
   (let ((team (or team (slack-team-select))))
