@@ -1311,6 +1311,7 @@ Use CALLBACK for direct display, AFTER-SUCCESS for fetch-then-display."
     (slack-messages-before ts room team)
     (slack-messages-after ts room team after-success)))
 
+;;;###autoload
 (defun slack-quote-and-reply (quote)
   "Prefix QUOTE to reply if region active on a slack message."
   (interactive
