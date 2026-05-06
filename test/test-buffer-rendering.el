@@ -484,6 +484,16 @@ produces a newline with `not-tracked-p'."
               (should (< pos1 pos2)))))
       (slack-test--unregister-team team))))
 
+(ert-deftest slack-test-create-stars-buffer-caches-team ()
+  "Stars buffer keeps its team when global team lookup cannot resolve it."
+  (slack-test-setup
+    (oset team name "TestTeam")
+    (oset team id nil)
+    (let ((stars-buf (slack-create-stars-buffer team)))
+      (should (eq (slack-buffer-team stars-buf) team))
+      (should (string= (slack-buffer-name stars-buf)
+                       "*slack: TestTeam : Saved items*")))))
+
 ;;; ---- 5. Lui-insert basic behavior ----
 
 (ert-deftest slack-test-lui-insert-adds-text ()

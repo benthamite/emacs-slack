@@ -289,9 +289,11 @@ THIS is the slack-stars-buffer instance."
 TEAM is the team argument."
   (slack-if-let* ((buf (slack-buffer-find 'slack-stars-buffer team)))
       buf
-    (make-instance 'slack-stars-buffer
-                   :team-id (oref team id)
-                   :room-id "__saved-items__")))
+    (let ((buf (make-instance 'slack-stars-buffer
+                              :team-id (oref team id)
+                              :room-id "__saved-items__")))
+      (slack-buffer-cache-team buf team)
+      buf)))
 
 (cl-defmethod slack-buffer-remove-star ((this slack-stars-buffer) ts)
   "Remove THIS star at TS."
