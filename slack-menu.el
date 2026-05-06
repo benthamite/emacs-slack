@@ -48,7 +48,7 @@
    ["Navigate"
     ("n c" "channel" slack-channel-select)
     ("n g" "group" slack-group-select)
-    ("n d" "direct message" slack-im-select)
+    ("n d" "direct message" slack-im-open)
     ("n r" "rooms" slack-select-rooms)
     ("n u" "unread rooms" slack-select-unread-rooms)
     ("n a" "activity feed" slack-activity-feed-show)
