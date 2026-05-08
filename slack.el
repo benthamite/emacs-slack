@@ -519,8 +519,13 @@ When enabled, URLs matching *.slack.com/archives/* are handled by
 (defun slack-browse-url (url &rest _args)
   "Open a Slack message permalink URL in emacs-slack.
 Parses the channel ID and timestamp from URL and navigates to the
-message.  Falls back to the default browser if the team is not
-connected or parsing fails."
+message.  Falls back to the default browser if the team is not connected
+or parsing fails.
+
+Always returns nil.  The happy-path value would otherwise be a
+`slack-request' object that transitively references the entire team
+state; callers that pretty-print the result (notably `emacsclient -e'
+via `server-eval-and-print') hang Emacs in `pp-fill'."
   (condition-case err
       (let* ((info (slack-permalink-to-info url))
              (team-domain (plist-get info :team-domain))
@@ -541,7 +546,8 @@ connected or parsing fails."
           (browse-url-default-browser url)))
     (error
      (message "slack-browse-url error: %S, opening in browser" err)
-     (browse-url-default-browser url))))
+     (browse-url-default-browser url)))
+  nil)
 
 (defun slack-register-url-handler ()
   "Register `slack-browse-url' with `browse-url-handlers'."
