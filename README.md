@@ -48,6 +48,7 @@ If your token expires, you can use `slack-refresh-token` for a way to refresh in
          )
   :custom
   (slack-extra-subscribed-channels (mapcar 'intern (list "some-channel")))
+  (slack-activity-feed-watch-channels '("announcements" "C1234567890"))
   :config
   (slack-register-team
      :name "clojurians"
@@ -169,6 +170,13 @@ Some terminology in the `slack-` functions:
   - update direct message list
 - `slack-channel-list-update`
   - update channel list
+- `slack-activity-feed-show`
+  - show the activity feed
+  - set `slack-activity-feed-watch-channels` to include recent messages from
+    specific channels in the feed, even when Slack would not otherwise show
+    those messages as activity
+  - entries can be channel names without `#` or channel IDs such as
+    `C1234567890`
 - `slack-message-embed-mention`
   - use to mention to user
 - `slack-message-embed-channel`
