@@ -1168,6 +1168,25 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
            (setq result count))))
       (should (= 1 result)))))
 
+(ert-deftest slack-test-activity-feed-watched-channel-message-updates-unread-summary ()
+  (slack-test-setup
+    (let ((slack-activity-feed-watch-channels (list channel-name))
+          (slack-has-unreads nil)
+          (slack-unread-count 0))
+      (oset channel last-read "1710000000.000000")
+      (cl-letf (((symbol-function 'force-mode-line-update)
+                 (lambda (&rest _) nil)))
+        (slack-activity-feed-watch-channel-message
+         (make-instance 'slack-message
+                        :type "message"
+                        :channel channel-id
+                        :ts "1710000001.000000"
+                        :text "hello")
+         channel
+         team))
+      (should slack-has-unreads)
+      (should (= 1 slack-unread-count)))))
+
 (ert-deftest slack-test-activity-feed-merges-watched-activities-newest-first ()
   (let* ((old (make-instance 'slack-activity
                              :is-unread t

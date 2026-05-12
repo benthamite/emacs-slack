@@ -31,6 +31,8 @@
 (require 'slack-message-buffer)
 
 (defvar slack-alert-icon)
+(declare-function slack-activity-feed-watch-channel-message
+                  "slack-activity-feed-buffer")
 
 (defclass slack-message-event (slack-event slack-message-event-processable)
   ((subtype :initarg :subtype :type string)))
@@ -191,6 +193,8 @@ TEAM is the team argument."
                         (and (slack-mpim-p room) not-self))
                 (slack-room-set-mention-count
                  room (1+ (slack-room-mention-count room team)) team))))
+          (when (fboundp 'slack-activity-feed-watch-channel-message)
+            (slack-activity-feed-watch-channel-message message room team))
           (when (and not-self (slack-thread-message-p message))
             (slack-message-event--mark-thread-unread team)))
         (slack-update-modeline))))

@@ -292,12 +292,25 @@ every request completes, or immediately when all rooms are cached."
                    (slack-activity-feed--watched-room channel team))
                  slack-activity-feed-watch-channels))))
 
+(defun slack-activity-feed--watched-room-p (room team)
+  "Return non-nil when ROOM is watched for Activity in TEAM."
+  (memq room (slack-activity-feed--watched-rooms team)))
+
 (defun slack-activity-feed--message-unread-p (message room)
   "Return non-nil when MESSAGE is newer than ROOM's last-read marker."
   (let ((last-read (oref room last-read))
         (ts (slack-ts message)))
     (or (string= "0" last-read)
         (string< last-read ts))))
+
+(defun slack-activity-feed-watch-channel-message (message room team)
+  "Update Activity unread state for a watched-channel MESSAGE.
+ROOM is the room containing MESSAGE, and TEAM is the Slack team."
+  (when (and (slack-activity-feed--watched-room-p room team)
+             (slack-activity-feed--message-unread-p message room))
+    (setq slack-has-unreads t
+          slack-unread-count (1+ (or slack-unread-count 0)))
+    (force-mode-line-update)))
 
 (defun slack-activity-feed--message-activity (message room)
   "Return an Activity entry for MESSAGE from ROOM."
