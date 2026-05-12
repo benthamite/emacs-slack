@@ -177,6 +177,8 @@ Some terminology in the `slack-` functions:
     those messages as activity
   - watched-channel messages newer than the channel's last-read marker also
     contribute to the unread Activity indicator
+  - `slack-activity-feed-watch-channel-limit` controls how many recent
+    messages are fetched from each watched channel
   - entries can be channel names without `#` or channel IDs such as
     `C1234567890`
 - `slack-message-embed-mention`

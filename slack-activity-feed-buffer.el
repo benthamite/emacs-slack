@@ -71,6 +71,12 @@ without its leading #."
   :group 'slack)
 (defconst slack-activity-feed-multipart-boundary "----WebKitFormBoundaryh7x3DqJqAIvkEcie")
 
+(defun slack-activity-feed--watch-channel-limit ()
+  "Return the watched-channel history limit as a Slack API string."
+  (if (numberp slack-activity-feed-watch-channel-limit)
+      (number-to-string slack-activity-feed-watch-channel-limit)
+    slack-activity-feed-watch-channel-limit))
+
 (defun slack-activity-feed-toggle-unread ()
   "Toggle between showing all activity and only unread, then refresh."
   (interactive)
@@ -324,7 +330,7 @@ CALLBACK receives a list of `slack-activity' objects."
       (dolist (room rooms)
         (slack-conversations-history
          room team
-         :limit (number-to-string slack-activity-feed-watch-channel-limit)
+         :limit (slack-activity-feed--watch-channel-limit)
          :after-success
          (lambda (messages &rest _)
            (slack-room-set-messages room messages team)

@@ -1102,6 +1102,11 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (should (eq channel
                 (slack-activity-feed--watched-room channel-name team)))))
 
+(ert-deftest slack-test-activity-feed-watch-channel-limit-accepts-string ()
+  (let ((slack-activity-feed-watch-channel-limit "50"))
+    (should (equal "50"
+                   (slack-activity-feed--watch-channel-limit)))))
+
 (ert-deftest slack-test-activity-feed-fetches-watched-channel-messages ()
   (slack-test-setup
     (let ((slack-activity-feed-watch-channels (list channel-name))
