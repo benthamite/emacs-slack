@@ -175,6 +175,8 @@ Some terminology in the `slack-` functions:
   - set `slack-activity-feed-watch-channels` to include recent messages from
     specific channels in the feed, even when Slack would not otherwise show
     those messages as activity
+  - watched-channel messages newer than the channel's last-read marker also
+    contribute to the unread Activity indicator
   - entries can be channel names without `#` or channel IDs such as
     `C1234567890`
 - `slack-message-embed-mention`

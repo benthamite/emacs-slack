@@ -1124,9 +1124,44 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
       (should (= 1 (length result)))
       (should (equal "channel_message"
                      (oref (oref (car result) item) type)))
+      (should (oref (car result) is-unread))
       (should (equal channel-id
                      (oref (oref (oref (car result) item) message)
                            channel))))))
+
+(ert-deftest slack-test-activity-feed-watched-channel-respects-last-read ()
+  (slack-test-setup
+    (oset channel last-read "1710000001.000100")
+    (let ((activity
+           (slack-activity-feed--message-activity
+            (make-instance 'slack-message
+                           :type "message"
+                           :channel channel-id
+                           :ts "1710000000.000100"
+                           :text "old")
+            channel)))
+      (should-not (oref activity is-unread)))))
+
+(ert-deftest slack-test-activity-feed-unread-count-includes-watched-channels ()
+  (slack-test-setup
+    (let ((slack-activity-feed-watch-channels (list channel-name))
+          (result nil))
+      (cl-letf (((symbol-function 'slack-activity-feed-request)
+                 (lambda (_team after-success &optional _cursor)
+                   (funcall after-success (list :items nil))))
+                ((symbol-function 'slack-conversations-history)
+                 (lambda (room _team &rest args)
+                   (funcall (plist-get args :after-success)
+                            (list (make-instance 'slack-message
+                                                 :type "message"
+                                                 :channel (oref room id)
+                                                 :ts "1710000000.000100"
+                                                 :text "hello"))))))
+        (slack-activity-feed--fetch-unread-count
+         team
+         (lambda (count)
+           (setq result count))))
+      (should (= 1 result)))))
 
 (ert-deftest slack-test-activity-feed-merges-watched-activities-newest-first ()
   (let* ((old (make-instance 'slack-activity

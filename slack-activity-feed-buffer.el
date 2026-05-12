@@ -286,12 +286,19 @@ every request completes, or immediately when all rooms are cached."
                    (slack-activity-feed--watched-room channel team))
                  slack-activity-feed-watch-channels))))
 
+(defun slack-activity-feed--message-unread-p (message room)
+  "Return non-nil when MESSAGE is newer than ROOM's last-read marker."
+  (let ((last-read (oref room last-read))
+        (ts (slack-ts message)))
+    (or (string= "0" last-read)
+        (string< last-read ts))))
+
 (defun slack-activity-feed--message-activity (message room)
   "Return an Activity entry for MESSAGE from ROOM."
   (let ((ts (slack-ts message)))
     (make-instance
      'slack-activity
-     :is-unread nil
+     :is-unread (slack-activity-feed--message-unread-p message room)
      :feed-ts ts
      :item (make-instance
             'activity-item
@@ -959,6 +966,11 @@ Works over HTTP and does not require an active WebSocket."
             slack-unread-count 0)
       (force-mode-line-update))))
 
+(defun slack-activity-feed--unread-count (activities)
+  "Return the number of unread entries in ACTIVITIES."
+  (cl-loop for activity in activities
+           count (oref activity is-unread)))
+
 (defun slack-activity-feed--fetch-unread-count (team callback)
   "Fetch unread Activity item count for TEAM.
 CALLBACK receives a single integer argument."
@@ -966,7 +978,13 @@ CALLBACK receives a single integer argument."
     (slack-activity-feed-request
      team
      (lambda (data)
-       (funcall callback (length (plist-get data :items)))))))
+       (slack-activity-feed--with-watched-activities
+        (mapcar #'slack-activity-feed--parse-item
+                (plist-get data :items))
+        team
+        (lambda (activities)
+          (funcall callback
+                   (slack-activity-feed--unread-count activities))))))))
 
 (provide 'slack-activity-feed-buffer)
 ;;; slack-activity-feed-buffer.el ends here
