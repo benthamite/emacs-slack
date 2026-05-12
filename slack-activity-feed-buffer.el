@@ -59,6 +59,16 @@ object that lacks rooms or has an unbound id slot."
 (defvar slack-activity-feed-url "https://slack.com/api/activity.feed")
 (defvar slack-activity-feed-mark-read-url "https://slack.com/api/activity.markRead")
 (defvar slack-activity-feed-mode-show-only-unread nil "If non-nil, show only unread activity.")
+(defcustom slack-activity-feed-watch-channels nil
+  "List of channels whose recent messages are included in Activity.
+Each entry may be a channel ID such as \"C123\" or a channel name
+without its leading #."
+  :type '(repeat string)
+  :group 'slack)
+(defcustom slack-activity-feed-watch-channel-limit 50
+  "Maximum number of recent messages fetched per watched channel."
+  :type 'integer
+  :group 'slack)
 (defconst slack-activity-feed-multipart-boundary "----WebKitFormBoundaryh7x3DqJqAIvkEcie")
 
 (defun slack-activity-feed-toggle-unread ()
@@ -260,6 +270,98 @@ every request completes, or immediately when all rooms are cached."
                     channel-id err)
            (when (= 0 (cl-decf (car pending)))
              (funcall callback))))))))
+
+(defun slack-activity-feed--watched-room (channel team)
+  "Return the watched room named or identified by CHANNEL in TEAM."
+  (or (slack-room-find channel team)
+      (cl-loop for room being the hash-values of (oref team channels)
+               when (string= channel (slack-room-name room team))
+               return room)))
+
+(defun slack-activity-feed--watched-rooms (team)
+  "Return the configured Activity watch rooms for TEAM."
+  (delq nil
+        (delete-dups
+         (mapcar (lambda (channel)
+                   (slack-activity-feed--watched-room channel team))
+                 slack-activity-feed-watch-channels))))
+
+(defun slack-activity-feed--message-activity (message room)
+  "Return an Activity entry for MESSAGE from ROOM."
+  (let ((ts (slack-ts message)))
+    (make-instance
+     'slack-activity
+     :is-unread nil
+     :feed-ts ts
+     :item (make-instance
+            'activity-item
+            :type "channel_message"
+            :message (make-instance
+                      'activity-message
+                      :ts ts
+                      :channel (oref room id)
+                      :is-broadcast nil
+                      :thread-ts (and (slot-boundp message 'thread-ts)
+                                      (oref message thread-ts))
+                      :author-id (slack-message-sender-id message))
+            :reaction nil))))
+
+(defun slack-activity-feed--fetch-watched-activities (team callback)
+  "Fetch watched-channel Activity entries for TEAM, then call CALLBACK.
+CALLBACK receives a list of `slack-activity' objects."
+  (let* ((rooms (slack-activity-feed--watched-rooms team))
+         (pending (list (length rooms)))
+         (activities nil))
+    (if (null rooms)
+        (funcall callback nil)
+      (dolist (room rooms)
+        (slack-conversations-history
+         room team
+         :limit (number-to-string slack-activity-feed-watch-channel-limit)
+         :after-success
+         (lambda (messages &rest _)
+           (slack-room-set-messages room messages team)
+           (setq activities
+                 (nconc activities
+                        (mapcar (lambda (message)
+                                  (slack-activity-feed--message-activity
+                                   message room))
+                                messages)))
+           (when (= 0 (cl-decf (car pending)))
+             (funcall callback activities)))
+         :on-error
+         (lambda (&rest _)
+           (when (= 0 (cl-decf (car pending)))
+             (funcall callback activities))))))))
+
+(defun slack-activity-feed--activity-key (activity)
+  "Return the deduplication key for ACTIVITY."
+  (let ((message (oref (oref activity item) message)))
+    (cons (oref message channel)
+          (oref message ts))))
+
+(defun slack-activity-feed--merge-activities (activities extra-activities)
+  "Merge ACTIVITIES and EXTRA-ACTIVITIES, newest first."
+  (let ((seen (make-hash-table :test 'equal))
+        merged)
+    (dolist (activity (sort (append activities extra-activities)
+                            (lambda (a b)
+                              (> (string-to-number (oref a feed-ts))
+                                 (string-to-number (oref b feed-ts))))))
+      (let ((key (slack-activity-feed--activity-key activity)))
+        (unless (gethash key seen)
+          (puthash key t seen)
+          (push activity merged))))
+    (nreverse merged)))
+
+(defun slack-activity-feed--with-watched-activities (activities team callback)
+  "Call CALLBACK with ACTIVITIES plus watched-channel entries for TEAM."
+  (slack-activity-feed--fetch-watched-activities
+   team
+   (lambda (extra-activities)
+     (funcall callback
+              (slack-activity-feed--merge-activities
+               activities extra-activities)))))
 
 (defun slack-activity-feed-request (team &optional after-success cursor)
   "Request activity feed for CHANNEL-ID of TEAM.
@@ -691,6 +793,38 @@ THIS is the slack-activity-feed-buffer instance."
     (let ((lui-time-stamp-position nil))
       (lui-insert "(no more messages)\n" t))))
 
+(defun slack-activity-feed--display-activities (activities team pagination)
+  "Prefetch and display ACTIVITIES for TEAM with PAGINATION."
+  (let ((activity-feed
+         (make-instance 'slack-activity-feed
+                        :activities activities
+                        :pagination pagination)))
+    (message "Prefetching rooms...")
+    (slack-activity-feed--prefetch-rooms
+     activities team
+     (lambda ()
+       (message "Prefetching messages...")
+       (slack-activity-feed--prefetch-messages
+        activities team
+        (lambda ()
+          (let ((buffer (slack-create-activity-feed-buffer
+                         activity-feed team)))
+            (slack-buffer-display buffer)
+            (message "Activity feed ready."))))))))
+
+(defun slack-activity-feed--show-data (data team)
+  "Render Activity feed DATA for TEAM."
+  (slack-activity-feed--with-watched-activities
+   (mapcar #'slack-activity-feed--parse-item
+           (plist-get data :items))
+   team
+   (lambda (activities)
+     (slack-activity-feed--display-activities
+      activities
+      team
+      (plist-get (plist-get data :response_metadata)
+                 :next_cursor)))))
+
 (defun slack-activity-feed-show ()
   "Show Slack activity feed."
   (interactive)
@@ -699,27 +833,7 @@ THIS is the slack-activity-feed-buffer instance."
     (slack-activity-feed-request
      team
      (lambda (data)
-       (let* ((activities (mapcar #'slack-activity-feed--parse-item
-                                  (plist-get data :items)))
-              (activity-feed
-               (make-instance
-                'slack-activity-feed
-                :activities activities
-                :pagination (plist-get (plist-get data :response_metadata)
-                                       :next_cursor))))
-         ;; Prefetch uncached rooms, then messages, then render
-         (message "Prefetching rooms...")
-         (slack-activity-feed--prefetch-rooms
-          activities team
-          (lambda ()
-            (message "Prefetching messages...")
-            (slack-activity-feed--prefetch-messages
-             activities team
-             (lambda ()
-               (let ((buffer (slack-create-activity-feed-buffer
-                              activity-feed team)))
-                 (slack-buffer-display buffer)
-                 (message "Activity feed ready.")))))))))))
+       (slack-activity-feed--show-data data team)))))
 
 (cl-defmethod slack-feed--open ((_buf slack-activity-feed-buffer) ts)
   "Open the activity feed entry at TS."

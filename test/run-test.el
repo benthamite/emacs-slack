@@ -1095,6 +1095,86 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
            (setq called t))))
       (should called))))
 
+(ert-deftest slack-test-activity-feed-watched-room-resolves-name-or-id ()
+  (slack-test-setup
+    (should (eq channel
+                (slack-activity-feed--watched-room channel-id team)))
+    (should (eq channel
+                (slack-activity-feed--watched-room channel-name team)))))
+
+(ert-deftest slack-test-activity-feed-fetches-watched-channel-messages ()
+  (slack-test-setup
+    (let ((slack-activity-feed-watch-channels (list channel-name))
+          (called-channel nil)
+          (result nil))
+      (cl-letf (((symbol-function 'slack-conversations-history)
+                 (lambda (room _team &rest args)
+                   (setq called-channel (oref room id))
+                   (funcall (plist-get args :after-success)
+                            (list (make-instance 'slack-message
+                                                 :type "message"
+                                                 :channel (oref room id)
+                                                 :ts "1710000000.000100"
+                                                 :text "hello"))))))
+        (slack-activity-feed--fetch-watched-activities
+         team
+         (lambda (activities)
+           (setq result activities))))
+      (should (equal channel-id called-channel))
+      (should (= 1 (length result)))
+      (should (equal "channel_message"
+                     (oref (oref (car result) item) type)))
+      (should (equal channel-id
+                     (oref (oref (oref (car result) item) message)
+                           channel))))))
+
+(ert-deftest slack-test-activity-feed-merges-watched-activities-newest-first ()
+  (let* ((old (make-instance 'slack-activity
+                             :is-unread t
+                             :feed-ts "1710000000.000100"
+                             :item (make-instance
+                                    'activity-item
+                                    :type "at_user"
+                                    :message (make-instance 'activity-message
+                                                            :ts "1710000000.000100"
+                                                            :channel "C11111"
+                                                            :is-broadcast nil
+                                                            :thread-ts nil
+                                                            :author-id nil)
+                                    :reaction nil)))
+         (new (make-instance 'slack-activity
+                             :is-unread nil
+                             :feed-ts "1710000001.000100"
+                             :item (make-instance
+                                    'activity-item
+                                    :type "channel_message"
+                                    :message (make-instance 'activity-message
+                                                            :ts "1710000001.000100"
+                                                            :channel "C11111"
+                                                            :is-broadcast nil
+                                                            :thread-ts nil
+                                                            :author-id nil)
+                                    :reaction nil)))
+         (duplicate (make-instance 'slack-activity
+                                   :is-unread nil
+                                   :feed-ts "1710000000.000100"
+                                   :item (make-instance
+                                          'activity-item
+                                          :type "channel_message"
+                                          :message (make-instance 'activity-message
+                                                                  :ts "1710000000.000100"
+                                                                  :channel "C11111"
+                                                                  :is-broadcast nil
+                                                                  :thread-ts nil
+                                                                  :author-id nil)
+                                          :reaction nil)))
+         (merged (slack-activity-feed--merge-activities
+                  (list old)
+                  (list new duplicate))))
+    (should (= 2 (length merged)))
+    (should (eq new (car merged)))
+    (should (eq old (cadr merged)))))
+
 (ert-deftest slack-test-stars-prefetch-messages-calls-back-on-error ()
   (slack-test-setup
     (let ((called nil)
