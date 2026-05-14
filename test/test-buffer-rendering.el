@@ -971,6 +971,48 @@ produces a newline with `not-tracked-p'."
             (should-not (search-forward "TODO" nil t))))
       (slack-test--unregister-team team))))
 
+(ert-deftest slack-test-activity-feed-renders-missing-message-without-blocking-fetch ()
+  "Activity rendering uses cache only and leaves missing messages as placeholders."
+  (slack-test-setup
+    (slack-test--register-team team)
+    (unwind-protect
+        (slack-test--with-slack-buffer-mode
+          (let* ((activity-message
+                  (make-instance 'activity-message
+                                 :ts "1710000000.000100"
+                                 :channel channel-id
+                                 :is-broadcast nil
+                                 :thread-ts nil
+                                 :author-id nil))
+                 (activity
+                  (make-instance
+                   'slack-activity
+                   :is-unread nil
+                   :feed-ts "1710000000.000100"
+                   :item (make-instance
+                          'activity-item
+                          :type "channel_message"
+                          :message activity-message
+                          :reaction nil)))
+                 (feed-buffer (make-instance
+                               'slack-activity-feed-buffer
+                               :team-id (oref team id)
+                               :room-id "__activity-feed__"
+                               :activity-feed (make-instance
+                                               'slack-activity-feed
+                                               :activities (list activity)
+                                               :pagination nil))))
+            (let ((fetched nil))
+              (cl-letf (((symbol-function 'slack-message-get-or-fetch)
+                         (lambda (&rest _)
+                           (setq fetched t)
+                           (error "message was fetched synchronously"))))
+                (slack-buffer-insert feed-buffer activity))
+              (should-not fetched))
+            (goto-char (point-min))
+            (should (search-forward "TODO" nil t))))
+      (slack-test--unregister-team team))))
+
 (ert-deftest slack-test-reaction-unicode-survives-deferred-hooks ()
   "Reaction Unicode glyph survives `slack-buffer-with-deferred-hooks'."
   (let ((slack-emoji-master (make-hash-table :test 'equal)))
