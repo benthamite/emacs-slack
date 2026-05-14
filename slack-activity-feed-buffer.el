@@ -176,15 +176,18 @@ TEAM is the team argument."
            for activity in activities
            for item = (oref activity item)
            collect (let ((msg (oref item message)))
-                     (list (oref msg ts)
+                     (list (oref msg source-message)
+                           (oref msg ts)
                            (oref msg channel)
                            (oref msg thread-ts))))))
     ;; Count how many need fetching
     (dolist (entry items)
-      (let* ((ts (nth 0 entry))
-             (channel (nth 1 entry))
+      (let* ((source-message (nth 0 entry))
+             (ts (nth 1 entry))
+             (channel (nth 2 entry))
              (room (slack-room-find channel team)))
-        (when (and room
+        (when (and (not source-message)
+                   room
                    (not (equal ts "0"))
                    (not (equal channel "unknown"))
                    (not (slack-room-find-message room ts)))
@@ -194,11 +197,13 @@ TEAM is the team argument."
         (funcall callback)
       ;; Fire parallel async requests
       (dolist (entry items)
-        (let* ((ts (nth 0 entry))
-               (channel (nth 1 entry))
-               (thread-ts (nth 2 entry))
+        (let* ((source-message (nth 0 entry))
+               (ts (nth 1 entry))
+               (channel (nth 2 entry))
+               (thread-ts (nth 3 entry))
                (room (slack-room-find channel team)))
-          (when (and room
+          (when (and (not source-message)
+                     room
                      (not (equal ts "0"))
                      (not (equal channel "unknown"))
                      (not (slack-room-find-message room ts)))
@@ -329,7 +334,8 @@ ROOM is the room containing MESSAGE, and TEAM is the Slack team."
                       :is-broadcast nil
                       :thread-ts (and (slot-boundp message 'thread-ts)
                                       (oref message thread-ts))
-                      :author-id (slack-message-sender-id message))
+                      :author-id (slack-message-sender-id message)
+                      :source-message message)
             :reaction nil))))
 
 (defun slack-activity-feed--fetch-watched-activities (team callback)
@@ -535,12 +541,14 @@ TEAM is the team argument."
    (channel :initarg :channel :type string)
    (is-broadcast :initarg :is-broadcast :type boolean)
    (thread-ts :initarg :thread-ts :type (or null string))
-   (author-id :initarg :author-id :type (or null string))))
+   (author-id :initarg :author-id :type (or null string))
+   (source-message :initarg :source-message :initform nil
+                   :type (or null slack-message))))
 
 (cl-defmethod slack-activity-message-to-string ((this activity-message) team &optional activity-type)
   "Format THIS activity-message of TEAM as a string for presentation.
 ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
-  (with-slots (channel ts is-broadcast thread-ts author-id) this
+  (with-slots (channel ts is-broadcast thread-ts author-id source-message) this
     (condition-case err ;; this is to find out more easily messages that we fail to handle
         (let* ((room (slack-room-find channel team))
                (room-name (or (condition-case err
@@ -567,14 +575,15 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
                (context-header (propertize (concat type-prefix location)
                                            'face 'slack-search-result-message-header-face))
                (fetched-msg
-                (condition-case msg-err
-                    (when (or ts thread-ts)
-                      (slack-message-get-or-fetch
-                       ts (oref room id) team thread-ts))
-                  (error
-                   (message "slack-activity-message-to-string: Loading messages failed with: %S"
-                            (error-message-string msg-err))
-                   nil))))
+                (or source-message
+                    (condition-case msg-err
+                        (when (or ts thread-ts)
+                          (slack-message-get-or-fetch
+                           ts (oref room id) team thread-ts))
+                      (error
+                       (message "slack-activity-message-to-string: Loading messages failed with: %S"
+                                (error-message-string msg-err))
+                       nil)))))
           (propertize (concat context-header "\n"
                               (if fetched-msg
                                   (slack-message-to-string fetched-msg team)
@@ -659,7 +668,7 @@ ACTIVITY is the activity argument."
          (type (oref item type))
          (msg (oref item message))
          (reaction (oref item reaction)))
-    (with-slots (channel ts thread-ts) msg
+    (with-slots (channel ts thread-ts source-message) msg
         (condition-case err
             (let* ((room (slack-room-find channel team))
                    (room-id (when room (oref room id)))
@@ -695,14 +704,15 @@ ACTIVITY is the activity argument."
                                         'room-id (or room-id channel)
                                         'keymap slack-channel-button-keymap)))
                    (fetched-msg
-                    (condition-case msg-err
-                        (when (and room-id (or ts thread-ts))
-                          (slack-message-get-or-fetch
-                           ts room-id team thread-ts))
-                      (error
-                       (message "slack-activity-feed: Loading message failed: %S"
-                                (error-message-string msg-err))
-                       nil)))
+                    (or source-message
+                        (condition-case msg-err
+                            (when (and room-id (or ts thread-ts))
+                              (slack-message-get-or-fetch
+                               ts room-id team thread-ts))
+                          (error
+                           (message "slack-activity-feed: Loading message failed: %S"
+                                    (error-message-string msg-err))
+                           nil))))
                    (message-str
                     (concat (if fetched-msg
                                 (slack-message-to-string fetched-msg team)

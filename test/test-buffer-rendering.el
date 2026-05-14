@@ -18,6 +18,7 @@
 (require 'slack-message-faces)
 (require 'slack-star)
 (require 'slack-stars-buffer)
+(require 'slack-activity-feed-buffer)
 (require 'slack-buffer)
 (require 'slack-room)
 (require 'slack-user)
@@ -942,6 +943,33 @@ produces a newline with `not-tracked-p'."
               (goto-char (point-min))
               (should (search-forward "\U0001F44D" nil t))))
         (slack-test--unregister-team team)))))
+
+(ert-deftest slack-test-activity-feed-renders-watched-message-without-refetch ()
+  "Watched-channel activity renders from its cached message object."
+  (slack-test-setup
+    (slack-test--register-team team)
+    (unwind-protect
+        (slack-test--with-slack-buffer-mode
+          (let* ((msg (slack-test--make-message "1710000000.000100"
+                                                "watched body"))
+                 (activity (slack-activity-feed--message-activity msg channel))
+                 (feed-buffer (make-instance
+                               'slack-activity-feed-buffer
+                               :team-id (oref team id)
+                               :room-id "__activity-feed__"
+                               :activity-feed (make-instance
+                                               'slack-activity-feed
+                                               :activities (list activity)
+                                               :pagination nil))))
+            (cl-letf (((symbol-function 'slack-message-get-or-fetch)
+                       (lambda (&rest _)
+                         (error "message was refetched"))))
+              (slack-buffer-insert feed-buffer activity))
+            (goto-char (point-min))
+            (should (search-forward "watched body" nil t))
+            (goto-char (point-min))
+            (should-not (search-forward "TODO" nil t))))
+      (slack-test--unregister-team team))))
 
 (ert-deftest slack-test-reaction-unicode-survives-deferred-hooks ()
   "Reaction Unicode glyph survives `slack-buffer-with-deferred-hooks'."
