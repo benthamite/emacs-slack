@@ -33,6 +33,7 @@
 (require 'slack-message-buffer)
 (require 'slack-team)
 (require 'dash)
+(require 'seq)
 (require 's)
 
 (declare-function slack-conversations-history "slack-conversations")
@@ -66,6 +67,11 @@ without its leading #."
   :group 'slack)
 (defcustom slack-activity-feed-watch-channel-limit 50
   "Maximum number of recent messages fetched per watched channel."
+  :type 'integer
+  :group 'slack)
+
+(defcustom slack-activity-feed-render-batch-size 5
+  "Number of Activity Feed rows to render per incremental batch."
   :type 'integer
   :group 'slack)
 (defconst slack-activity-feed-multipart-boundary "----WebKitFormBoundaryh7x3DqJqAIvkEcie")
@@ -461,7 +467,8 @@ Buffer-wide bindings:
 
 (defclass slack-activity-feed-buffer (slack-room-buffer)
   ((activity-feed :initarg :activity-feed :type slack-activity-feed)
-   (cached-team :initarg :cached-team :initform nil)))
+   (cached-team :initarg :cached-team :initform nil)
+   (render-timer :initarg :render-timer :initform nil)))
 
 (cl-defmethod slack-buffer-team ((this slack-activity-feed-buffer))
   "Return the team for THIS buffer, preferring the cached reference."
@@ -529,6 +536,43 @@ TEAM is the team argument."
   "Return the team-scoped class-level buffer key for the activity feed buffer."
   'slack-activity-feed-buffer)
 
+(defun slack-activity-feed--cancel-render-timer (buffer)
+  "Cancel BUFFER's pending incremental render timer."
+  (when-let ((timer (and (slot-boundp buffer 'render-timer)
+                         (oref buffer render-timer))))
+    (cancel-timer timer)
+    (oset buffer render-timer nil)))
+
+(defun slack-activity-feed--insert-activity-batch (buffer activities)
+  "Insert ACTIVITIES into BUFFER's live Emacs buffer."
+  (when activities
+    (with-current-buffer (slack-buffer-buffer buffer)
+      (slack-buffer-with-deferred-hooks
+        (dolist (activity activities)
+          (slack-buffer-insert buffer activity))))))
+
+(defun slack-activity-feed--render-activities (buffer activities)
+  "Render ACTIVITIES into BUFFER incrementally."
+  (slack-activity-feed--cancel-render-timer buffer)
+  (let* ((batch-size (max 1 slack-activity-feed-render-batch-size))
+         (initial (seq-take activities batch-size))
+         (remaining (nthcdr (length initial) activities)))
+    (slack-activity-feed--insert-activity-batch buffer initial)
+    (when remaining
+      (cl-labels
+          ((render-next
+            ()
+            (let* ((batch (seq-take remaining batch-size))
+                   (batch-length (length batch)))
+              (setq remaining (nthcdr batch-length remaining))
+              (slack-activity-feed--insert-activity-batch buffer batch)
+              (if remaining
+                  (oset buffer render-timer
+                        (run-at-time 0.01 nil #'render-next))
+                (oset buffer render-timer nil)))))
+        (oset buffer render-timer
+              (run-at-time 0.01 nil #'render-next))))))
+
 (defun slack-create-activity-feed-buffer (activity-feed team)
   "Create and return a new activity feed buffer instance from PAYLOAD.
 ACTIVITY-FEED is the activity-feed argument.
@@ -538,6 +582,7 @@ TEAM is the team argument."
     (if (and existing
              (buffer-live-p (oref existing buf)))
         (progn
+          (slack-activity-feed--cancel-render-timer existing)
           (oset existing activity-feed activity-feed)
           (oset existing cached-team team)
           (with-current-buffer (oref existing buf)
@@ -547,12 +592,10 @@ TEAM is the team argument."
               (set-marker lui-output-marker (point-max)))
             (when (markerp lui-input-marker)
               (set-marker lui-input-marker (point-max)))
-            (lui-set-prompt " ")
-            (with-slots (activity-feed) existing
-              (slack-buffer-with-deferred-hooks
-                (let* ((activities (oref activity-feed activities)))
-                  (cl-loop for m in activities
-                           do (slack-buffer-insert existing m))))))
+            (lui-set-prompt " "))
+          (slack-activity-feed--render-activities
+           existing
+           (oref activity-feed activities))
           existing)
       (make-instance 'slack-activity-feed-buffer
                      :team-id (oref team id)
@@ -817,10 +860,9 @@ AFTER-SUCCESS is the after-success argument."
       (slack-activity-feed-buffer-mode)
       (slack-buffer-set-current-buffer this)
       (with-slots (activity-feed) this
-        (slack-buffer-with-deferred-hooks
-          (let* ((activities (oref activity-feed activities)))
-            (cl-loop for m in activities
-                     do (slack-buffer-insert this m))))))
+        (slack-activity-feed--render-activities
+         this
+         (oref activity-feed activities))))
     buffer))
 
 (cl-defmethod slack-buffer-delete-load-more-string ((_this slack-activity-feed-buffer))
@@ -874,16 +916,18 @@ THIS is the slack-activity-feed-buffer instance."
 
 (defun slack-activity-feed--show-data (data team)
   "Render Activity feed DATA for TEAM."
-  (slack-activity-feed--with-watched-activities
-   (mapcar #'slack-activity-feed--parse-item
-           (plist-get data :items))
-   team
-   (lambda (activities)
-     (slack-activity-feed--display-activities
-      activities
-      team
-      (plist-get (plist-get data :response_metadata)
-                 :next_cursor)))))
+  (let ((activities (mapcar #'slack-activity-feed--parse-item
+                            (plist-get data :items)))
+        (pagination (plist-get (plist-get data :response_metadata)
+                               :next_cursor)))
+    (slack-activity-feed--display-activities activities team pagination)
+    (slack-activity-feed--fetch-watched-activities
+     team
+     (lambda (extra-activities)
+       (slack-activity-feed--display-activities
+        (slack-activity-feed--merge-activities activities extra-activities)
+        team
+        pagination)))))
 
 (defun slack-activity-feed-show ()
   "Show Slack activity feed."

@@ -1175,6 +1175,25 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
       (should room-prefetch-started)
       (should-not hydration-started))))
 
+(ert-deftest slack-test-activity-feed-shows-before-watched-fetch-finishes ()
+  (slack-test-setup
+    (let ((displayed-counts nil)
+          (watched-fetch-started nil)
+          (data (list :items (list (list :feed_ts "1710000000.000100"
+                                         :item (list :type "channel_message"
+                                                     :message (list :ts "1710000000.000100"
+                                                                    :channel channel-id))))
+                      :response_metadata nil)))
+      (cl-letf (((symbol-function 'slack-activity-feed--display-activities)
+                 (lambda (activities _team _pagination)
+                   (push (length activities) displayed-counts)))
+                ((symbol-function 'slack-activity-feed--fetch-watched-activities)
+                 (lambda (_team _callback)
+                   (setq watched-fetch-started t))))
+        (slack-activity-feed--show-data data team))
+      (should (equal '(1) displayed-counts))
+      (should watched-fetch-started))))
+
 (ert-deftest slack-test-activity-feed-watched-room-resolves-name-or-id ()
   (slack-test-setup
     (should (eq channel
