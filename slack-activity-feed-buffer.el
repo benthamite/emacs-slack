@@ -800,14 +800,14 @@ AFTER-SUCCESS is the after-success argument."
            (slack-activity-feed--prefetch-rooms
             new-activities team
             (lambda ()
-              (oset this activity-feed new-activity-feed)
-              (funcall after-success)
               (slack-activity-feed--prefetch-messages
                new-activities team
                #'ignore
                (lambda (_room messages)
                  (slack-activity-feed--replace-prefetched-messages
-                  team messages)))))))
+                  team messages)))))
+           (oset this activity-feed new-activity-feed)
+           (funcall after-success)))
        (oref activity-feed pagination)))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-activity-feed-buffer))
@@ -857,20 +857,20 @@ THIS is the slack-activity-feed-buffer instance."
          (make-instance 'slack-activity-feed
                         :activities activities
                         :pagination pagination)))
-    (message "Prefetching rooms...")
+    (let ((buffer (slack-create-activity-feed-buffer activity-feed team)))
+      (slack-buffer-display buffer)
+      (message "Activity feed ready; fetching room metadata..."))
     (slack-activity-feed--prefetch-rooms
      activities team
      (lambda ()
-       (let ((buffer (slack-create-activity-feed-buffer activity-feed team)))
-         (slack-buffer-display buffer)
-         (message "Activity feed ready; hydrating missing messages...")
-         (slack-activity-feed--prefetch-messages
-          activities team
-          (lambda ()
-            (message "Activity feed messages hydrated."))
-          (lambda (_room messages)
-            (slack-activity-feed--replace-prefetched-messages
-             team messages))))))))
+       (message "Room metadata fetched; hydrating missing messages...")
+       (slack-activity-feed--prefetch-messages
+        activities team
+        (lambda ()
+          (message "Activity feed messages hydrated."))
+        (lambda (_room messages)
+          (slack-activity-feed--replace-prefetched-messages
+           team messages)))))))
 
 (defun slack-activity-feed--show-data (data team)
   "Render Activity feed DATA for TEAM."

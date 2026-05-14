@@ -1134,6 +1134,47 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
       (should displayed)
       (should hydration-started))))
 
+(ert-deftest slack-test-activity-feed-displays-before-room-prefetch-finishes ()
+  (slack-test-setup
+    (let ((displayed nil)
+          (room-prefetch-started nil)
+          (hydration-started nil)
+          (activity
+           (make-instance
+            'slack-activity
+            :is-unread nil
+            :feed-ts "1710000000.000100"
+            :item (make-instance
+                   'activity-item
+                   :type "channel_message"
+                   :message (make-instance
+                             'activity-message
+                             :ts "1710000000.000100"
+                             :channel "C99999"
+                             :is-broadcast nil
+                             :thread-ts nil
+                             :author-id nil)
+                   :reaction nil))))
+      (cl-letf (((symbol-function 'slack-activity-feed--prefetch-rooms)
+                 (lambda (_activities _team _callback)
+                   (setq room-prefetch-started t)))
+                ((symbol-function 'slack-activity-feed--prefetch-messages)
+                 (lambda (&rest _)
+                   (setq hydration-started t)))
+                ((symbol-function 'slack-create-activity-feed-buffer)
+                 (lambda (_activity-feed _team)
+                   'buffer))
+                ((symbol-function 'slack-buffer-display)
+                 (lambda (_buffer)
+                   (setq displayed t))))
+        (slack-activity-feed--display-activities
+         (list activity)
+         team
+         nil))
+      (should displayed)
+      (should room-prefetch-started)
+      (should-not hydration-started))))
+
 (ert-deftest slack-test-activity-feed-watched-room-resolves-name-or-id ()
   (slack-test-setup
     (should (eq channel
