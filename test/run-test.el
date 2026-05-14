@@ -1120,7 +1120,10 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                                                  :type "message"
                                                  :channel (oref room id)
                                                  :ts "1710000000.000100"
-                                                 :text "hello"))))))
+                                                 :text "hello")))))
+                ((symbol-function 'slack-conversations-info)
+                 (lambda (_channel-id _team after-success &optional _on-error)
+                   (funcall after-success))))
         (slack-activity-feed--fetch-watched-activities
          team
          (lambda (activities)
@@ -1133,6 +1136,31 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
       (should (equal channel-id
                      (oref (oref (oref (car result) item) message)
                            channel))))))
+
+(ert-deftest slack-test-activity-feed-refreshes-watched-channel-last-read ()
+  (slack-test-setup
+    (let ((slack-activity-feed-watch-channels (list channel-name))
+          (result nil))
+      (oset channel last-read "0")
+      (cl-letf (((symbol-function 'slack-conversations-info)
+                 (lambda (channel-id _team after-success &optional _on-error)
+                   (should (equal channel-id (oref channel id)))
+                   (oset channel last-read "1710000001.000100")
+                   (funcall after-success)))
+                ((symbol-function 'slack-conversations-history)
+                 (lambda (room _team &rest args)
+                   (funcall (plist-get args :after-success)
+                            (list (make-instance 'slack-message
+                                                 :type "message"
+                                                 :channel (oref room id)
+                                                 :ts "1710000000.000100"
+                                                 :text "read"))))))
+        (slack-activity-feed--fetch-watched-activities
+         team
+         (lambda (activities)
+           (setq result activities))))
+      (should (= 1 (length result)))
+      (should-not (oref (car result) is-unread)))))
 
 (ert-deftest slack-test-activity-feed-watched-channel-respects-last-read ()
   (slack-test-setup
@@ -1154,6 +1182,9 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
       (cl-letf (((symbol-function 'slack-activity-feed-request)
                  (lambda (_team after-success &optional _cursor)
                    (funcall after-success (list :items nil))))
+                ((symbol-function 'slack-conversations-info)
+                 (lambda (_channel-id _team after-success &optional _on-error)
+                   (funcall after-success)))
                 ((symbol-function 'slack-conversations-history)
                  (lambda (room _team &rest args)
                    (funcall (plist-get args :after-success)

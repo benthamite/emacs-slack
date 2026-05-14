@@ -346,25 +346,36 @@ CALLBACK receives a list of `slack-activity' objects."
          (activities nil))
     (if (null rooms)
         (funcall callback nil)
-      (dolist (room rooms)
-        (slack-conversations-history
-         room team
-         :limit (slack-activity-feed--watch-channel-limit)
-         :after-success
-         (lambda (messages &rest _)
-           (slack-room-set-messages room messages team)
-           (setq activities
-                 (nconc activities
-                        (mapcar (lambda (message)
-                                  (slack-activity-feed--message-activity
-                                   message room))
-                                messages)))
-           (when (= 0 (cl-decf (car pending)))
-             (funcall callback activities)))
-         :on-error
-         (lambda (&rest _)
-           (when (= 0 (cl-decf (car pending)))
-             (funcall callback activities))))))))
+      (cl-labels
+          ((finish ()
+                   (when (= 0 (cl-decf (car pending)))
+                     (funcall callback activities)))
+           (fetch-history
+            (room)
+            (slack-conversations-history
+             room team
+             :limit (slack-activity-feed--watch-channel-limit)
+             :after-success
+             (lambda (messages &rest _)
+               (slack-room-set-messages room messages team)
+               (setq activities
+                     (nconc activities
+                            (mapcar (lambda (message)
+                                      (slack-activity-feed--message-activity
+                                       message room))
+                                    messages)))
+               (finish))
+             :on-error
+             (lambda (&rest _)
+               (finish)))))
+        (dolist (room rooms)
+          (slack-conversations-info
+           (oref room id)
+           team
+           (lambda ()
+             (fetch-history room))
+           (lambda (&rest _)
+             (fetch-history room))))))))
 
 (defun slack-activity-feed--activity-key (activity)
   "Return the deduplication key for ACTIVITY."
