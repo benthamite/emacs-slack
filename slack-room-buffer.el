@@ -421,21 +421,15 @@ obtained."
             (team-domain (plist-get info :team-domain))
             (team (slack-team-find-by-domain team-domain))
             (room-id (plist-get info :room-id))
-            (room (or
-                   (--> team
-                        slack-team-ims
-                        (--find (equal room-id (oref it id)) it))
-                   (--> team
-                        slack-team-channels
-                        (--find (equal room-id (oref it id)) it))
-                   ))
+            (room (slack-room-find room-id team))
             (ts (plist-get info :ts))
             (thread-ts (plist-get info :thread-ts)))
       (slack-open-message
        team
        room
        ts
-       thread-ts)
+       thread-ts
+       ts)
     (error (format "Not an url: %s" url))
     ))
 

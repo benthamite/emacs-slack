@@ -11,6 +11,7 @@
 (require 'slack-group)
 (require 'slack-im)
 (require 'slack-room)
+(require 'slack-room-buffer)
 (require 'slack-usergroup)
 (require 'slack-message)
 (require 'slack-user-message)
@@ -702,6 +703,24 @@
          (permalink (slack-info-to-permalink info)))
     (should (string-match-p "C555" permalink))
     (should-not (string-match-p "thread_ts" permalink))))
+
+(ert-deftest slack-test-open-url-opens-group-room-thread-reply ()
+  (slack-test-setup
+    (let ((slack-teams-by-token (make-hash-table :test 'equal))
+          opened)
+      (oset team token "token")
+      (oset team domain "acme")
+      (puthash "token" team slack-teams-by-token)
+      (cl-letf (((symbol-function 'slack-open-message)
+                 (lambda (&rest args) (setq opened args))))
+        (slack-open-url
+         (format "https://acme.slack.com/archives/%s/p1710000000000100?thread_ts=1710000000.000000&cid=%s"
+                 group-id group-id)))
+      (should (equal (list team group
+                           "1710000000.000100"
+                           "1710000000.000000"
+                           "1710000000.000100")
+                     opened)))))
 
 (ert-deftest slack-test-shared-message-text-opens-original-message ()
   (slack-test-setup

@@ -190,6 +190,8 @@ Some terminology in the `slack-` functions:
 - Quoted Slack messages
   - press <kbd>RET</kbd> on a quoted/shared message to open the original
     message in emacs-slack
+  - quoted-message permalinks can open messages from public channels, private
+    channels, and direct messages
 - `slack-file-upload`
   - uploads a file
   - the command allows to choose many channels via select loop. In order to finish the loop input an empty string. For helm that's <kbd>C+RET</kbd> or <kbd>M+TET</kbd>. In case of Ivy it's <kbd>C+M+j</kbd>.
