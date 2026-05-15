@@ -16,6 +16,7 @@
 (require 'slack-user-message)
 (require 'slack-bot-message)
 (require 'slack-create-message)
+(require 'slack-attachment)
 (require 'slack-reaction)
 (require 'slack-counts)
 (require 'slack-util)
@@ -701,6 +702,30 @@
          (permalink (slack-info-to-permalink info)))
     (should (string-match-p "C555" permalink))
     (should-not (string-match-p "thread_ts" permalink))))
+
+(ert-deftest slack-test-shared-message-text-opens-original-message ()
+  (slack-test-setup
+    (let* ((from-url "https://acme.slack.com/archives/C11111/p1700000000000000")
+           (attachment (slack-attachment-create
+                        (list :is_share t
+                              :from_url from-url
+                              :author_name "Quoted User"
+                              :text "quoted body")))
+           (str (slack-message-to-string attachment team))
+           (pos (string-match "quoted body" str))
+           opened-url)
+      (should pos)
+      (should (eq (get-text-property pos 'keymap str)
+                  slack-shared-message-keymap))
+      (should (string= from-url
+                       (get-text-property pos 'slack-shared-message-url str)))
+      (with-temp-buffer
+        (insert str)
+        (goto-char (1+ pos))
+        (cl-letf (((symbol-function 'slack-open-url)
+                   (lambda (url) (setq opened-url url))))
+          (slack-shared-message-open)))
+      (should (string= from-url opened-url)))))
 
 ;;; ---- Rate limiting ----
 

@@ -34,6 +34,8 @@
 (require 'slack-file)
 (require 'slack-block)
 
+(declare-function slack-open-url "slack-room-buffer" (url))
+
 (defvar slack-attachment-action-keymap)
 (defvar slack-completing-read-function)
 (defvar slack-current-buffer)
@@ -68,6 +70,20 @@
   ((channel-id :initarg :channel_id :initform nil)
    (channel-name :initarg :channel_name :initform nil)
    (from-url :initarg :from_url :initform nil)))
+
+(defvar slack-shared-message-keymap
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "RET") #'slack-shared-message-open)
+    (define-key map [mouse-1] #'slack-shared-message-open)
+    map)
+  "Keymap active on rendered shared-message attachments.")
+
+(defun slack-shared-message-open ()
+  "Open the original message for the shared message at point."
+  (interactive)
+  (if-let ((url (get-text-property (point) 'slack-shared-message-url)))
+      (slack-open-url url)
+    (user-error "No shared message at point")))
 
 (defclass slack-attachment-field ()
   ((title :initarg :title :initform nil)
@@ -573,6 +589,23 @@ TEAM is the team argument."
                              (or footer "")
                              (if (slack-string-blankp image) "" (concat "\n" image)))
        team))))
+
+(cl-defmethod slack-message-to-string ((attachment slack-shared-message) _team)
+  "Render shared-message ATTACHMENT as a displayable string."
+  (let ((str (cl-call-next-method)))
+    (if (slack-string-blankp (oref attachment from-url))
+        str
+      (slack-shared-message--make-openable str (oref attachment from-url)))))
+
+(defun slack-shared-message--make-openable (str url)
+  "Return STR with text properties that open shared-message URL."
+  (add-text-properties 0 (length str)
+                       (list 'keymap slack-shared-message-keymap
+                             'mouse-face 'highlight
+                             'help-echo "RET: Open quoted message"
+                             'slack-shared-message-url url)
+                       str)
+  str)
 
 (defun slack-attachment--blocks-to-string (blocks team pad)
   "Render attachment BLOCKS for TEAM, prefixing every line with PAD.
