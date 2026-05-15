@@ -1,11 +1,12 @@
 EMACS ?= emacs
-PROFILE_DIR := $(HOME)/.config/emacs-profiles/8.2.0-dev
+SRC_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+PROFILE_DIR ?= $(patsubst %/elpaca/sources/emacs-slack/,%,$(SRC_DIR))
 ELPACA_BUILDS := $(PROFILE_DIR)/elpaca/builds
 EXTRAS_DIR := $(HOME)/My Drive/dotfiles/emacs/extras
-SRC_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
-LOAD_PATH := $(patsubst %,-L %,$(wildcard $(ELPACA_BUILDS)/*/))
-LOAD_PATH += -L "$(EXTRAS_DIR)" -L $(SRC_DIR) -L $(SRC_DIR)test
+LOAD_PATH := -L $(SRC_DIR) -L $(SRC_DIR)test
+LOAD_PATH += $(patsubst %,-L %,$(wildcard $(ELPACA_BUILDS)/*/))
+LOAD_PATH += -L "$(EXTRAS_DIR)"
 
 BATCH := $(EMACS) --batch -Q $(LOAD_PATH)
 
