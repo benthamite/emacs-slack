@@ -188,9 +188,9 @@ Some terminology in the `slack-` functions:
   - background refreshes do not silently redraw the visible Activity feed;
     press <kbd>g</kbd> in the Activity feed buffer to refresh the buffer from
     the latest cache
-  - `slack-activity-feed-cache-refresh-interval` controls how often the
-    Activity feed cache is refreshed in the background, in seconds; set it to
-    nil to disable periodic refresh
+  - there is no periodic Activity feed polling timer; the cache is refreshed
+    when the feed is shown, when <kbd>g</kbd> is pressed, and when relevant
+    websocket events update existing cached data
   - `slack-activity-feed-watch-channel-limit` controls how many recent
     messages are fetched from each watched channel
   - entries can be channel names without `#` or channel IDs such as

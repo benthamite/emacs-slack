@@ -30,6 +30,8 @@
 
 (declare-function slack-conversations-history "slack-conversations")
 (declare-function slack-message-create "slack-create-message")
+(declare-function slack-activity-feed-refresh-cache-from-event
+                  "slack-activity-feed-buffer")
 
 (defclass slack-reaction-event (slack-event slack-message-event-processable) ())
 (defclass slack-message-reaction-event (slack-reaction-event) ())
@@ -95,6 +97,11 @@
   "Refresh the buffers affected by the MESSAGE reaction event event for TEAM."
   (slack-message-replace-buffer message team))
 
+(cl-defmethod slack-event-update-ui :after ((_this slack-message-reaction-event)
+                                            _message team)
+  "Refresh Activity Feed caches affected by message reaction events."
+  (when (fboundp 'slack-activity-feed-refresh-cache-from-event)
+    (slack-activity-feed-refresh-cache-from-event team)))
 
 (defun slack-reaction-event--fetch-and-cache-message (room ts team)
   "Fetch message at TS from ROOM via API and cache it.

@@ -1235,7 +1235,6 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
 (ert-deftest slack-test-activity-feed-show-renders-cache-before-refresh ()
   (slack-test-setup
     (let* ((slack-activity-feed--cache (make-hash-table :test 'equal))
-           (slack-activity-feed-cache-refresh-interval nil)
            (slack-current-team team)
            (activity (make-instance
                       'slack-activity
@@ -1261,12 +1260,57 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                 ((symbol-function 'slack-activity-feed--refresh-cache)
                  (lambda (&rest _args)
                    (setq refresh-started t)))
+                ((symbol-function 'run-at-time)
+                 (lambda (&rest _args)
+                   (error "activity feed show must not start a timer")))
                 ((symbol-function 'slack-activity-feed-request)
                  (lambda (&rest _args)
                    (error "show should use cache before requesting"))))
         (slack-activity-feed-show))
       (should (equal (list activity) displayed))
       (should refresh-started))))
+
+(ert-deftest slack-test-activity-feed-watched-message-updates-existing-cache ()
+  (slack-test-setup
+    (let* ((slack-activity-feed--cache (make-hash-table :test 'equal))
+           (slack-activity-feed-watch-channels (list channel-name))
+           (old-activity (make-instance
+                          'slack-activity
+                          :is-unread t
+                          :feed-ts "1710000000.000100"
+                          :item (make-instance
+                                 'activity-item
+                                 :type "channel_message"
+                                 :message (make-instance
+                                           'activity-message
+                                           :ts "1710000000.000100"
+                                           :channel channel-id
+                                           :is-broadcast nil
+                                           :thread-ts nil
+                                           :author-id nil)
+                                 :reaction nil)))
+           (displayed nil))
+      (oset channel last-read "1710000000.000000")
+      (slack-activity-feed--cache-put team (list old-activity) nil)
+      (cl-letf (((symbol-function 'force-mode-line-update)
+                 (lambda (&rest _) nil))
+                ((symbol-function 'slack-activity-feed--display-activities)
+                 (lambda (&rest _)
+                   (setq displayed t))))
+        (slack-activity-feed-watch-channel-message
+         (make-instance 'slack-message
+                        :type "message"
+                        :channel channel-id
+                        :ts "1710000001.000000"
+                        :text "new")
+         channel
+         team))
+      (let ((activities (plist-get (slack-activity-feed--cache-get team)
+                                   :activities)))
+        (should (= 2 (length activities)))
+        (should (equal "1710000001.000000" (oref (car activities) feed-ts)))
+        (should (equal "1710000000.000100" (oref (cadr activities) feed-ts))))
+      (should-not displayed))))
 
 (ert-deftest slack-test-activity-feed-watched-room-resolves-name-or-id ()
   (slack-test-setup

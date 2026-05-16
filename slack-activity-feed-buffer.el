@@ -75,17 +75,8 @@ without its leading #."
   :type 'integer
   :group 'slack)
 
-(defcustom slack-activity-feed-cache-refresh-interval 300
-  "Seconds between background Activity Feed cache refreshes.
-Set to nil to disable periodic refresh."
-  :type '(choice (const :tag "Disabled" nil) integer)
-  :group 'slack)
-
 (defvar slack-activity-feed--cache (make-hash-table :test 'equal)
   "Per-team Activity Feed snapshots.")
-
-(defvar slack-activity-feed--refresh-timers (make-hash-table :test 'equal)
-  "Per-team Activity Feed background refresh timers.")
 
 (defconst slack-activity-feed-multipart-boundary "----WebKitFormBoundaryh7x3DqJqAIvkEcie")
 
@@ -347,6 +338,8 @@ ROOM is the room containing MESSAGE, and TEAM is the Slack team."
              (slack-activity-feed--message-unread-p message room))
     (setq slack-has-unreads t
           slack-unread-count (1+ (or slack-unread-count 0)))
+    (slack-activity-feed--cache-update-activity
+     team (slack-activity-feed--message-activity message room))
     (force-mode-line-update)))
 
 (defun slack-activity-feed--message-activity (message room)
@@ -451,13 +444,29 @@ CALLBACK receives a list of `slack-activity' objects."
 
 (defun slack-activity-feed--cache-put (team activities pagination)
   "Cache ACTIVITIES and PAGINATION for TEAM."
+  (slack-activity-feed--cache-put-key
+   (slack-activity-feed--cache-key team)
+   activities
+   pagination))
+
+(defun slack-activity-feed--cache-put-key (key activities pagination)
+  "Cache ACTIVITIES and PAGINATION under Activity Feed cache KEY."
   (let ((snapshot (list :activities activities
                         :pagination pagination
                         :updated-at (current-time))))
-    (puthash (slack-activity-feed--cache-key team)
-             snapshot
-             slack-activity-feed--cache)
+    (puthash key snapshot slack-activity-feed--cache)
     snapshot))
+
+(defun slack-activity-feed--cache-keys-for-team (team)
+  "Return Activity Feed cache keys currently stored for TEAM."
+  (let ((team-id (oref team id))
+        keys)
+    (maphash
+     (lambda (key _snapshot)
+       (when (equal (car key) team-id)
+         (push key keys)))
+     slack-activity-feed--cache)
+    keys))
 
 (defun slack-activity-feed--activity-keys (activities)
   "Return stable identity keys for ACTIVITIES."
@@ -516,21 +525,31 @@ content."
               (when after-refresh
                 (funcall after-refresh old-snapshot new-snapshot))))))))))
 
-(defun slack-activity-feed--ensure-refresh-timer (team)
-  "Ensure TEAM has a periodic Activity Feed cache refresh timer."
-  (when slack-activity-feed-cache-refresh-interval
-    (let ((key (slack-activity-feed--cache-key team))
-          (mode-show-only-unread slack-activity-feed-mode-show-only-unread))
-      (unless (gethash key slack-activity-feed--refresh-timers)
-        (puthash key
-                 (run-at-time
-                  slack-activity-feed-cache-refresh-interval
-                  slack-activity-feed-cache-refresh-interval
-                  (lambda ()
-                    (let ((slack-activity-feed-mode-show-only-unread
-                           mode-show-only-unread))
-                      (slack-activity-feed--refresh-cache team nil t))))
-                 slack-activity-feed--refresh-timers)))))
+(defun slack-activity-feed--cache-update-activity (team activity)
+  "Merge ACTIVITY into any existing Activity Feed cache snapshots for TEAM."
+  (let ((changed nil))
+    (dolist (key (slack-activity-feed--cache-keys-for-team team))
+      (let* ((snapshot (gethash key slack-activity-feed--cache))
+             (old-activities (plist-get snapshot :activities)))
+        (unless (and (cadr key) (not (oref activity is-unread)))
+          (let ((new-activities
+                 (slack-activity-feed--merge-activities
+                  (list activity) old-activities)))
+            (unless (equal (slack-activity-feed--activity-keys old-activities)
+                           (slack-activity-feed--activity-keys new-activities))
+              (slack-activity-feed--cache-put-key
+               key new-activities (plist-get snapshot :pagination))
+              (setq changed t))))))
+    (when (and changed (slack-activity-feed--visible-p team))
+      (message "Activity feed has newer cached results; press g to refresh."))
+    changed))
+
+(defun slack-activity-feed-refresh-cache-from-event (team)
+  "Refresh existing Activity Feed cache snapshots for TEAM after an event.
+This updates cache data only; it does not redraw visible Activity Feed buffers."
+  (dolist (key (slack-activity-feed--cache-keys-for-team team))
+    (let ((slack-activity-feed-mode-show-only-unread (cadr key)))
+      (slack-activity-feed--refresh-cache team))))
 
 (defun slack-activity-feed-request (team &optional after-success cursor)
   "Request activity feed for CHANNEL-ID of TEAM.
@@ -1063,7 +1082,6 @@ THIS is the slack-activity-feed-buffer instance."
   "Show Slack activity feed."
   (interactive)
   (let ((team (slack-activity-feed--selected-team)))
-    (slack-activity-feed--ensure-refresh-timer team)
     (if-let ((snapshot (slack-activity-feed--cache-get team)))
         (progn
           (slack-activity-feed--display-snapshot snapshot team)
