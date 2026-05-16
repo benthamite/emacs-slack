@@ -809,6 +809,11 @@ produces a newline with `not-tracked-p'."
   (slack-test-with-mode (slack-message-buffer-mode)
     (should (eq lui-input-function 'slack-message--send))))
 
+(ert-deftest slack-test-activity-feed-mode-disables-truncation ()
+  "`slack-activity-feed-buffer-mode' keeps newest feed rows at the top."
+  (slack-test-with-mode (slack-activity-feed-buffer-mode)
+    (should-not lui-max-buffer-size)))
+
 (ert-deftest slack-test-rerender-covers-slack-mode-buffers ()
   "Async rerender reaches buffers in `slack-mode'."
   (let ((slack-emoji-master (make-hash-table :test 'equal))

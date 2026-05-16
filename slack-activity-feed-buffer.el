@@ -465,7 +465,8 @@ Buffer-wide bindings:
   (add-hook 'lui-pre-output-hook 'slack-mrkdwn-add-face nil t)
   (add-hook 'lui-pre-output-hook 'slack-display-inline-action t t)
   (add-hook 'post-command-hook #'slack-buffer--maybe-load-more-at-end nil t)
-  (cursor-sensor-mode))
+  (cursor-sensor-mode)
+  (setq-local lui-max-buffer-size nil))
 
 (defclass slack-activity-feed-buffer (slack-room-buffer)
   ((activity-feed :initarg :activity-feed :type slack-activity-feed)

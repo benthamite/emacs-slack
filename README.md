@@ -181,6 +181,8 @@ Some terminology in the `slack-` functions:
     waiting for the next Activity feed refresh
   - distinct Slack Activity entries for the same message, such as a mention
     and a reaction, are kept as separate feed rows
+  - large Activity feeds keep their newest rows while asynchronous rendering
+    finishes
   - `slack-activity-feed-watch-channel-limit` controls how many recent
     messages are fetched from each watched channel
   - entries can be channel names without `#` or channel IDs such as
