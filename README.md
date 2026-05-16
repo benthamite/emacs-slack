@@ -172,6 +172,8 @@ Some terminology in the `slack-` functions:
   - update channel list
 - `slack-activity-feed-show`
   - show the activity feed
+  - when cached data is available, display it immediately and refresh the
+    cache in the background
   - set `slack-activity-feed-watch-channels` to include recent messages from
     specific channels in the feed, even when Slack would not otherwise show
     those messages as activity
@@ -183,6 +185,12 @@ Some terminology in the `slack-` functions:
     and a reaction, are kept as separate feed rows
   - large Activity feeds keep their newest rows while asynchronous rendering
     finishes, including when an existing Activity feed buffer is refreshed
+  - background refreshes do not silently redraw the visible Activity feed;
+    press <kbd>g</kbd> in the Activity feed buffer to refresh the buffer from
+    the latest cache
+  - `slack-activity-feed-cache-refresh-interval` controls how often the
+    Activity feed cache is refreshed in the background, in seconds; set it to
+    nil to disable periodic refresh
   - `slack-activity-feed-watch-channel-limit` controls how many recent
     messages are fetched from each watched channel
   - entries can be channel names without `#` or channel IDs such as
