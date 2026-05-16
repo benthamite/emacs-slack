@@ -1056,7 +1056,8 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                                                                                  :thread-ts nil
                                                                                  :author-id nil)
                                                          :reaction nil)))
-           (called nil))
+           (called nil)
+           (unavailable nil))
       (cl-letf (((symbol-function 'slack-conversations-history)
                  (lambda (_room _team &rest args)
                    (let ((on-error (plist-get args :on-error)))
@@ -1066,8 +1067,50 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
          (list activity)
          team
          (lambda ()
-           (setq called t))))
-      (should called))))
+           (setq called t))
+         nil
+         (lambda (unavailable-activity)
+           (setq unavailable unavailable-activity))))
+      (should called)
+      (should (eq unavailable activity)))))
+
+(ert-deftest slack-test-activity-feed-prefetch-messages-rejects-nonmatching-history ()
+  (slack-test-setup
+    (let* ((activity (make-instance 'slack-activity
+                                    :is-unread t
+                                    :feed-ts "1"
+                                    :item (make-instance 'activity-item
+                                                         :type "dm"
+                                                         :message (make-instance 'activity-message
+                                                                                 :ts "1710000000.000100"
+                                                                                 :channel channel-id
+                                                                                 :is-broadcast nil
+                                                                                 :thread-ts nil
+                                                                                 :author-id nil)
+                                                         :reaction nil)))
+           (called nil)
+           (messages-called nil)
+           (unavailable nil))
+      (cl-letf (((symbol-function 'slack-conversations-history)
+                 (lambda (room _team &rest args)
+                   (funcall (plist-get args :after-success)
+                            (list (make-instance 'slack-message
+                                                 :type "message"
+                                                 :channel (oref room id)
+                                                 :ts "1710000000.000099"
+                                                 :text "older"))))))
+        (slack-activity-feed--prefetch-messages
+         (list activity)
+         team
+         (lambda ()
+           (setq called t))
+         (lambda (&rest _)
+           (setq messages-called t))
+         (lambda (unavailable-activity)
+           (setq unavailable unavailable-activity))))
+      (should called)
+      (should-not messages-called)
+      (should (eq unavailable activity)))))
 
 (ert-deftest slack-test-activity-feed-prefetch-rooms-calls-back-on-error ()
   (slack-test-setup
@@ -1095,10 +1138,12 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
            (setq called t))))
       (should called))))
 
-(ert-deftest slack-test-activity-feed-display-does-not-start-message-hydration ()
+(ert-deftest slack-test-activity-feed-display-hydrates-missing-messages ()
   (slack-test-setup
     (let ((displayed nil)
+          (room-prefetch-started nil)
           (hydration-started nil)
+          (prefetched-replaced nil)
           (activity
            (make-instance
             'slack-activity
@@ -1117,10 +1162,26 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                    :reaction nil))))
       (cl-letf (((symbol-function 'slack-activity-feed--prefetch-rooms)
                  (lambda (_activities _team callback)
+                   (setq room-prefetch-started t)
                    (funcall callback)))
                 ((symbol-function 'slack-activity-feed--prefetch-messages)
-                 (lambda (&rest _)
-                   (setq hydration-started t)))
+                 (lambda (_activities _team callback &optional messages-callback
+                                     _unavailable-callback)
+                   (setq hydration-started t)
+                   (when messages-callback
+                     (funcall messages-callback
+                              channel
+                              (list (make-instance
+                                     'slack-message
+                                     :type "message"
+                                     :channel channel-id
+                                     :ts "1710000000.000100"
+                                     :text "hello"))))
+                   (funcall callback)))
+                ((symbol-function
+                  'slack-activity-feed--replace-prefetched-messages)
+                 (lambda (_team _messages)
+                   (setq prefetched-replaced t)))
                 ((symbol-function 'slack-create-activity-feed-buffer)
                  (lambda (_activity-feed _team)
                    'buffer))
@@ -1132,12 +1193,14 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
          team
          nil))
       (should displayed)
-      (should-not hydration-started))))
+      (should room-prefetch-started)
+      (should hydration-started)
+      (should prefetched-replaced))))
 
-(ert-deftest slack-test-activity-feed-hydration-does-not-rewrite-visible-buffer ()
+(ert-deftest slack-test-activity-feed-hydration-does-not-redisplay-buffer ()
   (slack-test-setup
-    (let ((displayed nil)
-          (rewrote-visible-buffer nil)
+    (let ((display-count 0)
+          (replaced-prefetched-messages nil)
           (activity
            (make-instance
             'slack-activity
@@ -1159,12 +1222,13 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                    'buffer))
                 ((symbol-function 'slack-buffer-display)
                  (lambda (_buffer)
-                   (setq displayed t)))
+                   (cl-incf display-count)))
                 ((symbol-function 'slack-activity-feed--prefetch-rooms)
                  (lambda (_activities _team callback)
                    (funcall callback)))
                 ((symbol-function 'slack-activity-feed--prefetch-messages)
-                 (lambda (_activities _team callback &optional messages-callback)
+                 (lambda (_activities _team callback &optional messages-callback
+                                     _unavailable-callback)
                    (when messages-callback
                      (funcall messages-callback
                               channel
@@ -1178,13 +1242,13 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                 ((symbol-function
                   'slack-activity-feed--replace-prefetched-messages)
                  (lambda (&rest _)
-                   (setq rewrote-visible-buffer t))))
+                   (setq replaced-prefetched-messages t))))
         (slack-activity-feed--display-activities
          (list activity)
          team
          nil))
-      (should displayed)
-      (should-not rewrote-visible-buffer))))
+      (should (= 1 display-count))
+      (should replaced-prefetched-messages))))
 
 (ert-deftest slack-test-activity-feed-watched-open-marks-channel-read ()
   (slack-test-setup
@@ -1227,7 +1291,7 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
             (oset feed-buffer buf source-buffer)
             (slack-buffer-insert feed-buffer activity)
             (goto-char (point-min))
-            (re-search-forward "TODO")
+            (re-search-forward "Loading message...")
             (cl-letf (((symbol-function 'slack-conversations-mark)
                        (lambda (room _team ts after-success &optional _after-error)
                          (setq marked-channel (oref room id)

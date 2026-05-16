@@ -329,6 +329,12 @@ if t, animate gif images."
           (register team))
       (error ":token is required"))))
 
+(when (and (cl-generic-p 'slack-team-connect)
+           (fboundp 'slack-team-connect)
+           (not (ignore-errors
+                  (cl-generic-ensure-function 'slack-team-connect))))
+  (fmakunbound 'slack-team-connect))
+
 (cl-defmethod slack-team-connect ((team slack-team))
   "Start TEAM's connection unless it is already connected."
   (unless (slack-team-connectedp team)

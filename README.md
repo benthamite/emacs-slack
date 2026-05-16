@@ -185,8 +185,8 @@ Some terminology in the `slack-` functions:
     and a reaction, are kept as separate feed rows
   - large Activity feeds keep their newest rows while asynchronous rendering
     finishes, including when an existing Activity feed buffer is refreshed
-  - background message hydration updates the cache without rewriting the
-    visible Activity feed buffer
+  - missing Activity feed messages are fetched asynchronously and replace
+    loading placeholders in place without redisplaying or reordering the buffer
   - opening a watched-channel Activity feed entry marks that channel read and
     clears the local Activity unread state for the entry after Slack confirms
     the mark

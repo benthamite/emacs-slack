@@ -1009,8 +1009,8 @@ produces a newline with `not-tracked-p'."
             (should-not (search-forward "TODO" nil t))))
       (slack-test--unregister-team team))))
 
-(ert-deftest slack-test-activity-feed-renders-missing-message-without-blocking-fetch ()
-  "Activity rendering uses cache only and leaves missing messages as placeholders."
+(ert-deftest slack-test-activity-feed-renders-missing-message-as-loading ()
+  "Activity rendering uses cache only and shows a loading placeholder."
   (slack-test-setup
     (slack-test--register-team team)
     (unwind-protect
@@ -1048,7 +1048,113 @@ produces a newline with `not-tracked-p'."
                 (slack-buffer-insert feed-buffer activity))
               (should-not fetched))
             (goto-char (point-min))
-            (should (search-forward "TODO" nil t))))
+            (should (search-forward "Loading message..." nil t))
+            (goto-char (point-min))
+            (should-not (search-forward "TODO" nil t))))
+      (slack-test--unregister-team team))))
+
+(ert-deftest slack-test-activity-feed-replaces-loading-message-read-only ()
+  "Activity replacement hydrates the message in a read-only feed buffer."
+  (slack-test-setup
+    (slack-test--register-team team)
+    (unwind-protect
+        (slack-test--with-slack-buffer-mode
+          (let* ((message-ts "1710000000.000100")
+                 (feed-ts "1710000001.000200")
+                 (feed-key "activity-key")
+                 (activity-message
+                  (make-instance 'activity-message
+                                 :ts message-ts
+                                 :channel channel-id
+                                 :is-broadcast nil
+                                 :thread-ts nil
+                                 :author-id nil))
+                 (activity
+                  (make-instance
+                   'slack-activity
+                   :is-unread t
+                   :feed-ts feed-ts
+                   :feed-key feed-key
+                   :item (make-instance
+                          'activity-item
+                          :type "at_user"
+                          :message activity-message
+                          :reaction nil)))
+                 (feed-buffer (make-instance
+                               'slack-activity-feed-buffer
+                               :team-id (oref team id)
+                               :room-id "__activity-feed__"
+                               :cached-team team
+                               :buf (current-buffer)
+                               :activity-feed (make-instance
+                                               'slack-activity-feed
+                                               :activities (list activity)
+                                               :pagination nil)))
+                 (fetched-message
+                  (slack-test--make-message message-ts
+                                            "hydrated body"
+                                            user-id
+                                            channel-id)))
+            (slack-buffer-insert feed-buffer activity)
+            (setq buffer-read-only t)
+            (slack-buffer-replace feed-buffer fetched-message)
+            (goto-char (point-min))
+            (should (search-forward "hydrated body" nil t))
+            (let ((body-pos (match-beginning 0)))
+              (should (equal message-ts (get-text-property body-pos 'ts)))
+              (should (equal feed-ts (get-text-property body-pos 'activity-feed-ts)))
+              (should (equal feed-key (get-text-property body-pos 'activity-feed-key)))
+              (should (equal "at_user" (get-text-property body-pos 'activity-type))))
+            (goto-char (point-min))
+            (should-not (search-forward "Loading message..." nil t))
+            (goto-char (point-min))
+            (should-not (search-forward "TODO" nil t))))
+      (slack-test--unregister-team team))))
+
+(ert-deftest slack-test-activity-feed-replaces-loading-with-unavailable ()
+  "Unavailable activity messages replace the loading placeholder."
+  (slack-test-setup
+    (slack-test--register-team team)
+    (unwind-protect
+        (slack-test--with-slack-buffer-mode
+          (let* ((message-ts "1710000000.000100")
+                 (activity-message
+                  (make-instance 'activity-message
+                                 :ts message-ts
+                                 :channel channel-id
+                                 :is-broadcast nil
+                                 :thread-ts nil
+                                 :author-id nil))
+                 (activity
+                  (make-instance
+                   'slack-activity
+                   :is-unread nil
+                   :feed-ts "1710000001.000200"
+                   :item (make-instance
+                          'activity-item
+                          :type "message_reaction"
+                          :message activity-message
+                          :reaction nil)))
+                 (feed-buffer (make-instance
+                               'slack-activity-feed-buffer
+                               :team-id (oref team id)
+                               :room-id "__activity-feed__"
+                               :cached-team team
+                               :buf (current-buffer)
+                               :activity-feed (make-instance
+                                               'slack-activity-feed
+                                               :activities (list activity)
+                                               :pagination nil))))
+            (slack-buffer-insert feed-buffer activity)
+            (setq buffer-read-only t)
+            (oset activity-message source-message-unavailable t)
+            (slack-activity-feed--replace-activity feed-buffer activity)
+            (goto-char (point-min))
+            (should (search-forward "Message unavailable." nil t))
+            (goto-char (point-min))
+            (should-not (search-forward "Loading message..." nil t))
+            (goto-char (point-min))
+            (should-not (search-forward "TODO" nil t))))
       (slack-test--unregister-team team))))
 
 (ert-deftest slack-test-reaction-unicode-survives-deferred-hooks ()

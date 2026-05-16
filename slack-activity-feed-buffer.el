@@ -181,14 +181,24 @@ MODE is the mode argument."
         (slack-room-find-message room ts)
       (error nil))))
 
+(defun slack-activity-feed--find-message (ts messages)
+  "Return message TS from MESSAGES, or nil."
+  (cl-find-if
+   (lambda (message)
+     (equal (slack-ts message) ts))
+   messages))
+
 (defun slack-activity-feed--prefetch-messages (activities team callback
-                                                          &optional messages-callback)
+                                                          &optional messages-callback
+                                                          unavailable-callback)
   "Prefetch uncached messages for ACTIVITIES in parallel, then call CALLBACK.
 Fires async API requests for all messages not already in cache,
 and invokes CALLBACK (with no arguments) once every request has
 completed (or immediately if all messages are cached).
 When MESSAGES-CALLBACK is non-nil, call it with ROOM and the fetched
 messages after each successful fetch.
+When UNAVAILABLE-CALLBACK is non-nil, call it with the activity whose
+message could not be fetched.
 TEAM is the team argument."
   (let* ((pending (list 0))   ; boxed counter for mutation in closures
          (items
@@ -196,15 +206,16 @@ TEAM is the team argument."
            for activity in activities
            for item = (oref activity item)
            collect (let ((msg (oref item message)))
-                     (list (oref msg source-message)
+                     (list activity
+                           (oref msg source-message)
                            (oref msg ts)
                            (oref msg channel)
                            (oref msg thread-ts))))))
     ;; Count how many need fetching
     (dolist (entry items)
-      (let* ((source-message (nth 0 entry))
-             (ts (nth 1 entry))
-             (channel (nth 2 entry))
+      (let* ((source-message (nth 1 entry))
+             (ts (nth 2 entry))
+             (channel (nth 3 entry))
              (room (slack-room-find channel team)))
         (when (and (not source-message)
                    room
@@ -217,10 +228,11 @@ TEAM is the team argument."
         (funcall callback)
       ;; Fire parallel async requests
       (dolist (entry items)
-        (let* ((source-message (nth 0 entry))
-               (ts (nth 1 entry))
-               (channel (nth 2 entry))
-               (thread-ts (nth 3 entry))
+        (let* ((activity (nth 0 entry))
+               (source-message (nth 1 entry))
+               (ts (nth 2 entry))
+               (channel (nth 3 entry))
+               (thread-ts (nth 4 entry))
                (room (slack-room-find channel team)))
           (when (and (not source-message)
                      room
@@ -238,14 +250,23 @@ TEAM is the team argument."
                        :limit "1"
                        :after-success
                        (lambda (messages &rest _)
-                         (when messages
-                           (slack-room-set-messages room messages team)
-                           (when (functionp messages-callback)
-                             (funcall messages-callback room messages)))
+                         (if (slack-activity-feed--find-message ts messages)
+                             (let ((matching-messages
+                                    (list (slack-activity-feed--find-message
+                                           ts messages))))
+                               (slack-room-set-messages
+                                room matching-messages team)
+                               (when (functionp messages-callback)
+                                 (funcall messages-callback
+                                          room matching-messages)))
+                           (when (functionp unavailable-callback)
+                             (funcall unavailable-callback activity)))
                          (when (= 0 (cl-decf (car pending)))
                            (funcall callback)))
                        :on-error
                        (lambda (&rest _)
+                         (when (functionp unavailable-callback)
+                           (funcall unavailable-callback activity))
                          (when (= 0 (cl-decf (car pending)))
                            (funcall callback))))
                     (slack-conversations-history
@@ -255,18 +276,29 @@ TEAM is the team argument."
                      :limit "1"
                      :after-success
                      (lambda (messages &rest _)
-                       (when messages
-                         (slack-room-set-messages room messages team)
-                         (when (functionp messages-callback)
-                           (funcall messages-callback room messages)))
+                       (if (slack-activity-feed--find-message ts messages)
+                           (let ((matching-messages
+                                  (list (slack-activity-feed--find-message
+                                         ts messages))))
+                             (slack-room-set-messages
+                              room matching-messages team)
+                             (when (functionp messages-callback)
+                               (funcall messages-callback
+                                        room matching-messages)))
+                         (when (functionp unavailable-callback)
+                           (funcall unavailable-callback activity)))
                        (when (= 0 (cl-decf (car pending)))
                          (funcall callback)))
                      :on-error
                      (lambda (&rest _)
+                       (when (functionp unavailable-callback)
+                         (funcall unavailable-callback activity))
                        (when (= 0 (cl-decf (car pending)))
                          (funcall callback)))))
                 (error
                  (message "slack-activity-feed: prefetch error for %s: %S" ts err)
+                 (when (functionp unavailable-callback)
+                   (funcall unavailable-callback activity))
                  (when (= 0 (cl-decf (car pending)))
                    (funcall callback)))))))))))
 
@@ -747,12 +779,16 @@ TEAM is the team argument."
    (thread-ts :initarg :thread-ts :type (or null string))
    (author-id :initarg :author-id :type (or null string))
    (source-message :initarg :source-message :initform nil
-                   :type (or null slack-message))))
+                   :type (or null slack-message))
+   (source-message-unavailable :initarg :source-message-unavailable
+                               :initform nil
+                               :type boolean)))
 
 (cl-defmethod slack-activity-message-to-string ((this activity-message) team &optional activity-type)
   "Format THIS activity-message of TEAM as a string for presentation.
 ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
-  (with-slots (channel ts is-broadcast thread-ts author-id source-message) this
+  (with-slots (channel ts is-broadcast thread-ts author-id source-message
+                       source-message-unavailable) this
     (condition-case err ;; this is to find out more easily messages that we fail to handle
         (let* ((room (slack-room-find channel team))
                (room-name (or (condition-case err
@@ -784,13 +820,15 @@ ACTIVITY-TYPE is the activity type string (e.g. \"thread_reply\")."
           (propertize (concat context-header "\n"
                               (if fetched-msg
                                   (slack-message-to-string fetched-msg team)
-                                "TODO"))
+                                (if source-message-unavailable
+                                    "Message unavailable."
+                                  "Loading message...")))
                       'ts ts
                       'team-id (oref team id)
                       'room-id (oref room id)
                       'thread-ts thread-ts))
       (error
-       (format "TODO there was an error, please report this message at https://github.com/emacs-slack/emacs-slack/issues:\n%s"
+       (format "Error loading activity. Please report this message at https://github.com/emacs-slack/emacs-slack/issues:\n%s"
                (list this err))))))
 
 (defclass activity-reaction ()
@@ -823,6 +861,25 @@ Eagerly resolves the emoji shortcode to Unicode when available."
    (feed-key :initarg :feed-key :initform nil :type (or null string))
    (item :initarg :item :type activity-item)))
 
+(defun slack-activity-feed--activity-message-string (activity team)
+  "Return ACTIVITY's message body string for TEAM."
+  (let* ((item (oref activity item))
+         (msg (oref item message))
+         (reaction (oref item reaction)))
+    (with-slots (channel ts source-message source-message-unavailable) msg
+      (let* ((room (slack-room-find channel team))
+             (fetched-msg
+              (or source-message
+                  (slack-activity-feed--cached-message ts room))))
+        (concat (if fetched-msg
+                    (slack-message-to-string fetched-msg team)
+                  (if source-message-unavailable
+                      "Message unavailable."
+                    "Loading message..."))
+                (when reaction
+                  (concat "\n" (slack-activity-reaction-to-string
+                                reaction team))))))))
+
 (cl-defmethod slack-activity-to-string ((this slack-activity) team)
   "Render activity THIS on TEAM as a single-line string with an unread marker."
   (with-slots (is-unread item) this
@@ -841,6 +898,51 @@ falling back to nearby positions if needed."
                           (room (slack-room-find room-id team))
                           (message (slack-room-find-message room ts)))
               (slack-buffer-replace this message)))))))
+
+(cl-defmethod slack-buffer-replace ((this slack-activity-feed-buffer) message)
+  "Replace the rendered activity row body for MESSAGE in THIS buffer."
+  (let* ((ts (slack-ts message))
+         (activity
+          (cl-loop for activity in (oref (oref this activity-feed) activities)
+                   for msg = (oref (oref activity item) message)
+                   when (equal (oref msg ts) ts)
+                   return activity)))
+    (when activity
+      (let ((activity-message (oref (oref activity item) message)))
+        (oset activity-message source-message message)
+        (oset activity-message source-message-unavailable nil)
+        (slack-activity-feed--replace-activity this activity)))))
+
+(defun slack-activity-feed--replace-activity (feed-buffer activity)
+  "Replace ACTIVITY's rendered row in FEED-BUFFER."
+  (let* ((team (slack-buffer-team feed-buffer))
+         (item (oref activity item))
+         (activity-message (oref item message))
+         (ts (oref activity-message ts))
+         (room (slack-room-find (oref activity-message channel) team))
+         (room-id (when room (oref room id)))
+         (rendered
+          (slack-buffer--render-native-emoji-string
+           (slack-activity-feed--activity-message-string activity team))))
+    (with-current-buffer (slack-buffer-buffer feed-buffer)
+      (let ((inhibit-read-only t))
+        (lui-replace
+         (slack-buffer--apply-message-keymap rendered)
+         (lambda ()
+           (equal (get-text-property (point) 'ts) ts)))
+        (let ((beg (text-property-any (point-min) (point-max) 'ts ts)))
+          (when beg
+            (let ((end (or (next-single-property-change beg 'ts)
+                           (point-max))))
+              (add-text-properties
+               beg end
+               (list 'ts ts
+                     'team-id (oref feed-buffer team-id)
+                     'room-id (or room-id (oref activity-message channel))
+                     'thread-ts (oref activity-message thread-ts)
+                     'activity-type (oref item type)
+                     'activity-feed-ts (oref activity feed-ts)
+                     'activity-feed-key (oref activity feed-key))))))))))
 
 (cl-defmethod slack-message-replace-buffer :after ((this slack-message) team)
   "Also update the activity feed buffer when a message changes.
@@ -863,6 +965,16 @@ relying on buffer text properties."
       (with-current-buffer buf
         (dolist (message messages)
           (slack-buffer-replace af-buffer message)))))
+
+(defun slack-activity-feed--replace-unavailable-message (team activity)
+  "Mark ACTIVITY's source message unavailable in TEAM's visible feed."
+  (let ((activity-message (oref (oref activity item) message)))
+    (oset activity-message source-message-unavailable t))
+  (slack-if-let* ((af-buffer (slack-buffer-find 'slack-activity-feed-buffer team))
+                  (buf (and (slot-boundp af-buffer 'buf) (oref af-buffer buf)))
+                  (live (buffer-live-p buf)))
+      (with-current-buffer buf
+        (slack-activity-feed--replace-activity af-buffer activity))))
 
 (defun slack-activity-feed--find-activity (feed-buffer feed-ts)
   "Return FEED-BUFFER's activity with FEED-TS, or nil."
@@ -921,8 +1033,7 @@ ACTIVITY is the activity argument."
          (is-unread (oref activity is-unread))
          (item (oref activity item))
          (type (oref item type))
-         (msg (oref item message))
-         (reaction (oref item reaction)))
+         (msg (oref item message)))
     (with-slots (channel ts thread-ts source-message) msg
         (condition-case err
             (let* ((room (slack-room-find channel team))
@@ -958,16 +1069,9 @@ ACTIVITY is the activity argument."
                                         'face 'slack-search-result-message-header-face
                                         'room-id (or room-id channel)
                                         'keymap slack-channel-button-keymap)))
-                   (fetched-msg
-                    (or source-message
-                        (slack-activity-feed--cached-message ts room)))
                    (message-str
-                    (concat (if fetched-msg
-                                (slack-message-to-string fetched-msg team)
-                              "TODO")
-                            (when reaction
-                              (concat "\n" (slack-activity-reaction-to-string
-                                            reaction team))))))
+                    (slack-activity-feed--activity-message-string
+                     activity team)))
               ;; Context header: no timestamp, no fill
               (let ((lui-time-stamp-position nil))
                 (lui-insert context-header t))
@@ -1088,7 +1192,17 @@ THIS is the slack-activity-feed-buffer instance."
     (slack-activity-feed--prefetch-rooms
      activities team
      (lambda ()
-       (message "Activity feed room metadata fetched.")))))
+       (message "Activity feed room metadata fetched; fetching message content...")
+       (slack-activity-feed--prefetch-messages
+        activities team
+       (lambda ()
+          (message "Activity feed message content fetched."))
+        (lambda (_room messages)
+          (slack-activity-feed--replace-prefetched-messages
+           team messages))
+        (lambda (activity)
+          (slack-activity-feed--replace-unavailable-message
+           team activity)))))))
 
 (defun slack-activity-feed--show-data (data team)
   "Render Activity feed DATA for TEAM."
