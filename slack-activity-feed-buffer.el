@@ -981,10 +981,7 @@ AFTER-SUCCESS is the after-success argument."
             (lambda ()
               (slack-activity-feed--prefetch-messages
                new-activities team
-               #'ignore
-               (lambda (_room messages)
-                 (slack-activity-feed--replace-prefetched-messages
-                  team messages)))))
+               #'ignore)))
            (oset this activity-feed new-activity-feed)
            (funcall after-success)))
        (oref activity-feed pagination)))))
@@ -1045,10 +1042,7 @@ THIS is the slack-activity-feed-buffer instance."
        (slack-activity-feed--prefetch-messages
         activities team
         (lambda ()
-          (message "Activity feed messages hydrated."))
-        (lambda (_room messages)
-          (slack-activity-feed--replace-prefetched-messages
-           team messages)))))))
+          (message "Activity feed messages hydrated.")))))))
 
 (defun slack-activity-feed--show-data (data team)
   "Render Activity feed DATA for TEAM."

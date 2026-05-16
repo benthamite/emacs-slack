@@ -1134,6 +1134,58 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
       (should displayed)
       (should hydration-started))))
 
+(ert-deftest slack-test-activity-feed-hydration-does-not-rewrite-visible-buffer ()
+  (slack-test-setup
+    (let ((displayed nil)
+          (rewrote-visible-buffer nil)
+          (activity
+           (make-instance
+            'slack-activity
+            :is-unread t
+            :feed-ts "1710000000.000100"
+            :item (make-instance
+                   'activity-item
+                   :type "channel_message"
+                   :message (make-instance
+                             'activity-message
+                             :ts "1710000000.000100"
+                             :channel channel-id
+                             :is-broadcast nil
+                             :thread-ts nil
+                             :author-id nil)
+                   :reaction nil))))
+      (cl-letf (((symbol-function 'slack-create-activity-feed-buffer)
+                 (lambda (_activity-feed _team)
+                   'buffer))
+                ((symbol-function 'slack-buffer-display)
+                 (lambda (_buffer)
+                   (setq displayed t)))
+                ((symbol-function 'slack-activity-feed--prefetch-rooms)
+                 (lambda (_activities _team callback)
+                   (funcall callback)))
+                ((symbol-function 'slack-activity-feed--prefetch-messages)
+                 (lambda (_activities _team callback &optional messages-callback)
+                   (when messages-callback
+                     (funcall messages-callback
+                              channel
+                              (list (make-instance
+                                     'slack-message
+                                     :type "message"
+                                     :channel channel-id
+                                     :ts "1710000000.000100"
+                                     :text "hello"))))
+                   (funcall callback)))
+                ((symbol-function
+                  'slack-activity-feed--replace-prefetched-messages)
+                 (lambda (&rest _)
+                   (setq rewrote-visible-buffer t))))
+        (slack-activity-feed--display-activities
+         (list activity)
+         team
+         nil))
+      (should displayed)
+      (should-not rewrote-visible-buffer))))
+
 (ert-deftest slack-test-activity-feed-displays-before-room-prefetch-finishes ()
   (slack-test-setup
     (let ((displayed nil)
