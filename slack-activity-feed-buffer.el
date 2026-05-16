@@ -39,6 +39,7 @@
 (declare-function slack-conversations-history "slack-conversations")
 (declare-function slack-conversations-replies "slack-conversations")
 (declare-function slack-conversations-info "slack-conversations")
+(declare-function slack-conversations-mark "slack-conversations")
 (declare-function slack-message-create "slack-create-message")
 (declare-function slack-select-token "slack-request")
 (declare-function slack-message-replace-buffer "slack-message-buffer")
@@ -863,6 +864,27 @@ relying on buffer text properties."
         (dolist (message messages)
           (slack-buffer-replace af-buffer message)))))
 
+(defun slack-activity-feed--find-activity (feed-buffer feed-ts)
+  "Return FEED-BUFFER's activity with FEED-TS, or nil."
+  (when (and feed-buffer
+             feed-ts
+             (slot-boundp feed-buffer 'activity-feed))
+    (cl-loop for activity in (oref (oref feed-buffer activity-feed) activities)
+             when (equal (oref activity feed-ts) feed-ts)
+             return activity)))
+
+(defun slack-activity-feed--decrement-unread-summary ()
+  "Decrement the local Activity unread summary after one item is read."
+  (when (and (boundp 'slack-unread-count)
+             (numberp slack-unread-count)
+             (< 0 slack-unread-count))
+    (setq slack-unread-count (1- slack-unread-count)))
+  (when (and (boundp 'slack-has-unreads)
+             (numberp slack-unread-count)
+             (= 0 slack-unread-count))
+    (setq slack-has-unreads nil))
+  (force-mode-line-update))
+
 (cl-defmethod slack-buffer-insert ((this slack-activity-feed-buffer) activity &rest _args)
   "Insert a rendered representation of THIS buffer into the current buffer.
 ACTIVITY is the activity argument."
@@ -1038,11 +1060,7 @@ THIS is the slack-activity-feed-buffer instance."
     (slack-activity-feed--prefetch-rooms
      activities team
      (lambda ()
-       (message "Room metadata fetched; hydrating missing messages...")
-       (slack-activity-feed--prefetch-messages
-        activities team
-        (lambda ()
-          (message "Activity feed messages hydrated.")))))))
+       (message "Activity feed room metadata fetched.")))))
 
 (defun slack-activity-feed--show-data (data team)
   "Render Activity feed DATA for TEAM."
@@ -1127,38 +1145,54 @@ back to the cached message's `replies' slot to detect that case."
          (oref msg replies))))
 
 (defun slack-activity-feed--mark-read (team)
-  "POST `activity.markRead' for the feed item at point in TEAM.
+  "Mark the feed item at point read in TEAM.
 Params are read from the activity's text properties planted by
-`slack-buffer-insert'.  Only after the API confirms success does
-the local `slack-activity' object flip `is-unread' to nil and the
-visual unread bullet on the header line get erased, so the
-on-screen state reflects what Slack actually recorded."
-  (when-let* ((feed-key (get-text-property (point) 'activity-feed-key))
-              (feed-ts (get-text-property (point) 'activity-feed-ts))
-              (type (get-text-property (point) 'activity-type))
-              (channel (get-text-property (point) 'room-id)))
-    (let* ((thread-ts (get-text-property (point) 'thread-ts))
-           (feed-buffer slack-current-buffer)
-           (source-buffer (current-buffer))
-           (pos (point))
-           (params (append (list (cons "feed_ts" feed-ts)
-                                 (cons "type" type)
-                                 (cons "channel" channel)
-                                 (cons "key" feed-key))
-                           (when thread-ts
-                             (list (cons "thread_ts" thread-ts))))))
-      (slack-request
-       (slack-request-create
-        slack-activity-feed-mark-read-url
-        team
-        :type "POST"
-        :params params
-        :success (cl-function
-                  (lambda (&key data &allow-other-keys)
-                    (slack-request-handle-error
-                     (data "slack-activity-feed-mark-read")
-                     (slack-activity-feed--on-marked-read
-                      feed-buffer source-buffer pos feed-ts)))))))))
+`slack-buffer-insert'.  Activity API rows use `activity.markRead';
+watched-channel rows without Activity keys use
+`conversations.mark'.  Only after Slack confirms success does the
+local `slack-activity' object flip `is-unread' to nil and the
+visual unread bullet on the header line get erased."
+  (let* ((feed-key (get-text-property (point) 'activity-feed-key))
+         (feed-ts (get-text-property (point) 'activity-feed-ts))
+         (type (get-text-property (point) 'activity-type))
+         (channel (slack-activity-feed--room-id-at (point)))
+         (ts (or (get-text-property (point) 'ts)
+                 (slack-get-ts)))
+         (thread-ts (get-text-property (point) 'thread-ts))
+         (feed-buffer slack-current-buffer)
+         (source-buffer (current-buffer))
+         (pos (point)))
+    (cond
+     (feed-key
+      (let ((params (append (list (cons "feed_ts" feed-ts)
+                                  (cons "type" type)
+                                  (cons "channel" channel)
+                                  (cons "key" feed-key))
+                            (when thread-ts
+                              (list (cons "thread_ts" thread-ts))))))
+        (slack-request
+         (slack-request-create
+          slack-activity-feed-mark-read-url
+          team
+          :type "POST"
+          :params params
+          :success (cl-function
+                    (lambda (&key data &allow-other-keys)
+                      (slack-request-handle-error
+                       (data "slack-activity-feed-mark-read")
+                       (slack-activity-feed--on-marked-read
+                        feed-buffer source-buffer pos feed-ts))))))))
+     ((and channel ts)
+      (when-let ((room (slack-room-find channel team)))
+        (slack-conversations-mark
+         room team ts
+         (lambda ()
+           (when (or (string= "0" (oref room last-read))
+                     (string< (oref room last-read) ts))
+             (oset room last-read ts))
+           (slack-activity-feed--on-marked-read
+            feed-buffer source-buffer pos feed-ts)
+           (slack-counts-update team))))))))
 
 (defun slack-activity-feed--on-marked-read (feed-buffer source-buffer pos feed-ts)
   "Reflect the server-confirmed mark-read for FEED-TS in FEED-BUFFER.
@@ -1167,9 +1201,11 @@ is the cursor position at invocation.  Flip the matching
 `slack-activity''s `is-unread' slot and erase the header bullet
 for that entry."
   (when (and feed-buffer (slot-boundp feed-buffer 'activity-feed))
-    (dolist (activity (oref (oref feed-buffer activity-feed) activities))
-      (when (equal (oref activity feed-ts) feed-ts)
-        (oset activity is-unread nil))))
+    (when-let ((activity (slack-activity-feed--find-activity
+                          feed-buffer feed-ts)))
+      (when (oref activity is-unread)
+        (oset activity is-unread nil)
+        (slack-activity-feed--decrement-unread-summary))))
   (when (buffer-live-p source-buffer)
     (with-current-buffer source-buffer
       (save-excursion

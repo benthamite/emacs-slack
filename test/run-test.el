@@ -1095,7 +1095,7 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
            (setq called t))))
       (should called))))
 
-(ert-deftest slack-test-activity-feed-displays-before-message-hydration-finishes ()
+(ert-deftest slack-test-activity-feed-display-does-not-start-message-hydration ()
   (slack-test-setup
     (let ((displayed nil)
           (hydration-started nil)
@@ -1132,7 +1132,7 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
          team
          nil))
       (should displayed)
-      (should hydration-started))))
+      (should-not hydration-started))))
 
 (ert-deftest slack-test-activity-feed-hydration-does-not-rewrite-visible-buffer ()
   (slack-test-setup
@@ -1185,6 +1185,69 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
          nil))
       (should displayed)
       (should-not rewrote-visible-buffer))))
+
+(ert-deftest slack-test-activity-feed-watched-open-marks-channel-read ()
+  (slack-test-setup
+    (let* ((slack-has-unreads t)
+           (slack-unread-count 2)
+           (message-ts "1710000001.000100")
+           (activity
+            (make-instance
+             'slack-activity
+             :is-unread t
+             :feed-ts message-ts
+             :item (make-instance
+                    'activity-item
+                    :type "channel_message"
+                    :message (make-instance
+                              'activity-message
+                              :ts message-ts
+                              :channel channel-id
+                              :is-broadcast nil
+                              :thread-ts nil
+                              :author-id nil)
+                    :reaction nil)))
+           (feed-buffer
+            (make-instance 'slack-activity-feed-buffer
+                           :team-id (oref team id)
+                           :room-id "__activity-feed__"
+                           :cached-team team
+                           :activity-feed
+                           (make-instance 'slack-activity-feed
+                                          :activities (list activity))))
+           (source-buffer (generate-new-buffer " *slack-test-activity-feed*"))
+           (marked-channel nil)
+           (marked-ts nil)
+           (activity-mark-requested nil)
+           (counts-updated nil))
+      (unwind-protect
+          (with-current-buffer source-buffer
+            (slack-activity-feed-buffer-mode)
+            (slack-buffer-set-current-buffer feed-buffer)
+            (oset feed-buffer buf source-buffer)
+            (slack-buffer-insert feed-buffer activity)
+            (goto-char (point-min))
+            (re-search-forward "TODO")
+            (cl-letf (((symbol-function 'slack-conversations-mark)
+                       (lambda (room _team ts after-success &optional _after-error)
+                         (setq marked-channel (oref room id)
+                               marked-ts ts)
+                         (funcall after-success)))
+                      ((symbol-function 'slack-request)
+                       (lambda (&rest _)
+                         (setq activity-mark-requested t)))
+                      ((symbol-function 'slack-counts-update)
+                       (lambda (_team)
+                         (setq counts-updated t))))
+              (slack-activity-feed--mark-read team))
+            (should (equal channel-id marked-channel))
+            (should (equal message-ts marked-ts))
+            (should-not activity-mark-requested)
+            (should counts-updated)
+            (should-not (oref activity is-unread))
+            (should (= 1 slack-unread-count))
+            (should slack-has-unreads))
+        (kill-buffer source-buffer)))))
 
 (ert-deftest slack-test-activity-feed-displays-before-room-prefetch-finishes ()
   (slack-test-setup

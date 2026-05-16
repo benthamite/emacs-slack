@@ -187,6 +187,9 @@ Some terminology in the `slack-` functions:
     finishes, including when an existing Activity feed buffer is refreshed
   - background message hydration updates the cache without rewriting the
     visible Activity feed buffer
+  - opening a watched-channel Activity feed entry marks that channel read and
+    clears the local Activity unread state for the entry after Slack confirms
+    the mark
   - background refreshes do not silently redraw the visible Activity feed;
     press <kbd>g</kbd> in the Activity feed buffer to refresh the buffer from
     the latest cache
