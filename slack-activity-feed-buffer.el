@@ -405,16 +405,18 @@ CALLBACK receives a list of `slack-activity' objects."
 (defun slack-activity-feed--merge-activities (activities extra-activities)
   "Merge ACTIVITIES and EXTRA-ACTIVITIES, newest first."
   (let ((seen (make-hash-table :test 'equal))
-        merged)
-    (dolist (activity (sort (append activities extra-activities)
-                            (lambda (a b)
-                              (> (string-to-number (oref a feed-ts))
-                                 (string-to-number (oref b feed-ts))))))
+        (merged (copy-sequence activities)))
+    (dolist (activity activities)
+      (puthash (slack-activity-feed--activity-key activity) t seen))
+    (dolist (activity extra-activities)
       (let ((key (slack-activity-feed--activity-key activity)))
         (unless (gethash key seen)
           (puthash key t seen)
           (push activity merged))))
-    (nreverse merged)))
+    (sort merged
+          (lambda (a b)
+            (> (string-to-number (oref a feed-ts))
+               (string-to-number (oref b feed-ts)))))))
 
 (defun slack-activity-feed--with-watched-activities (activities team callback)
   "Call CALLBACK with ACTIVITIES plus watched-channel entries for TEAM."

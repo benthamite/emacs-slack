@@ -1364,6 +1364,55 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (should (eq new (car merged)))
     (should (eq old (cadr merged)))))
 
+(ert-deftest slack-test-activity-feed-merge-preserves-distinct-feed-items ()
+  (let* ((mention (make-instance 'slack-activity
+                                 :is-unread t
+                                 :feed-ts "1710000002.000100"
+                                 :feed-key "mention-key"
+                                 :item (make-instance
+                                        'activity-item
+                                        :type "at_user"
+                                        :message (make-instance 'activity-message
+                                                                :ts "1710000000.000100"
+                                                                :channel "C11111"
+                                                                :is-broadcast nil
+                                                                :thread-ts nil
+                                                                :author-id nil)
+                                        :reaction nil)))
+         (reaction (make-instance 'slack-activity
+                                  :is-unread t
+                                  :feed-ts "1710000001.000100"
+                                  :feed-key "reaction-key"
+                                  :item (make-instance
+                                         'activity-item
+                                         :type "message_reaction"
+                                         :message (make-instance 'activity-message
+                                                                 :ts "1710000000.000100"
+                                                                 :channel "C11111"
+                                                                 :is-broadcast nil
+                                                                 :thread-ts nil
+                                                                 :author-id nil)
+                                         :reaction (make-instance 'activity-reaction
+                                                                  :user "U11111"
+                                                                  :name "thumbsup"))))
+         (watched-duplicate (make-instance 'slack-activity
+                                           :is-unread t
+                                           :feed-ts "1710000000.000100"
+                                           :item (make-instance
+                                                  'activity-item
+                                                  :type "channel_message"
+                                                  :message (make-instance 'activity-message
+                                                                          :ts "1710000000.000100"
+                                                                          :channel "C11111"
+                                                                          :is-broadcast nil
+                                                                          :thread-ts nil
+                                                                          :author-id nil)
+                                                  :reaction nil)))
+         (merged (slack-activity-feed--merge-activities
+                  (list mention reaction)
+                  (list watched-duplicate))))
+    (should (equal (list mention reaction) merged))))
+
 (ert-deftest slack-test-stars-prefetch-messages-calls-back-on-error ()
   (slack-test-setup
     (let ((called nil)
