@@ -455,6 +455,11 @@ CURSOR is the cursor argument."
   ((activities :initarg :activities :initform nil :type (or null list))
    (pagination :initarg :pagination :type (or null string))
    (last :initarg :last :type (or null integer))))
+
+(defun slack-activity-feed--prepare-buffer ()
+  "Apply Activity Feed display invariants in the current buffer."
+  (setq-local lui-max-buffer-size nil))
+
 (define-derived-mode slack-activity-feed-buffer-mode slack-buffer-mode "Slack Activity Feed"
   "Major mode for the Slack activity feed.
 
@@ -466,7 +471,7 @@ Buffer-wide bindings:
   (add-hook 'lui-pre-output-hook 'slack-display-inline-action t t)
   (add-hook 'post-command-hook #'slack-buffer--maybe-load-more-at-end nil t)
   (cursor-sensor-mode)
-  (setq-local lui-max-buffer-size nil))
+  (slack-activity-feed--prepare-buffer))
 
 (defclass slack-activity-feed-buffer (slack-room-buffer)
   ((activity-feed :initarg :activity-feed :type slack-activity-feed)
@@ -589,6 +594,7 @@ TEAM is the team argument."
           (oset existing activity-feed activity-feed)
           (oset existing cached-team team)
           (with-current-buffer (oref existing buf)
+            (slack-activity-feed--prepare-buffer)
             (let ((inhibit-read-only t))
               (erase-buffer))
             (when (markerp lui-output-marker)

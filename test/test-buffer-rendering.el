@@ -814,6 +814,39 @@ produces a newline with `not-tracked-p'."
   (slack-test-with-mode (slack-activity-feed-buffer-mode)
     (should-not lui-max-buffer-size)))
 
+(ert-deftest slack-test-activity-feed-reuse-disables-truncation ()
+  "Reusing an existing activity feed buffer resets stale Lui truncation."
+  (slack-test-setup
+    (let* ((buf (generate-new-buffer " *slack-test-activity-feed*"))
+           (old-feed (make-instance 'slack-activity-feed
+                                    :activities nil
+                                    :pagination nil))
+           (new-feed (make-instance 'slack-activity-feed
+                                    :activities nil
+                                    :pagination nil))
+           (existing (make-instance 'slack-activity-feed-buffer
+                                    :team-id (oref team id)
+                                    :room-id "__activity-feed__"
+                                    :cached-team team
+                                    :activity-feed old-feed
+                                    :buf buf)))
+      (unwind-protect
+          (progn
+            (slack-test--register-team team)
+            (with-current-buffer buf
+              (slack-activity-feed-buffer-mode)
+              (setq-local lui-max-buffer-size 102400)
+              (slack-buffer-set-current-buffer existing))
+            (slack-team-set-buffer existing)
+            (should (eq existing
+                        (slack-create-activity-feed-buffer new-feed team)))
+            (with-current-buffer buf
+              (should-not lui-max-buffer-size)))
+        (slack-test--unregister-team team)
+        (when (buffer-live-p buf)
+          (let ((kill-buffer-query-functions nil))
+            (kill-buffer buf)))))))
+
 (ert-deftest slack-test-rerender-covers-slack-mode-buffers ()
   "Async rerender reaches buffers in `slack-mode'."
   (let ((slack-emoji-master (make-hash-table :test 'equal))
