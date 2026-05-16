@@ -885,6 +885,34 @@ relying on buffer text properties."
     (setq slack-has-unreads nil))
   (force-mode-line-update))
 
+(defun slack-activity-feed--cache-mark-read (team feed-ts)
+  "Mark FEED-TS read in TEAM's Activity Feed cache.
+Return non-nil when at least one cached snapshot changed.  Normal
+snapshots keep the activity and clear its unread state; unread-only
+snapshots remove the activity so reopening that view does not show a
+read item."
+  (let ((changed nil))
+    (when (and team feed-ts)
+      (dolist (key (slack-activity-feed--cache-keys-for-team team))
+        (let* ((snapshot (gethash key slack-activity-feed--cache))
+               (activities (plist-get snapshot :activities)))
+          (if (cadr key)
+              (let ((new-activities
+                     (cl-remove-if
+                      (lambda (activity)
+                        (equal (oref activity feed-ts) feed-ts))
+                      activities)))
+                (unless (= (length activities) (length new-activities))
+                  (slack-activity-feed--cache-put-key
+                   key new-activities (plist-get snapshot :pagination))
+                  (setq changed t)))
+            (dolist (activity activities)
+              (when (and (equal (oref activity feed-ts) feed-ts)
+                         (oref activity is-unread))
+                (oset activity is-unread nil)
+                (setq changed t)))))))
+    changed))
+
 (cl-defmethod slack-buffer-insert ((this slack-activity-feed-buffer) activity &rest _args)
   "Insert a rendered representation of THIS buffer into the current buffer.
 ACTIVITY is the activity argument."
@@ -1197,15 +1225,23 @@ visual unread bullet on the header line get erased."
 (defun slack-activity-feed--on-marked-read (feed-buffer source-buffer pos feed-ts)
   "Reflect the server-confirmed mark-read for FEED-TS in FEED-BUFFER.
 SOURCE-BUFFER is the buffer the user invoked the mark from; POS
-is the cursor position at invocation.  Flip the matching
-`slack-activity''s `is-unread' slot and erase the header bullet
+is the cursor position at invocation.  Flip the matching visible
+and cached `slack-activity' read state and erase the header bullet
 for that entry."
-  (when (and feed-buffer (slot-boundp feed-buffer 'activity-feed))
-    (when-let ((activity (slack-activity-feed--find-activity
-                          feed-buffer feed-ts)))
-      (when (oref activity is-unread)
-        (oset activity is-unread nil)
-        (slack-activity-feed--decrement-unread-summary))))
+  (let ((changed nil))
+    (when (and feed-buffer (slot-boundp feed-buffer 'activity-feed))
+      (when-let ((activity (slack-activity-feed--find-activity
+                            feed-buffer feed-ts)))
+        (when (oref activity is-unread)
+          (oset activity is-unread nil)
+          (setq changed t))))
+    (when feed-buffer
+      (setq changed
+            (or (slack-activity-feed--cache-mark-read
+                 (slack-buffer-team feed-buffer) feed-ts)
+                changed)))
+    (when changed
+      (slack-activity-feed--decrement-unread-summary)))
   (when (buffer-live-p source-buffer)
     (with-current-buffer source-buffer
       (save-excursion

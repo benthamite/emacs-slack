@@ -1249,6 +1249,130 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
             (should slack-has-unreads))
         (kill-buffer source-buffer)))))
 
+(ert-deftest slack-test-activity-feed-mark-read-updates-cache ()
+  (slack-test-setup
+    (let* ((slack-activity-feed--cache (make-hash-table :test 'equal))
+           (slack-has-unreads t)
+           (slack-unread-count 2)
+           (message-ts "1710000001.000100")
+           (cached-activity
+            (make-instance
+             'slack-activity
+             :is-unread t
+             :feed-ts message-ts
+             :item (make-instance
+                    'activity-item
+                    :type "channel_message"
+                    :message (make-instance
+                              'activity-message
+                              :ts message-ts
+                              :channel channel-id
+                              :is-broadcast nil
+                              :thread-ts nil
+                              :author-id nil)
+                    :reaction nil)))
+           (visible-activity
+            (make-instance
+             'slack-activity
+             :is-unread t
+             :feed-ts message-ts
+             :item (make-instance
+                    'activity-item
+                    :type "channel_message"
+                    :message (make-instance
+                              'activity-message
+                              :ts message-ts
+                              :channel channel-id
+                              :is-broadcast nil
+                              :thread-ts nil
+                              :author-id nil)
+                    :reaction nil)))
+           (feed-buffer
+            (make-instance 'slack-activity-feed-buffer
+                           :team-id (oref team id)
+                           :room-id "__activity-feed__"
+                           :cached-team team
+                           :activity-feed
+                           (make-instance 'slack-activity-feed
+                                          :activities
+                                          (list visible-activity))))
+           (source-buffer (generate-new-buffer " *slack-test-activity-feed*")))
+      (unwind-protect
+          (progn
+            (slack-activity-feed--cache-put team (list cached-activity) nil)
+            (with-current-buffer source-buffer
+              (insert "\u25cf #TestChannel\nTODO\n")
+              (goto-char (point-max))
+              (cl-letf (((symbol-function 'force-mode-line-update)
+                         (lambda (&rest _) nil)))
+                (slack-activity-feed--on-marked-read
+                 feed-buffer source-buffer (point) message-ts)))
+            (should-not (oref visible-activity is-unread))
+            (should-not (oref cached-activity is-unread))
+            (should (= 1 slack-unread-count))
+            (should slack-has-unreads))
+        (kill-buffer source-buffer)))))
+
+(ert-deftest slack-test-activity-feed-mark-read-removes-unread-cache-entry ()
+  (slack-test-setup
+    (let* ((slack-activity-feed--cache (make-hash-table :test 'equal))
+           (message-ts "1710000001.000100")
+           (cached-activity
+            (make-instance
+             'slack-activity
+             :is-unread t
+             :feed-ts message-ts
+             :item (make-instance
+                    'activity-item
+                    :type "channel_message"
+                    :message (make-instance
+                              'activity-message
+                              :ts message-ts
+                              :channel channel-id
+                              :is-broadcast nil
+                              :thread-ts nil
+                              :author-id nil)
+                    :reaction nil)))
+           (visible-activity
+            (make-instance
+             'slack-activity
+             :is-unread t
+             :feed-ts message-ts
+             :item (make-instance
+                    'activity-item
+                    :type "channel_message"
+                    :message (make-instance
+                              'activity-message
+                              :ts message-ts
+                              :channel channel-id
+                              :is-broadcast nil
+                              :thread-ts nil
+                              :author-id nil)
+                    :reaction nil)))
+           (feed-buffer
+            (make-instance 'slack-activity-feed-buffer
+                           :team-id (oref team id)
+                           :room-id "__activity-feed__"
+                           :cached-team team
+                           :activity-feed
+                           (make-instance 'slack-activity-feed
+                                          :activities
+                                          (list visible-activity))))
+           (source-buffer (generate-new-buffer " *slack-test-activity-feed*")))
+      (unwind-protect
+          (let ((slack-activity-feed-mode-show-only-unread t))
+            (slack-activity-feed--cache-put team (list cached-activity) nil)
+            (with-current-buffer source-buffer
+              (insert "\u25cf #TestChannel\nTODO\n")
+              (goto-char (point-max))
+              (cl-letf (((symbol-function 'force-mode-line-update)
+                         (lambda (&rest _) nil)))
+                (slack-activity-feed--on-marked-read
+                 feed-buffer source-buffer (point) message-ts)))
+            (should-not
+             (plist-get (slack-activity-feed--cache-get team) :activities)))
+        (kill-buffer source-buffer)))))
+
 (ert-deftest slack-test-activity-feed-displays-before-room-prefetch-finishes ()
   (slack-test-setup
     (let ((displayed nil)

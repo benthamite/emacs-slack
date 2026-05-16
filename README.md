@@ -190,6 +190,8 @@ Some terminology in the `slack-` functions:
   - opening a watched-channel Activity feed entry marks that channel read and
     clears the local Activity unread state for the entry after Slack confirms
     the mark
+  - read Activity feed entries stay read in the local cache, so closing and
+    reopening the feed does not bring back cleared unread dots
   - background refreshes do not silently redraw the visible Activity feed;
     press <kbd>g</kbd> in the Activity feed buffer to refresh the buffer from
     the latest cache
