@@ -211,6 +211,8 @@ Some terminology in the `slack-` functions:
     message in emacs-slack
   - quoted-message permalinks can open messages from public channels, private
     channels, and direct messages
+  - if emacs-slack has not loaded the target team or channel, the permalink
+    opens in the default browser instead of raising an error
 - `slack-file-upload`
   - uploads a file
   - the command allows to choose many channels via select loop. In order to finish the loop input an empty string. For helm that's <kbd>C+RET</kbd> or <kbd>M+TET</kbd>. In case of Ivy it's <kbd>C+M+j</kbd>.

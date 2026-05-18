@@ -25,6 +25,8 @@
 ;;; Code:
 
 (require 'alert)
+(require 'browse-url)
+(require 'dash)
 (require 'eieio)
 (require 'slack-util)
 (require 'slack-buffer)
@@ -417,21 +419,24 @@ obtained."
    (list (cond ((url-p (car kill-ring)) (car kill-ring))
                ((thing-at-point 'url) (thing-at-point 'url))
                (t (read-string "Enter slack url:")))))
-  (if-let* ((info (slack-permalink-to-info url))
-            (team-domain (plist-get info :team-domain))
-            (team (slack-team-find-by-domain team-domain))
-            (room-id (plist-get info :room-id))
-            (room (slack-room-find room-id team))
-            (ts (plist-get info :ts))
-            (thread-ts (plist-get info :thread-ts)))
-      (slack-open-message
-       team
-       room
-       ts
-       thread-ts
-       ts)
-    (error (format "Not an url: %s" url))
-    ))
+  (if-let* ((info (slack-permalink-to-info url)))
+      (let* ((team-domain (plist-get info :team-domain))
+             (team (slack-open-url--team team-domain))
+             (room-id (plist-get info :room-id))
+             (room (slack-room-find room-id team))
+             (ts (plist-get info :ts))
+             (thread-ts (plist-get info :thread-ts)))
+        (if (and team room ts thread-ts)
+            (slack-open-message team room ts thread-ts ts)
+          (message "slack-open-url: opening unresolved permalink in browser")
+          (browse-url-default-browser url)))
+    (error "Not an url: %s" url)))
+
+(defun slack-open-url--team (team-domain)
+  "Return the registered team matching TEAM-DOMAIN."
+  (or (slack-team-find-by-domain team-domain)
+      (--find (equal team-domain (oref it name))
+              (hash-table-values slack-teams-by-token))))
 
 (defalias 'slack-open-link 'slack-open-url  "Open a Slack permalink in emacs-slack.")
 

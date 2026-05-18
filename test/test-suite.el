@@ -722,6 +722,32 @@
                            "1710000000.000100")
                      opened)))))
 
+(ert-deftest slack-test-open-url-falls-back-to-browser-for-unloaded-room ()
+  (slack-test-setup
+    (let ((slack-teams-by-token (make-hash-table :test 'equal))
+          (url "https://acme.slack.com/archives/C99999/p1710000000000100")
+          browsed-url)
+      (oset team token "token")
+      (oset team domain "acme")
+      (puthash "token" team slack-teams-by-token)
+      (cl-letf (((symbol-function 'browse-url-default-browser)
+                 (lambda (url &rest _args) (setq browsed-url url))))
+        (slack-open-url url))
+      (should (string= url browsed-url)))))
+
+(ert-deftest slack-test-open-url-falls-back-to-browser-for-team-name-match ()
+  (slack-test-setup
+    (let ((slack-teams-by-token (make-hash-table :test 'equal))
+          (url "https://acme.slack.com/archives/C99999/p1710000000000100")
+          browsed-url)
+      (oset team token "token")
+      (oset team name "acme")
+      (puthash "token" team slack-teams-by-token)
+      (cl-letf (((symbol-function 'browse-url-default-browser)
+                 (lambda (url &rest _args) (setq browsed-url url))))
+        (slack-open-url url))
+      (should (string= url browsed-url)))))
+
 (ert-deftest slack-test-shared-message-text-opens-original-message ()
   (slack-test-setup
     (let* ((from-url "https://acme.slack.com/archives/C11111/p1700000000000000")
