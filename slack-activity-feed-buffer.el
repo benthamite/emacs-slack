@@ -681,6 +681,13 @@ properties are unreliable."
              when (equal (oref msg ts) ts)
              return (oref msg channel))))
 
+(defun slack-activity-feed--activity-from-ts (buffer ts)
+  "Return the activity in BUFFER whose message timestamp is TS."
+  (cl-loop for activity in (oref (oref buffer activity-feed) activities)
+           for msg = (oref (oref activity item) message)
+           when (equal (oref msg ts) ts)
+           return activity))
+
 (cl-defmethod slack-buffer-name ((_class (subclass slack-activity-feed-buffer)) team)
   "Return the display buffer name for the activity feed buffer.
 TEAM is the team argument."
@@ -1276,6 +1283,20 @@ THIS is the slack-activity-feed-buffer instance."
          (t
           (slack-open-message team room ts nil ts))))
     (error "Not possible to jump to message")))
+
+(cl-defmethod slack-buffer-display-thread ((buf slack-activity-feed-buffer) ts)
+  "Open the activity feed thread at TS in BUF."
+  (if-let* ((activity (slack-activity-feed--activity-from-ts buf ts))
+            (msg (oref (oref activity item) message))
+            (team (slack-buffer-team buf))
+            (room (slack-room-find (oref msg channel) team)))
+      (let ((thread-ts (oref msg thread-ts)))
+        (slack-team-ensure-registered team)
+        (slack-activity-feed--mark-read team)
+        (if thread-ts
+            (slack-open-message team room thread-ts thread-ts ts)
+          (slack-open-message team room ts ts ts)))
+    (error "Not possible to jump to thread")))
 
 (defun slack-activity-feed--thread-parent-p (room ts)
   "Return non-nil when the message at TS in ROOM has replies.

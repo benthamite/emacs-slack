@@ -1313,6 +1313,49 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
             (should slack-has-unreads))
         (kill-buffer source-buffer)))))
 
+(ert-deftest slack-test-activity-feed-display-thread-opens-thread-entry ()
+  (slack-test-setup
+    (let* ((reply-ts "1710000001.000100")
+           (thread-ts "1710000000.000000")
+           (activity
+            (make-instance
+             'slack-activity
+             :is-unread t
+             :feed-ts reply-ts
+             :item (make-instance
+                    'activity-item
+                    :type "thread_v2"
+                    :message (make-instance
+                              'activity-message
+                              :ts reply-ts
+                              :channel channel-id
+                              :is-broadcast nil
+                              :thread-ts thread-ts
+                              :author-id nil)
+                    :reaction nil)))
+           (feed-buffer
+            (make-instance 'slack-activity-feed-buffer
+                           :team-id (oref team id)
+                           :room-id "__activity-feed__"
+                           :cached-team team
+                           :activity-feed
+                           (make-instance 'slack-activity-feed
+                                          :activities (list activity))))
+           opened
+           marked-team)
+      (cl-letf (((symbol-function 'slack-open-message)
+                 (lambda (&rest args)
+                   (setq opened args)))
+                ((symbol-function 'slack-activity-feed--mark-read)
+                 (lambda (team)
+                   (setq marked-team team)))
+                ((symbol-function 'slack-team-ensure-registered)
+                 #'ignore))
+        (slack-buffer-display-thread feed-buffer reply-ts))
+      (should (eq marked-team team))
+      (should (equal opened
+                     (list team channel thread-ts thread-ts reply-ts))))))
+
 (ert-deftest slack-test-activity-feed-mark-read-updates-cache ()
   (slack-test-setup
     (let* ((slack-activity-feed--cache (make-hash-table :test 'equal))
