@@ -206,6 +206,9 @@ Some terminology in the `slack-` functions:
   - use to mention to user
 - `slack-message-embed-channel`
   - use to mention to channel
+- `slack-message-edit`
+  - opens an edit buffer for the message at point, including messages shown in
+    thread buffers
 - Quoted Slack messages
   - press <kbd>RET</kbd> on a quoted/shared message to open the original
     message in emacs-slack

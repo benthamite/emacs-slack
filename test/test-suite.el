@@ -12,6 +12,8 @@
 (require 'slack-im)
 (require 'slack-room)
 (require 'slack-room-buffer)
+(require 'slack-message-edit-buffer)
+(require 'slack-message-share-buffer)
 (require 'slack-usergroup)
 (require 'slack-message)
 (require 'slack-user-message)
@@ -75,6 +77,22 @@
                                         h)
                                :usergroups (list usergroup))))
      ,@body))
+
+(ert-deftest slack-test-edit-message-buffer-caches-unregistered-team ()
+  (slack-test-setup
+    (oset team name "TestTeam")
+    (let ((buf (slack-create-edit-message-buffer channel team "1.0")))
+      (should (eq team (slack-buffer-team buf)))
+      (should (string-match-p "TestTeam" (slack-buffer-name buf)))
+      (should (string-match-p "TestChannel" (slack-buffer-name buf))))))
+
+(ert-deftest slack-test-share-message-buffer-caches-unregistered-team ()
+  (slack-test-setup
+    (oset team name "TestTeam")
+    (let ((buf (slack-create-message-share-buffer channel team "1.0")))
+      (should (eq team (slack-buffer-team buf)))
+      (should (string-match-p "TestTeam" (slack-buffer-name buf)))
+      (should (string-match-p "TestChannel" (slack-buffer-name buf))))))
 
 ;;; ---- Message creation dispatch ----
 

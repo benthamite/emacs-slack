@@ -44,9 +44,11 @@ ROOM is the room argument.
 TEAM is the team argument."
   (slack-if-let* ((buffer (slack-buffer-find 'slack-message-edit-buffer team room ts)))
       buffer
-    (slack-message-edit-buffer :room-id (oref room id)
-                               :team-id (oref team id)
-                               :ts ts)))
+    (let ((buffer (slack-message-edit-buffer :room-id (oref room id)
+                                             :team-id (oref team id)
+                                             :ts ts)))
+      (slack-buffer-cache-team buffer team)
+      buffer)))
 
 (cl-defmethod slack-buffer-name ((this slack-message-edit-buffer))
   "Return the display buffer name for THIS buffer."
