@@ -457,14 +457,24 @@ CALLBACK receives a list of `slack-activity' objects."
             (> (string-to-number (oref a feed-ts))
                (string-to-number (oref b feed-ts)))))))
 
+(defun slack-activity-feed--filter-mode-activities (activities)
+  "Return ACTIVITIES visible in the current Activity Feed mode."
+  (if slack-activity-feed-mode-show-only-unread
+      (cl-remove-if-not
+       (lambda (activity)
+         (oref activity is-unread))
+       activities)
+    activities))
+
 (defun slack-activity-feed--with-watched-activities (activities team callback)
   "Call CALLBACK with ACTIVITIES plus watched-channel entries for TEAM."
   (slack-activity-feed--fetch-watched-activities
    team
    (lambda (extra-activities)
      (funcall callback
-              (slack-activity-feed--merge-activities
-               activities extra-activities)))))
+              (slack-activity-feed--filter-mode-activities
+               (slack-activity-feed--merge-activities
+                activities extra-activities))))))
 
 (defun slack-activity-feed--cache-key (team)
   "Return the Activity Feed cache key for TEAM and the current feed mode."
@@ -546,8 +556,9 @@ content."
             (let ((new-snapshot
                    (slack-activity-feed--cache-put
                     team
-                    (slack-activity-feed--merge-activities
-                     activities extra-activities)
+                    (slack-activity-feed--filter-mode-activities
+                     (slack-activity-feed--merge-activities
+                      activities extra-activities))
                     pagination)))
               (when (and (not quiet)
                          (slack-activity-feed--visible-p team)
@@ -1231,8 +1242,9 @@ THIS is the slack-activity-feed-buffer instance."
 
 (defun slack-activity-feed--show-data (data team)
   "Render Activity feed DATA for TEAM."
-  (let ((activities (mapcar #'slack-activity-feed--parse-item
-                            (plist-get data :items)))
+  (let ((activities (slack-activity-feed--filter-mode-activities
+                     (mapcar #'slack-activity-feed--parse-item
+                             (plist-get data :items))))
         (pagination (plist-get (plist-get data :response_metadata)
                                :next_cursor)))
     (slack-activity-feed--display-activities activities team pagination)
@@ -1242,8 +1254,9 @@ THIS is the slack-activity-feed-buffer instance."
        (let ((snapshot
               (slack-activity-feed--cache-put
                team
-               (slack-activity-feed--merge-activities
-                activities extra-activities)
+               (slack-activity-feed--filter-mode-activities
+                (slack-activity-feed--merge-activities
+                 activities extra-activities))
                pagination)))
          (when (and (slack-activity-feed--visible-p team)
                     (slack-activity-feed--snapshot-changed-p nil snapshot))
@@ -1265,7 +1278,14 @@ THIS is the slack-activity-feed-buffer instance."
         (progn
           (slack-activity-feed--display-snapshot snapshot team)
           (message "Showing cached activity feed; refreshing in background...")
-          (slack-activity-feed--refresh-cache team))
+          (slack-activity-feed--refresh-cache
+           team
+           (lambda (old-snapshot new-snapshot)
+             (when (slack-activity-feed--snapshot-changed-p
+                    old-snapshot new-snapshot)
+               (slack-activity-feed--display-snapshot new-snapshot team)
+               (message "Activity feed refreshed.")))
+           t))
       (message "Fetching activity feed...")
       (slack-activity-feed-request
        team

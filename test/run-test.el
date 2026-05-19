@@ -1582,30 +1582,49 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
   (slack-test-setup
     (let* ((slack-activity-feed--cache (make-hash-table :test 'equal))
            (slack-current-team team)
-           (activity (make-instance
-                      'slack-activity
-                      :is-unread nil
-                      :feed-ts "1710000000.000100"
-                      :item (make-instance
-                             'activity-item
-                             :type "channel_message"
-                             :message (make-instance
-                                       'activity-message
-                                       :ts "1710000000.000100"
-                                       :channel channel-id
-                                       :is-broadcast nil
-                                       :thread-ts nil
-                                       :author-id nil)
-                             :reaction nil)))
+           (cached-activity (make-instance
+                             'slack-activity
+                             :is-unread nil
+                             :feed-ts "1710000000.000100"
+                             :item (make-instance
+                                    'activity-item
+                                    :type "channel_message"
+                                    :message (make-instance
+                                              'activity-message
+                                              :ts "1710000000.000100"
+                                              :channel channel-id
+                                              :is-broadcast nil
+                                              :thread-ts nil
+                                              :author-id nil)
+                                    :reaction nil)))
+           (fresh-activity (make-instance
+                            'slack-activity
+                            :is-unread nil
+                            :feed-ts "1710000001.000100"
+                            :item (make-instance
+                                   'activity-item
+                                   :type "channel_message"
+                                   :message (make-instance
+                                             'activity-message
+                                             :ts "1710000001.000100"
+                                             :channel channel-id
+                                             :is-broadcast nil
+                                             :thread-ts nil
+                                             :author-id nil)
+                                   :reaction nil)))
            (displayed nil)
            (refresh-started nil))
-      (slack-activity-feed--cache-put team (list activity) nil)
+      (slack-activity-feed--cache-put team (list cached-activity) nil)
       (cl-letf (((symbol-function 'slack-activity-feed--display-snapshot)
                  (lambda (snapshot _team)
-                   (setq displayed (plist-get snapshot :activities))))
+                   (push (plist-get snapshot :activities) displayed)))
                 ((symbol-function 'slack-activity-feed--refresh-cache)
-                 (lambda (&rest _args)
-                   (setq refresh-started t)))
+                 (lambda (team after-refresh &optional _quiet)
+                   (setq refresh-started t)
+                   (let ((old-snapshot (slack-activity-feed--cache-get team))
+                         (new-snapshot (slack-activity-feed--cache-put
+                                        team (list fresh-activity) nil)))
+                     (funcall after-refresh old-snapshot new-snapshot))))
                 ((symbol-function 'run-at-time)
                  (lambda (&rest _args)
                    (error "activity feed show must not start a timer")))
@@ -1613,7 +1632,8 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                  (lambda (&rest _args)
                    (error "show should use cache before requesting"))))
         (slack-activity-feed-show))
-      (should (equal (list activity) displayed))
+      (should (equal (list (list fresh-activity) (list cached-activity))
+                     displayed))
       (should refresh-started))))
 
 (ert-deftest slack-test-activity-feed-watched-message-updates-existing-cache ()
@@ -1724,6 +1744,41 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
            (setq result activities))))
       (should (= 1 (length result)))
       (should-not (oref (car result) is-unread)))))
+
+(ert-deftest slack-test-activity-feed-unread-mode-filters-read-watched-messages ()
+  (slack-test-setup
+    (let* ((slack-activity-feed-mode-show-only-unread t)
+           (slack-activity-feed--cache (make-hash-table :test 'equal))
+           (displayed nil)
+           (read-watched
+            (make-instance
+             'slack-activity
+             :is-unread nil
+             :feed-ts "1710000000.000100"
+             :item (make-instance
+                    'activity-item
+                    :type "channel_message"
+                    :message (make-instance
+                              'activity-message
+                              :ts "1710000000.000100"
+                              :channel channel-id
+                              :is-broadcast nil
+                              :thread-ts nil
+                              :author-id nil)
+                    :reaction nil)))
+           (data (list :items nil :response_metadata nil)))
+      (cl-letf (((symbol-function 'slack-activity-feed--display-activities)
+                 (lambda (activities _team _pagination)
+                   (setq displayed activities)))
+                ((symbol-function 'slack-activity-feed--fetch-watched-activities)
+                 (lambda (_team callback)
+                   (funcall callback (list read-watched))))
+                ((symbol-function 'slack-activity-feed--visible-p)
+                 (lambda (_team) nil)))
+        (slack-activity-feed--show-data data team))
+      (should-not displayed)
+      (should-not (plist-get (slack-activity-feed--cache-get team)
+                             :activities)))))
 
 (ert-deftest slack-test-activity-feed-watched-channel-respects-last-read ()
   (slack-test-setup

@@ -173,12 +173,14 @@ Some terminology in the `slack-` functions:
 - `slack-activity-feed-show`
   - show the activity feed
   - when cached data is available, display it immediately and refresh the
-    cache in the background
+    cache in the background; if that refresh returns newer rows, the visible
+    feed is redrawn from the fresh snapshot
   - set `slack-activity-feed-watch-channels` to include recent messages from
     specific channels in the feed, even when Slack would not otherwise show
     those messages as activity
   - watched-channel messages newer than the channel's last-read marker also
     contribute to the unread Activity indicator
+  - unread-only Activity feeds show only unread watched-channel messages
   - incoming messages in watched channels update that unread indicator without
     waiting for the next Activity feed refresh
   - distinct Slack Activity entries for the same message, such as a mention
@@ -194,14 +196,13 @@ Some terminology in the `slack-` functions:
     thread
   - read Activity feed entries stay read in the local cache, so closing and
     reopening the feed does not bring back cleared unread dots
-  - background refreshes do not silently redraw the visible Activity feed;
-    press <kbd>g</kbd> in the Activity feed buffer to refresh the buffer from
-    the latest cache
+  - event-driven background refreshes update cached data without silently
+    redrawing the visible Activity feed
   - Activity unread-summary refreshes also merge unread Activity rows into
     existing cached feed data, so opening the feed is less likely to show stale
     cached results after new notifications arrive
   - the visible Activity feed is refreshed when the feed is shown or when
-    <kbd>g</kbd> is pressed; background refreshes update cached data
+    <kbd>g</kbd> is pressed
   - `slack-activity-feed-watch-channel-limit` controls how many recent
     messages are fetched from each watched channel
   - entries can be channel names without `#` or channel IDs such as
