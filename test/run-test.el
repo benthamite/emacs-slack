@@ -1762,6 +1762,65 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
            (setq result count))))
       (should (= 1 result)))))
 
+(ert-deftest slack-test-activity-feed-unread-count-refreshes-activity-cache ()
+  (slack-test-setup
+    (let* ((slack-activity-feed--cache (make-hash-table :test 'equal))
+           (old-activity (make-instance
+                          'slack-activity
+                          :is-unread nil
+                          :feed-ts "1710000000.000100"
+                          :item (make-instance
+                                 'activity-item
+                                 :type "at_user"
+                                 :message (make-instance
+                                           'activity-message
+                                           :ts "1710000000.000100"
+                                           :channel channel-id
+                                           :is-broadcast nil
+                                           :thread-ts nil
+                                           :author-id nil)
+                                 :reaction nil)))
+           (new-item (list :is_unread t
+                           :feed_ts "1710000001.000100"
+                           :item (list :type "at_user"
+                                       :message
+                                       (list :ts "1710000001.000100"
+                                             :channel channel-id))))
+           (result nil))
+      (let ((slack-activity-feed-mode-show-only-unread nil))
+        (slack-activity-feed--cache-put team (list old-activity) nil))
+      (cl-letf (((symbol-function 'slack-activity-feed-request)
+                 (lambda (_team after-success &optional _cursor)
+                   (funcall after-success
+                            (list :items (list new-item)
+                                  :response_metadata
+                                  (list :next_cursor "next")))))
+                ((symbol-function 'slack-activity-feed--fetch-watched-activities)
+                 (lambda (_team callback)
+                   (funcall callback nil)))
+                ((symbol-function 'slack-activity-feed--visible-p)
+                 (lambda (&rest _)
+                   nil)))
+        (slack-activity-feed--fetch-unread-count
+         team
+         (lambda (count)
+           (setq result count))))
+      (let ((slack-activity-feed-mode-show-only-unread nil))
+        (let ((activities (plist-get (slack-activity-feed--cache-get team)
+                                     :activities)))
+          (should (= 2 (length activities)))
+          (should (equal "1710000001.000100" (oref (car activities) feed-ts)))
+          (should (equal "1710000000.000100"
+                         (oref (cadr activities) feed-ts)))))
+      (let ((slack-activity-feed-mode-show-only-unread t))
+        (let ((snapshot (slack-activity-feed--cache-get team)))
+          (should (equal "next" (plist-get snapshot :pagination)))
+          (should (= 1 (length (plist-get snapshot :activities))))
+          (should (equal "1710000001.000100"
+                         (oref (car (plist-get snapshot :activities))
+                               feed-ts)))))
+      (should (= 1 result)))))
+
 (ert-deftest slack-test-activity-feed-watched-channel-message-updates-unread-summary ()
   (slack-test-setup
     (let ((slack-activity-feed-watch-channels (list channel-name))

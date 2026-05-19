@@ -577,6 +577,24 @@ content."
       (message "Activity feed has newer cached results; press g to refresh."))
     changed))
 
+(defun slack-activity-feed--cache-merge-activities (team activities)
+  "Merge ACTIVITIES into existing Activity Feed cache snapshots for TEAM."
+  (let ((changed nil))
+    (dolist (key (slack-activity-feed--cache-keys-for-team team))
+      (let* ((snapshot (gethash key slack-activity-feed--cache))
+             (old-activities (plist-get snapshot :activities))
+             (new-activities
+              (slack-activity-feed--merge-activities
+               activities old-activities)))
+        (unless (equal (slack-activity-feed--activity-keys old-activities)
+                       (slack-activity-feed--activity-keys new-activities))
+          (slack-activity-feed--cache-put-key
+           key new-activities (plist-get snapshot :pagination))
+          (setq changed t))))
+    (when (and changed (slack-activity-feed--visible-p team))
+      (message "Activity feed has newer cached results; press g to refresh."))
+    changed))
+
 (defun slack-activity-feed-refresh-cache-from-event (team)
   "Refresh existing Activity Feed cache snapshots for TEAM after an event.
 This updates cache data only; it does not redraw visible Activity Feed buffers."
@@ -1442,13 +1460,22 @@ CALLBACK receives a single integer argument."
     (slack-activity-feed-request
      team
      (lambda (data)
-       (slack-activity-feed--with-watched-activities
-        (mapcar #'slack-activity-feed--parse-item
-                (plist-get data :items))
-        team
-        (lambda (activities)
-          (funcall callback
-                   (slack-activity-feed--unread-count activities))))))))
+       (let ((pagination (plist-get (plist-get data :response_metadata)
+                                    :next_cursor)))
+         (slack-activity-feed--with-watched-activities
+          (mapcar #'slack-activity-feed--parse-item
+                  (plist-get data :items))
+          team
+          (lambda (activities)
+            (let ((unread-activities
+                   (cl-remove-if-not
+                    (lambda (activity)
+                      (oref activity is-unread))
+                    activities)))
+              (slack-activity-feed--cache-put team unread-activities pagination)
+              (slack-activity-feed--cache-merge-activities
+               team unread-activities)
+              (funcall callback (length unread-activities))))))))))
 
 (provide 'slack-activity-feed-buffer)
 ;;; slack-activity-feed-buffer.el ends here

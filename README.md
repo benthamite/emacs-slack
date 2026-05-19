@@ -197,9 +197,11 @@ Some terminology in the `slack-` functions:
   - background refreshes do not silently redraw the visible Activity feed;
     press <kbd>g</kbd> in the Activity feed buffer to refresh the buffer from
     the latest cache
-  - there is no periodic Activity feed polling timer; the cache is refreshed
-    when the feed is shown, when <kbd>g</kbd> is pressed, and when relevant
-    websocket events update existing cached data
+  - Activity unread-summary refreshes also merge unread Activity rows into
+    existing cached feed data, so opening the feed is less likely to show stale
+    cached results after new notifications arrive
+  - the visible Activity feed is refreshed when the feed is shown or when
+    <kbd>g</kbd> is pressed; background refreshes update cached data
   - `slack-activity-feed-watch-channel-limit` controls how many recent
     messages are fetched from each watched channel
   - entries can be channel names without `#` or channel IDs such as
