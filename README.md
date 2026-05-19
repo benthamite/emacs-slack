@@ -172,6 +172,8 @@ Some terminology in the `slack-` functions:
   - update channel list
 - `slack-activity-feed-show`
   - show the activity feed
+  - if the Activity feed buffer is already visible, showing or refreshing it
+    updates that buffer instead of opening the same feed in another window
   - when cached data is available, display it immediately and refresh the
     cache in the background; if that refresh returns newer rows, the visible
     feed is redrawn from the fresh snapshot

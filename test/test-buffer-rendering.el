@@ -847,6 +847,38 @@ produces a newline with `not-tracked-p'."
           (let ((kill-buffer-query-functions nil))
             (kill-buffer buf)))))))
 
+(ert-deftest slack-test-activity-feed-display-does-not-duplicate-visible-buffer ()
+  "Redisplaying a visible Activity Feed buffer does not show it twice."
+  (slack-test-setup
+    (oset team id "T11111")
+    (oset team token "test-token")
+    (oset team name "Test Team")
+    (let ((slack-buffer-function #'switch-to-buffer-other-window)
+          (buffer (make-instance
+                   'slack-activity-feed-buffer
+                   :team-id (oref team id)
+                   :room-id "__activity-feed__"
+                   :cached-team team
+                   :activity-feed (make-instance 'slack-activity-feed
+                                                 :activities nil
+                                                 :pagination nil))))
+      (unwind-protect
+          (save-window-excursion
+            (slack-test--register-team team)
+            (delete-other-windows)
+            (split-window-right)
+            (slack-buffer-display buffer)
+            (should (= 1 (length (get-buffer-window-list
+                                  (slack-buffer-buffer buffer) nil t))))
+            (select-window (get-buffer-window (slack-buffer-buffer buffer)))
+            (slack-buffer-display buffer)
+            (should (= 1 (length (get-buffer-window-list
+                                  (slack-buffer-buffer buffer) nil t)))))
+        (slack-test--unregister-team team)
+        (when (buffer-live-p (oref buffer buf))
+          (let ((kill-buffer-query-functions nil))
+            (kill-buffer (oref buffer buf))))))))
+
 (ert-deftest slack-test-rerender-covers-slack-mode-buffers ()
   "Async rerender reaches buffers in `slack-mode'."
   (let ((slack-emoji-master (make-hash-table :test 'equal))

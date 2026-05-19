@@ -1216,6 +1216,11 @@ THIS is the slack-activity-feed-buffer instance."
     (let ((lui-time-stamp-position nil))
       (lui-insert "(no more messages)\n" t))))
 
+(cl-defmethod slack-buffer-display ((this slack-activity-feed-buffer))
+  "Display THIS unless its buffer is already visible."
+  (unless (get-buffer-window (slack-buffer-buffer this) t)
+    (cl-call-next-method)))
+
 (defun slack-activity-feed--display-activities (activities team pagination)
   "Prefetch and display ACTIVITIES for TEAM with PAGINATION."
   (let ((activity-feed
