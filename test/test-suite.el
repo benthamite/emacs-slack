@@ -24,6 +24,7 @@
 (require 'slack-counts)
 (require 'slack-util)
 (require 'slack-request)
+(require 'slack-user)
 
 (defvar slack-channel-button-keymap nil)
 (defvar slack-before-quit-hook nil)
@@ -316,6 +317,31 @@
       (should (null slack-current-team))
       (slack-register-team :name "New" :token "new-token")
       (should (slack-team-find-by-token "new-token")))))
+
+(ert-deftest slack-test-user-prefs-update-ignores-api-error ()
+  (slack-test-setup
+    (let ((called nil))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (req &rest _args)
+                   (setq called t)
+                   (funcall (oref req success)
+                            :data '(:ok :json-false :error "invalid_auth")))))
+        (slack-user-prefs-update team)
+        (should called)
+        (should (null (oref team user-prefs)))))))
+
+(ert-deftest slack-test-user-prefs-update-adds-muted-channels ()
+  (slack-test-setup
+    (let ((data '(:ok t
+                  :prefs
+                  (:all_notifications_prefs
+                   "{\"channels\":{\"C1\":{\"muted\":true},\"C2\":{\"muted\":false}}}"))))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (req &rest _args)
+                   (funcall (oref req success) :data data))))
+        (slack-user-prefs-update team)
+        (should (equal '("C1") (plist-get (oref team user-prefs)
+                                          :muted_channels)))))))
 
 ;;; ---- Reaction operations ----
 
@@ -893,6 +919,60 @@
     (oset req retry-count 0)
     (should-not (slack-request-retry-failed-request-p
                  req '(end-of-file) 'error))))
+
+(ert-deftest slack-test-request-retries-invalid-auth-with-team-token ()
+  (let* ((slack-token-preference (make-hash-table :test 'equal))
+         (team (make-instance 'slack-team
+                              :token "xoxc-team"
+                              :enterprise-token "xoxe-enterprise"
+                              :cookie "xoxd-cookie"))
+         (authorizations nil)
+         (success-data nil))
+    (cl-letf (((symbol-function 'request)
+               (lambda (_url &rest args)
+                 (push (alist-get "Authorization"
+                                  (plist-get args :headers)
+                                  nil nil #'string=)
+                       authorizations)
+                 (funcall (plist-get args :success)
+                          :data (if (= 1 (length authorizations))
+                                    '(:ok :json-false :error "invalid_auth")
+                                  '(:ok t)))
+                 'response)))
+      (slack-request
+       (slack-request-create
+        "https://example.com/api"
+        team
+        :success (cl-function
+                  (lambda (&key data &allow-other-keys)
+                    (setq success-data data))))))
+    (should (equal '("Bearer xoxe-enterprise" "Bearer xoxc-team")
+                   (nreverse authorizations)))
+    (should (equal '(:ok t) success-data))))
+
+(ert-deftest slack-test-request-recomputes-data-after-token-retry ()
+  (let* ((slack-token-preference (make-hash-table :test 'equal))
+         (team (make-instance 'slack-team
+                              :token "xoxc-team"
+                              :enterprise-token "xoxe-enterprise"
+                              :cookie "xoxd-cookie"))
+         (bodies nil))
+    (cl-letf (((symbol-function 'request)
+               (lambda (_url &rest args)
+                 (push (plist-get args :data) bodies)
+                 (funcall (plist-get args :success)
+                          :data (if (= 1 (length bodies))
+                                    '(:ok :json-false :error "invalid_auth")
+                                  '(:ok t)))
+                 'response)))
+      (slack-request
+       (slack-request-create
+        "https://example.com/api"
+        team
+        :data (lambda (token) (format "token=%s" token))
+        :success #'ignore)))
+    (should (equal '("token=xoxe-enterprise" "token=xoxc-team")
+                   (nreverse bodies)))))
 
 ;;; ---- Room mention count display ----
 

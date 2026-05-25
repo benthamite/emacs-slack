@@ -140,6 +140,12 @@ your token](#how-to-secure-your-token):
 If you do not specify `:cookie` then you'll automatically be prompted for one if
 you are using an `xoxc` token.
 
+For Enterprise Grid workspaces, `slack-register-team` also accepts
+`:enterprise-token`. When both `:token` and `:enterprise-token` are configured,
+emacs-slack chooses the token per Slack API endpoint and retries once with the
+other token if Slack reports that the selected token is invalid or restricted
+for that endpoint.
+
 ## How to use
 
 I recommend to chat with slackbot for tutorial using `slack-im-select`.

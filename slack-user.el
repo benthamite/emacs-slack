@@ -527,21 +527,27 @@ TEAM is the team argument."
       :type "GET"
       :success (cl-function
                 (lambda (&key data &allow-other-keys)
-                  (slack-request-handle-error
-                   (data "slack-user-prefs-update")
-                   (setf (oref team user-prefs)
-                         (let* ((prefs (plist-get data :prefs))
-                                (muted-channels
-                                 (seq-map
-                                  (lambda (channel) (symbol-name (car channel)))
-                                  (seq-filter
-                                   (lambda (channel) (alist-get 'muted (cdr channel)))
-                                   (alist-get 'channels (json-parse-string
-                                                         (plist-get prefs :all_notifications_prefs)
-                                                         :object-type 'alist
-                                                         :array-type 'list
-                                                         :false-object nil))))))
-                           (map-insert prefs :muted_channels muted-channels))))))))))
+                  (slack-request-handle-error (data "users.prefs.get")
+                    (let ((prefs (plist-get data :prefs)))
+                      (setf (oref team user-prefs)
+                            (map-insert prefs :muted_channels
+                                        (slack-user-prefs-muted-channels prefs)))))))))))
+
+(defun slack-user-prefs-muted-channels (prefs)
+  "Return muted channel IDs from PREFS."
+  (if-let ((all-notifications-prefs (plist-get prefs :all_notifications_prefs)))
+      (let* ((channels
+              (alist-get 'channels
+                         (json-parse-string all-notifications-prefs
+                                            :object-type 'alist
+                                            :array-type 'list
+                                            :false-object nil)))
+             (muted-channels
+              (seq-filter (lambda (channel) (alist-get 'muted (cdr channel)))
+                          channels)))
+        (seq-map (lambda (channel) (symbol-name (car channel)))
+                 muted-channels))
+    '()))
 
 (provide 'slack-user)
 ;;; slack-user.el ends here

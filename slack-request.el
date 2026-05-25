@@ -80,6 +80,21 @@ token for endpoints recorded in `slack-token-preference'."
        (or (string= err "team_is_restricted")
            (string= err "enterprise_is_restricted"))))
 
+(defun slack-token-retryable-error-p (err)
+  "Return non-nil if ERR may be fixed by trying the other token."
+  (and (stringp err)
+       (or (slack-token-restriction-error-p err)
+           (string= err "invalid_auth"))))
+
+(defun slack-request-update-token-preference (req err)
+  "Update REQ's token preference after Slack returned ERR."
+  (let ((url (oref req url)))
+    (if (or (string= err "team_is_restricted")
+            (and (string= err "invalid_auth")
+                 (eq 'team (gethash url slack-token-preference))))
+        (remhash url slack-token-preference)
+      (puthash url 'team slack-token-preference))))
+
 (defcustom slack-request-timeout 30
   "Request Timeout in seconds."
   :type 'integer
@@ -241,15 +256,13 @@ request's own success and error handlers run."
            (let ((err (and (eq (plist-get data :ok) :json-false)
                            (plist-get data :error))))
              (if (and err
-                      (slack-token-restriction-error-p err)
+                      (slack-token-retryable-error-p err)
                       (not (oref req token-retried))
                       (slack-team-enterprise-token team))
                  ;; Token mismatch: flip preference and retry once
                  (progn
-                   (if (string= err "team_is_restricted")
-                       (remhash (oref req url) slack-token-preference)
-                     (puthash (oref req url) 'team slack-token-preference))
-                   (slack-log (format "Token restriction (%s) for %s, retrying"
+                   (slack-request-update-token-preference req err)
+                   (slack-log (format "Token auth error (%s) for %s, retrying"
                                       err (oref req url))
                               team :level 'info)
                    (oset req token-retried t)
@@ -285,27 +298,28 @@ request's own success and error handlers run."
              (when (functionp on-error)
                (funcall on-error)))))
       (with-slots (url type params data parser sync files headers timeout without-auth) req
-        (oset req response
-              (request
-                url
-                :type type
-                :sync sync
-                :params params
-                :data data
-                :files files
-                :headers
-                (append
-                 (if without-auth nil
-                   (list (cons "Authorization"
-                               (format "Bearer %s"
-                                       (slack-select-token url team)))))
-                 (when (slack-need-cookie-p (slack-team-token team))
-                   (list (cons "Cookie" (format "d=%s; " (slack-team-cookie team)))))
-                 headers)
-                :parser parser
-                :success (unless sync #'-on-success)
-                :error (unless sync #'-on-error)
-                :timeout timeout))
+        (let* ((token (unless without-auth (slack-select-token url team)))
+               (request-data (if (functionp data) (funcall data token) data)))
+          (oset req response
+                (request
+                  url
+                  :type type
+                  :sync sync
+                  :params params
+                  :data request-data
+                  :files files
+                  :headers
+                  (append
+                   (if without-auth nil
+                     (list (cons "Authorization"
+                                 (format "Bearer %s" token))))
+                   (when (slack-need-cookie-p token)
+                     (list (cons "Cookie" (format "d=%s; " (slack-team-cookie team)))))
+                   headers)
+                  :parser parser
+                  :success (unless sync #'-on-success)
+                  :error (unless sync #'-on-error)
+                  :timeout timeout)))
         req))))
 
 

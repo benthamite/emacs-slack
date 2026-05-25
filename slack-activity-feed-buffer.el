@@ -41,7 +41,6 @@
 (declare-function slack-conversations-info "slack-conversations")
 (declare-function slack-conversations-mark "slack-conversations")
 (declare-function slack-message-create "slack-create-message")
-(declare-function slack-select-token "slack-request")
 (declare-function slack-message-replace-buffer "slack-message-buffer")
 (declare-function slack-emoji-resolve "slack-emoji")
 
@@ -629,9 +628,9 @@ CURSOR is the cursor argument."
       team
       :type "POST"
       :success #'on-success
-      :data (let ((token (slack-select-token slack-activity-feed-url team))
-                  (mode (if slack-activity-feed-mode-show-only-unread "priority_unreads_v1" "chrono_reads_and_unreads")))
-              (slack-activity-feed--request-data token mode cursor))
+      :data (lambda (token)
+              (let ((mode (if slack-activity-feed-mode-show-only-unread "priority_unreads_v1" "chrono_reads_and_unreads")))
+                (slack-activity-feed--request-data token mode cursor)))
       :headers (list
                 (cons "content-type"
                       (format "multipart/form-data; boundary=%s"
