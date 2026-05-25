@@ -19,6 +19,7 @@
 (require 'slack-user-message)
 (require 'slack-bot-message)
 (require 'slack-create-message)
+(require 'slack-star)
 (require 'slack-attachment)
 (require 'slack-reaction)
 (require 'slack-counts)
@@ -214,6 +215,25 @@
       (slack-room-push-message channel msg team)
       (should (eq msg (slack-room-find-message channel "100.0")))
       (should (member "100.0" (oref channel message-ids))))))
+
+(ert-deftest slack-test-stars-list-request-caches-embedded-messages ()
+  (slack-test-setup
+    (let ((payload (list :ok t
+                         :saved_items
+                         (list (list :item_id channel-id
+                                     :item_type "message"
+                                     :message (list :type "message"
+                                                    :user user-id
+                                                    :text "saved body"
+                                                    :ts "1710000000.000100"))))))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (req)
+                   (funcall (oref req success) :data payload)
+                   req)))
+        (slack-stars-list-request team))
+      (let ((message (slack-room-find-message channel "1710000000.000100")))
+        (should message)
+        (should (string= "saved body" (oref message text)))))))
 
 (ert-deftest slack-test-room-push-maintains-sort-order ()
   (slack-test-setup

@@ -215,6 +215,9 @@ Some terminology in the `slack-` functions:
     messages are fetched from each watched channel
   - entries can be channel names without `#` or channel IDs such as
     `C1234567890`
+- `slack-saved-items`
+  - show saved messages and cache message data returned by Slack so the buffer
+    can render newly fetched saved items immediately
 - `slack-message-embed-mention`
   - use to mention to user
 - `slack-message-embed-channel`

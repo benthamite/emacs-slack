@@ -29,6 +29,8 @@
 (require 'slack-team)
 (require 'slack-file)
 (require 'slack-buffer)
+(require 'slack-create-message)
+(require 'slack-room)
 
 ;; Stars were renamed to "saved items" in July 2023.
 ;; https://api.slack.com/changelog/2023-07-its-later-already-for-stars-and-reminders
@@ -129,6 +131,18 @@
                    :items items
                    :cursor cursor)))
 
+(defun slack-star-cache-embedded-messages (payload team)
+  "Cache message objects embedded in saved-list PAYLOAD for TEAM."
+  (dolist (item (plist-get payload :saved_items))
+    (when-let* ((message-payload (plist-get item :message))
+                (room-id (or (plist-get item :item_id)
+                             (plist-get item :channel)
+                             (plist-get message-payload :channel)))
+                (room (slack-room-find room-id team))
+                (message (slack-message-create
+                          (copy-sequence message-payload) team room)))
+      (slack-room-set-messages room (list message) team))))
+
 (defun slack-stars-list-request (team &optional cursor after-success)
   "Fetch starred items for TEAM starting at CURSOR, calling AFTER-SUCCESS when done."
   (cl-labels
@@ -141,6 +155,7 @@
           (let* ((star (slack-create-star data))
                  (user-ids (slack-team-missing-user-ids
                             team nil)))
+            (slack-star-cache-embedded-messages data team)
             (if (oref team star)
                 (if cursor
                     (slack-merge (oref team star) star)
