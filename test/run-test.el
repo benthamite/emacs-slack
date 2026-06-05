@@ -1356,6 +1356,30 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
       (should (equal opened
                      (list team channel thread-ts thread-ts reply-ts))))))
 
+(ert-deftest slack-test-stars-buffer-display-thread-opens-thread ()
+  "Pressing RET on a saved item's thread-status link opens its thread."
+  (slack-test-setup
+    (let* ((thread-ts "1710000000.000000")
+           (parent (make-instance 'slack-message
+                                  :type "message"
+                                  :channel channel-id
+                                  :ts thread-ts
+                                  :thread_ts thread-ts
+                                  :reply_count 2))
+           (buf (make-instance 'slack-stars-buffer
+                               :team-id (oref team id)
+                               :room-id "__saved-items__"))
+           shown)
+      (slack-buffer-cache-team buf team)
+      (slack-room-set-messages channel (list parent) team)
+      (cl-letf (((symbol-function 'slack-buffer-room)
+                 (lambda (_this) channel))
+                ((symbol-function 'slack-thread-show-messages)
+                 (lambda (message room thread-team &rest _)
+                   (setq shown (list message room thread-team)))))
+        (slack-buffer-display-thread buf thread-ts))
+      (should (equal shown (list parent channel team))))))
+
 (ert-deftest slack-test-activity-feed-mark-read-updates-cache ()
   (slack-test-setup
     (let* ((slack-activity-feed--cache (make-hash-table :test 'equal))

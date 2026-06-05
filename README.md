@@ -218,6 +218,8 @@ Some terminology in the `slack-` functions:
 - `slack-saved-items`
   - show saved messages and cache message data returned by Slack so the buffer
     can render newly fetched saved items immediately
+  - press <kbd>RET</kbd> on a saved item's thread-status link ("N replies, Last
+    reply ...") to open the associated thread
 - `slack-message-embed-mention`
   - use to mention to user
 - `slack-message-embed-channel`

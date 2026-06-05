@@ -350,6 +350,16 @@ lines inserted by `slack-buffer-insert'."
 ;;;###autoload
 (defalias 'slack-stars-list 'slack-saved-items)
 
+(cl-defmethod slack-buffer-display-thread ((this slack-stars-buffer) ts)
+  "Open the thread of the saved item at TS in THIS buffer.
+The room is resolved from the `room-id' text property at point,
+since each saved item may belong to a different room."
+  (slack-if-let* ((team (slack-buffer-team this))
+                  (room (slack-buffer-room this))
+                  (message (slack-room-find-message room ts)))
+      (slack-thread-show-messages message room team)
+    (error "Not possible to open thread")))
+
 (cl-defmethod slack-feed--open ((_buf slack-stars-buffer) ts)
   "Open the saved item at TS in its channel or thread buffer."
   (if-let* ((room-id (get-text-property (point) 'room-id))
