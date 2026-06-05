@@ -14,6 +14,9 @@
 (require 'slack-star)
 (require 'slack-star-event)
 (require 'slack-stars-buffer)
+(require 'slack-pinned-items-buffer)
+(require 'slack-search)
+(require 'slack-search-result-buffer)
 (require 'slack-scheduled-messages-buffer)
 (require 'slack-activity-feed-buffer)
 
@@ -1375,6 +1378,62 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
       (cl-letf (((symbol-function 'slack-buffer-room)
                  (lambda (_this) channel))
                 ((symbol-function 'slack-thread-show-messages)
+                 (lambda (message room thread-team &rest _)
+                   (setq shown (list message room thread-team)))))
+        (slack-buffer-display-thread buf thread-ts))
+      (should (equal shown (list parent channel team))))))
+
+(ert-deftest slack-test-pinned-items-buffer-display-thread-opens-thread ()
+  "Pressing RET on a pinned message's thread-status link opens its thread."
+  (slack-test-setup
+    (let* ((thread-ts "1710000000.000000")
+           (parent (make-instance 'slack-message
+                                  :type "message"
+                                  :channel channel-id
+                                  :ts thread-ts
+                                  :thread_ts thread-ts
+                                  :reply_count 2))
+           (buf (make-instance 'slack-pinned-items-buffer
+                               :team-id (oref team id)
+                               :room-id channel-id
+                               :items (list parent)))
+           shown)
+      (slack-buffer-cache-team buf team)
+      (cl-letf (((symbol-function 'slack-buffer-room)
+                 (lambda (_this) channel))
+                ((symbol-function 'slack-thread-show-messages)
+                 (lambda (message room thread-team &rest _)
+                   (setq shown (list message room thread-team)))))
+        (slack-buffer-display-thread buf thread-ts))
+      (should (equal shown (list parent channel team))))))
+
+(ert-deftest slack-test-search-result-buffer-display-thread-opens-thread ()
+  "Pressing RET on a search match's thread-status link opens its thread."
+  (slack-test-setup
+    (let* ((thread-ts "1710000000.000000")
+           (parent (make-instance 'slack-message
+                                  :type "message"
+                                  :channel channel-id
+                                  :ts thread-ts
+                                  :thread_ts thread-ts
+                                  :reply_count 2))
+           (match (make-instance 'slack-search-message
+                                 :message parent
+                                 :channel (make-instance
+                                           'slack-search-message-channel
+                                           :id channel-id
+                                           :name channel-name)
+                                 :user user-id
+                                 :username user-name
+                                 :permalink "https://example.com/p"))
+           (search-result (make-instance 'slack-search-result
+                                         :matches (list match)))
+           (buf (make-instance 'slack-search-result-buffer
+                               :team-id (oref team id)
+                               :search-result search-result))
+           shown)
+      (slack-buffer-cache-team buf team)
+      (cl-letf (((symbol-function 'slack-thread-show-messages)
                  (lambda (message room thread-team &rest _)
                    (setq shown (list message room thread-team)))))
         (slack-buffer-display-thread buf thread-ts))

@@ -208,6 +208,23 @@ buffer.")
                (slack-buffer-display buffer))))
         (slack-search-request instance #'after-success team)))))
 
+(cl-defmethod slack-buffer-display-thread ((this slack-search-result-buffer) ts)
+  "Open the thread of the search match at TS in THIS buffer.
+Each match may belong to a different room, so the room is resolved
+from the matching message's channel id."
+  (slack-if-let* ((team (slack-buffer-team this))
+                  (match (slack-search-result--match-at this ts))
+                  (room (slack-room-find (oref (oref match channel) id) team)))
+      (slack-thread-show-messages (oref match message) room team)
+    (error "Not possible to open thread")))
+
+(defun slack-search-result--match-at (buffer ts)
+  "Return the `slack-search-message' in BUFFER whose timestamp is TS."
+  (cl-find-if (lambda (m)
+                (and (slack-search-message-p m)
+                     (string= ts (slack-ts m))))
+              (oref (oref buffer search-result) matches)))
+
 (defun slack-search-result-open-message ()
   "Open url in search result page."
   (interactive)

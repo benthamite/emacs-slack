@@ -220,6 +220,12 @@ Some terminology in the `slack-` functions:
     can render newly fetched saved items immediately
   - press <kbd>RET</kbd> on a saved item's thread-status link ("N replies, Last
     reply ...") to open the associated thread
+- `slack-room-pins-list`
+  - press <kbd>RET</kbd> on a pinned message's thread-status link ("N replies,
+    Last reply ...") to open the associated thread
+- `slack-search-from-messages`
+  - press <kbd>RET</kbd> on a search result's thread-status link ("N replies,
+    Last reply ...") to open the associated thread
 - `slack-message-embed-mention`
   - use to mention to user
 - `slack-message-embed-channel`

@@ -107,6 +107,15 @@ TS is the ts argument."
                                          items)))
         (slack-buffer-replace this message))))
 
+(cl-defmethod slack-buffer-display-thread ((this slack-pinned-items-buffer) ts)
+  "Open the thread of the pinned message at TS in THIS buffer."
+  (slack-if-let* ((team (slack-buffer-team this))
+                  (room (slack-buffer-room this))
+                  (message (cl-find-if (lambda (m) (string= ts (slack-ts m)))
+                                       (oref this items))))
+      (slack-thread-show-messages message room team)
+    (error "Not possible to open thread")))
+
 (defun slack-pinned-items-open-message ()
   "Open url in pinned items page."
   (interactive)
