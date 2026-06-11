@@ -338,6 +338,8 @@ Some terminology in the `slack-` functions:
     button shows the edit buffer instead of an unrelated buffer
   - the saved-items buffer stops paginating at the last page instead
     of re-fetching page one forever and appending duplicate items
+  - opening a thread from the pinned-items buffer works (the wrapper
+    object was passed where the message was expected)
 
 ### Tip
 

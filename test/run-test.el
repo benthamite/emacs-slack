@@ -1400,7 +1400,8 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
            (buf (make-instance 'slack-pinned-items-buffer
                                :team-id (oref team id)
                                :room-id channel-id
-                               :items (list parent)))
+                               :items (list (make-instance 'slack-pinned-item
+                                                           :message parent))))
            shown)
       (slack-buffer-cache-team buf team)
       (cl-letf (((symbol-function 'slack-buffer-room)

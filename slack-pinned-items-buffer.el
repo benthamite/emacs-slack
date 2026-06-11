@@ -108,11 +108,18 @@ TS is the ts argument."
         (slack-buffer-replace this message))))
 
 (cl-defmethod slack-buffer-display-thread ((this slack-pinned-items-buffer) ts)
-  "Open the thread of the pinned message at TS in THIS buffer."
+  "Open the thread of the pinned message at TS in THIS buffer.
+Items are `slack-pinned-item' wrappers; the thread machinery needs
+the wrapped `slack-message', so unwrap before dispatching (file-type
+pins carry a file, not a message, and cannot open a thread)."
   (slack-if-let* ((team (slack-buffer-team this))
                   (room (slack-buffer-room this))
-                  (message (cl-find-if (lambda (m) (string= ts (slack-ts m)))
-                                       (oref this items))))
+                  (item (cl-find-if (lambda (m) (string= ts (slack-ts m)))
+                                    (oref this items)))
+                  (message (if (cl-typep item 'slack-pinned-item)
+                               (oref item message)
+                             item))
+                  (message-p (cl-typep message 'slack-message)))
       (slack-thread-show-messages message room team)
     (error "Not possible to open thread")))
 
