@@ -145,15 +145,20 @@ page, so only a non-empty cursor means another page exists."
                           (copy-sequence message-payload) team room)))
       (slack-room-set-messages room (list message) team))))
 
-(defun slack-stars-list-request (team &optional cursor after-success)
-  "Fetch starred items for TEAM starting at CURSOR, calling AFTER-SUCCESS when done."
+(defun slack-stars-list-request (team &optional cursor after-success on-error)
+  "Fetch starred items for TEAM starting at CURSOR, calling AFTER-SUCCESS when done.
+ON-ERROR is invoked when the request fails at the API or transport
+level, so callers can clear their in-flight state."
   (cl-labels
       ((callback ()
          (when (functionp after-success)
            (funcall after-success)))
+       (fail (&rest args)
+         (when (functionp on-error)
+           (apply on-error args)))
        (on-success (&key data &allow-other-keys)
          (slack-request-handle-error
-          (data "slack-stars-list-request")
+          (data "slack-stars-list-request" #'fail)
           (let* ((star (slack-create-star data))
                  (user-ids (slack-team-missing-user-ids
                             team nil)))
@@ -174,7 +179,8 @@ page, so only a non-empty cursor means another page exists."
       team
       :type "POST"
       :data (list (when cursor (cons "cursor" cursor)))
-      :success #'on-success))))
+      :success #'on-success
+      :error (lambda (&rest args) (apply #'fail args))))))
 
 (defun slack-star-api-request (url params team)
   "Send a star add/remove request to URL with PARAMS for TEAM."

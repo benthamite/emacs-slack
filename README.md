@@ -364,7 +364,8 @@ Some terminology in the `slack-` functions:
   - a failed or rate-limited history request no longer permanently
     disables "(load more)" in thread and feed buffers, and a buffer
     killed while the request is in flight stays dead instead of being
-    re-created by the response (channel buffers included)
+    re-created by the response (channel, search, and saved-items
+    buffers included)
   - loading more threads in the All threads buffer restores point in
     that buffer instead of moving point in whatever buffer the
     response callback happened to land in

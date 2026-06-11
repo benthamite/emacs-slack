@@ -261,25 +261,37 @@ THIS is the slack-stars-buffer instance."
 
 (cl-defmethod slack-buffer-load-more ((this slack-stars-buffer))
   "Load the next page of saved items and append at the bottom.
-THIS is the slack-stars-buffer instance."
+THIS is the slack-stars-buffer instance.  The in-flight flag is reset
+on request failure too, and a buffer killed while the request is in
+flight stays dead instead of being re-created."
   (when (and (slack-buffer-has-next-page-p this)
              (not slack-buffer--loading-more-p))
     (setq slack-buffer--loading-more-p t)
     (let* ((team (slack-buffer-team this))
            (star (oref team star))
-           (old-count (length (slack-star-items star))))
-      (slack-stars-list-request
-       team (oref star cursor)
-       (lambda ()
-         (let ((new-items (nthcdr old-count (slack-star-items star))))
-           (slack-stars--prefetch-messages
-            new-items team
-            (lambda ()
-              (with-current-buffer (slack-buffer-buffer this)
-                (let ((inhibit-read-only t))
-                  (slack-stars--insert-items this new-items)
-                  (slack-stars--insert-tail this))
-                (setq slack-buffer--loading-more-p nil))))))))))
+           (old-count (length (slack-star-items star)))
+           (buffer (current-buffer)))
+      (cl-labels
+          ((reset-loading-flag ()
+             (when (buffer-live-p buffer)
+               (with-current-buffer buffer
+                 (setq slack-buffer--loading-more-p nil)))))
+        (slack-stars-list-request
+         team (oref star cursor)
+         (lambda ()
+           (let ((new-items (nthcdr old-count (slack-star-items star))))
+             (slack-stars--prefetch-messages
+              new-items team
+              (lambda ()
+                (unwind-protect
+                    (when (buffer-live-p buffer)
+                      (with-current-buffer buffer
+                        (let ((inhibit-read-only t))
+                          (slack-stars--insert-items this new-items)
+                          (slack-stars--insert-tail this))))
+                  (reset-loading-flag))))))
+         (lambda (&rest _args)
+           (reset-loading-flag)))))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-stars-buffer))
   "Initialize and return the display buffer for THIS buffer."

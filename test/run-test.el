@@ -2762,6 +2762,31 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (slack-display-inline-action)
     (should (string= "run C:\\tool" (buffer-string)))))
 
+(ert-deftest slack-test-stars-load-more-resets-flag-on-error ()
+  (slack-test-setup
+    (let ((buf-obj (make-instance 'slack-stars-buffer
+                                  :team-id (oref team id)))
+          (buffer (generate-new-buffer " *slack-test-stars-lm*"))
+          (captured-error nil))
+      (slack-buffer-cache-team buf-obj team)
+      (oset buf-obj buf buffer)
+      (oset team star (slack-create-star
+                       (list :saved_items nil
+                             :response_metadata (list :next_cursor "cur"))))
+      (unwind-protect
+          (progn
+            (cl-letf (((symbol-function 'slack-stars-list-request)
+                       (lambda (_team _cursor _success &optional on-error)
+                         (setq captured-error on-error))))
+              (with-current-buffer buffer
+                (slack-buffer-load-more buf-obj)
+                (should slack-buffer--loading-more-p)))
+            (should (functionp captured-error))
+            (funcall captured-error "rate_limited")
+            (with-current-buffer buffer
+              (should-not slack-buffer--loading-more-p)))
+        (kill-buffer buffer)))))
+
 (ert-deftest slack-test-users-info-error-keeps-continuation ()
   (slack-test-setup
     (let ((captured-error nil)

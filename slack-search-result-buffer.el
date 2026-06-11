@@ -144,13 +144,15 @@ MATCH is the match argument."
              do (slack-buffer-insert this match))
     (goto-char cur-point)))
 
-(cl-defmethod slack-buffer-request-history ((this slack-search-result-buffer) after-success &optional _on-error)
+(cl-defmethod slack-buffer-request-history ((this slack-search-result-buffer) after-success &optional on-error)
   "Request older history for THIS buffer from the Slack API.
-AFTER-SUCCESS is the after-success argument."
+AFTER-SUCCESS is the after-success argument.  ON-ERROR is invoked on
+request failure."
   (with-slots (search-result) this
     (slack-search-request search-result after-success (slack-buffer-team this)
                           (slack-search-paging-next-page
-                           (oref search-result pagination)))))
+                           (oref search-result pagination))
+                          on-error)))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-search-result-buffer))
   "Initialize and return the display buffer for THIS buffer."

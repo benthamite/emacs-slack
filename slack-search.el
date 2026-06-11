@@ -234,17 +234,22 @@ If QUERY is non-nil, use it as the search query without prompting."
   "https://slack.com/api/search.files")
 
 (cl-defmethod slack-search-request ((this slack-search-result)
-                                    after-success team &optional (page 1))
+                                    after-success team &optional (page 1) on-error)
   "Issue the search request for THIS, fetching PAGE (1 by default) from TEAM.
 AFTER-SUCCESS is called once the result (and any missing users) are
-merged into THIS."
+merged into THIS.  ON-ERROR is invoked on API or transport failure so
+callers can clear their in-flight state — the search API is
+aggressively rate limited."
   (cl-labels
       ((callback ()
          (funcall after-success))
+       (fail (&rest args)
+         (when (functionp on-error)
+           (apply on-error args)))
        (on-success
          (&key data &allow-other-keys)
          (slack-request-handle-error
-          (data "slack-search-request")
+          (data "slack-search-request" #'fail)
           (let* ((search-result (if (slack-file-search-result-p this)
                                     (slack-search-create-file-result data
                                                                      (oref this sort)
@@ -272,7 +277,8 @@ merged into THIS."
                           (cons "sort" sort)
                           (cons "sort_dir" sort-dir)
                           (cons "page" (number-to-string page)))
-            :success #'on-success))))))
+            :success #'on-success
+            :error (lambda (&rest args) (apply #'fail args))))))))
 
 (cl-defmethod slack-message-user-ids ((this slack-search-message))
   "Return the list of user IDs referenced by the search message.
