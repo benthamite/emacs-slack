@@ -2681,6 +2681,43 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-thread-update-keeps-last-read-while-has-more ()
+  (slack-test-setup
+    (let ((buf-obj (make-instance 'slack-thread-message-buffer
+                                  :room-id channel-id
+                                  :team-id (oref team id)
+                                  :thread-ts "1710000000.000100"
+                                  :has-more t))
+          (buffer (generate-new-buffer " *slack-test-thread*"))
+          (reply (make-instance 'slack-message
+                                :type "message"
+                                :channel channel-id
+                                :ts "1710000000.000900"
+                                :thread_ts "1710000000.000100"))
+          (marked nil))
+      (slack-buffer-cache-team buf-obj team)
+      (oset buf-obj buf buffer)
+      (oset buf-obj last-read "1710000000.000200")
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-insert)
+                     (lambda (&rest _) nil))
+                    ((symbol-function 'slack-buffer-message-exists-p)
+                     (lambda (&rest _) nil))
+                    ((symbol-function 'slack-thread-mark)
+                     (lambda (&rest _) (setq marked t))))
+            (slack-buffer-update buf-obj reply)
+            (should (equal "1710000000.000200" (oref buf-obj last-read)))
+            (should-not marked)
+            (oset buf-obj has-more nil)
+            (slack-buffer-update buf-obj
+                                 (make-instance 'slack-message
+                                                :type "message"
+                                                :channel channel-id
+                                                :ts "1710000000.000901"
+                                                :thread_ts "1710000000.000100"))
+            (should (equal "1710000000.000901" (oref buf-obj last-read))))
+        (kill-buffer buffer)))))
+
 (ert-deftest slack-test-unread-count-fetch-uses-unread-cache-key ()
   (slack-test-setup
     (let ((slack-activity-feed--cache (make-hash-table :test 'equal))

@@ -320,6 +320,10 @@ Some terminology in the `slack-` functions:
     disconnected, pagination) merge into the thread's reply list
     instead of replacing it, so reopening a thread no longer shows
     only the most recently fetched slice
+  - a live reply arriving in a partially loaded thread no longer
+    advances the read mark past the unfetched replies, which both
+    marked them read on the server and made load-more skip them
+    forever
   - looking up a thread reply by timestamp fetches the requested
     reply rather than silently returning the thread parent, and
     tolerates rooms missing from the local cache

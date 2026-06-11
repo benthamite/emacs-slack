@@ -256,14 +256,19 @@ TS is the ts argument."
 
 (cl-defmethod slack-buffer-update ((this slack-thread-message-buffer) message &key replace)
   "Update THIS buffer after new data arrives.
-MESSAGE is the message argument."
+MESSAGE is the message argument.  While older replies remain
+unfetched (has-more), the read mark is not advanced: a live reply's
+ts lies past the unfetched gap, so marking there would tell the
+server the gap was read and anchor the next load-more beyond it,
+permanently skipping those replies."
   (if replace (slack-buffer-replace this message)
     (unless (slack-buffer-message-exists-p this (slack-ts message))
       (let ((buffer (slack-buffer-buffer this)))
         (with-current-buffer buffer
           (slack-buffer-insert this message))
-        (slack-buffer-update-last-read this message)
-        (slack-buffer-update-mark this)))))
+        (unless (oref this has-more)
+          (slack-buffer-update-last-read this message)
+          (slack-buffer-update-mark this))))))
 
 (cl-defmethod slack-buffer-display-edit-message-buffer ((this slack-thread-message-buffer) ts)
   "Open an edit buffer for THIS message at point in the thread message buffer.
