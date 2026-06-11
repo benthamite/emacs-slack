@@ -2343,6 +2343,13 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (when (timerp old-timer)
           (cancel-timer old-timer))))))
 
+(ert-deftest slack-test-ws-url-redacted ()
+  (should (equal "wss://wss-primary.slack.com/?token=REDACTED&sync_desync=1"
+                 (slack-ws--redact-url
+                  "wss://wss-primary.slack.com/?token=xoxc-secret-123&sync_desync=1")))
+  (should (equal "wss://example.com/socket"
+                 (slack-ws--redact-url "wss://example.com/socket"))))
+
 (ert-deftest slack-test-curl-downloader-failure-keeps-existing-file ()
   (let* ((dir (make-temp-file "slack-test-dl" t))
          (target (expand-file-name "existing.bin" dir))

@@ -114,8 +114,8 @@ WS is the ws argument."
                       :level 'error)))
       (slack-log (format "Opening websocket connection. NOWAIT: %s, URL: %s \n(not using anymore ws object url: %s)"
                          (oref ws websocket-nowait)
-                         ws-url
-                         (oref ws url))
+                         (slack-ws--redact-url ws-url)
+                         (slack-ws--redact-url (oref ws url)))
                  team
                  :level 'debug)
       (oset ws conn
@@ -140,12 +140,19 @@ WS is the ws argument."
                                               #'slack-ws-on-timeout
                                               (slack-team-id team)))
       (slack-log (format "Called `websocket-open' URL: %s"
-                         ws-url)
+                         (slack-ws--redact-url ws-url))
                  team :level 'debug))))
 
 (defvar slack-presence-timers (make-hash-table :test 'equal)
   "Keep track of the teams presence timers.
 Set when SLACK-EMIT-PERIODIC-PRESENCE-P is set.")
+
+(defun slack-ws--redact-url (url)
+  "Return URL with any token query parameter value replaced by REDACTED.
+Websocket URLs embed the workspace token; logging them verbatim
+would persist the credential in the log buffer."
+  (when (stringp url)
+    (replace-regexp-in-string "token=[^&]+" "token=REDACTED" url)))
 
 (defun slack-ws-close ()
   "Close the websocket for every team and stop background workers."

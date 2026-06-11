@@ -281,6 +281,9 @@ Some terminology in the `slack-` functions:
   - typing indicators no longer leak repeating timers when people type
     in different channels in quick succession (the leaked timers
     erased the echo area every second for the rest of the session)
+  - websocket URLs are logged with the workspace token redacted, so
+    setting `slack-log-level` to `debug` no longer writes the
+    credential to the log buffer
 
 ### Tip
 
