@@ -2534,6 +2534,40 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
               (should-not slack-buffer--loading-more-p)))
         (kill-buffer buffer)))))
 
+(ert-deftest slack-test-all-threads-history-restores-point-in-feed-buffer ()
+  (slack-test-setup
+    (let ((buf-obj (make-instance 'slack-all-threads-buffer
+                                  :team-id (oref team id)
+                                  :current-ts "1710000000.000000"
+                                  :threads nil))
+          (feed-buffer (generate-new-buffer " *slack-test-threads*"))
+          (other-buffer (generate-new-buffer " *slack-test-other*"))
+          (captured-success nil))
+      (slack-buffer-cache-team buf-obj team)
+      (oset buf-obj buf feed-buffer)
+      (unwind-protect
+          (progn
+            (with-current-buffer feed-buffer
+              (insert "0123456789")
+              (goto-char 5))
+            (with-current-buffer other-buffer
+              (insert "abcdefghij")
+              (goto-char 9))
+            (cl-letf (((symbol-function 'slack-subscriptions-thread-get-view)
+                       (lambda (_team _ts success)
+                         (setq captured-success success))))
+              (with-current-buffer feed-buffer
+                (slack-buffer-request-history buf-obj #'ignore)))
+            (with-current-buffer feed-buffer
+              (goto-char (point-max)))
+            (with-current-buffer other-buffer
+              (funcall captured-success 0 0 nil nil)
+              (should (eq 9 (point))))
+            (with-current-buffer feed-buffer
+              (should (eq 5 (point)))))
+        (kill-buffer feed-buffer)
+        (kill-buffer other-buffer)))))
+
 (ert-deftest slack-test-feed-goto-prev-lands-on-entry-starts ()
   (with-temp-buffer
     (insert (propertize "entry one\n" 'ts "1"))

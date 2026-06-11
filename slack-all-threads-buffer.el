@@ -231,9 +231,14 @@ AFTER-SUCCESS is the after-success argument."
                     (oset this threads (append (oref this threads) threads))
                     (oset this has-more has-more)
                     (funcall after-success)
-                    (when (and (< (point-min) cur-point)
-                               (< cur-point (point-max)))
-                      (goto-char cur-point))))
+                    ;; The HTTP callback runs with an arbitrary buffer
+                    ;; current; restore point in the feed buffer, not
+                    ;; wherever the response happened to land.
+                    (when (buffer-live-p (oref this buf))
+                      (with-current-buffer (oref this buf)
+                        (when (and (< (point-min) cur-point)
+                                   (< cur-point (point-max)))
+                          (goto-char cur-point))))))
         (slack-subscriptions-thread-get-view (slack-buffer-team this) current-ts #'success)))))
 
 
