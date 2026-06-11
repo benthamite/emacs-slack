@@ -95,9 +95,17 @@ SEARCH-RESULT is the search-result argument."
 (defun slack-create-search-result-buffer (search-result team)
   "Create and return a new search result buffer instance from PAYLOAD.
 SEARCH-RESULT is the search-result argument.
-TEAM is the team argument."
+TEAM is the team argument.  Re-running an identical query replaces
+the existing buffer's result with the freshly fetched one; returning
+the stale buffer unchanged would display the first search's matches
+and discard the new fetch."
   (slack-if-let* ((buffer (slack-buffer-find 'slack-search-result-buffer team search-result)))
-      buffer
+      (progn
+        (oset buffer search-result search-result)
+        (when (buffer-live-p (oref buffer buf))
+          (kill-buffer (oref buffer buf))
+          (oset buffer buf nil))
+        buffer)
     (make-instance 'slack-search-result-buffer
                    :team-id (oref team id)
                    :search-result search-result)))
