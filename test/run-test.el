@@ -2681,6 +2681,20 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-send-internal-allows-attachment-only ()
+  (slack-test-setup
+    (let ((uploaded nil))
+      (oset channel is-member t)
+      (cl-letf (((symbol-function 'slack-message-upload-files)
+                 (cl-function
+                  (lambda (_team files &key &allow-other-keys)
+                    (setq uploaded files)))))
+        (slack-message-send-internal "" channel team
+                                     :files (list "report.pdf")))
+      (should (equal (list "report.pdf") uploaded))
+      (should-error (slack-message-send-internal "" channel team)
+                    :type 'user-error))))
+
 (ert-deftest slack-test-paginate-after-anchors-at-page-newest ()
   (let ((page (list (make-instance 'slack-message :type "message"
                                    :channel "C11111"

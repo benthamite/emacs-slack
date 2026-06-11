@@ -247,6 +247,7 @@ Some terminology in the `slack-` functions:
   - the edit is sent even when the original message has dropped out of the
     local message cache
 - Compose, edit, and share buffers (<kbd>C-c C-c</kbd> to send)
+  - attachments can be sent without any message text
   - the buffer closes only after Slack confirms the send; if the send fails
     (network error, archived channel, rejected message), the buffer stays
     open with your text intact and the error is shown in the echo area

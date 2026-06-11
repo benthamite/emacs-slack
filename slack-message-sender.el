@@ -63,8 +63,8 @@ FILES is a list of file paths to upload.  JOINED prevents infinite
 recursion when the join/open callback re-invokes this function.
 ON-SUCCESS is the on-success argument.
 ON-ERROR is the on-error argument."
-  (when (slack-string-blankp message)
-    (error "Empty message"))
+  (when (and (slack-string-blankp message) (null files))
+    (user-error "Empty message"))
   ;; Phase 1: ensure membership (mpim rooms can report is-member=false
   ;; even when the user is a member; conversations.open fixes this)
   (if (and (slack-channel-p room)
