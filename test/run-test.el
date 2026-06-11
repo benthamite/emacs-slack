@@ -2314,6 +2314,35 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
       (should (equal "wss://stale.example/reconnect" opened-url))
       (should (equal "" (oref ws reconnect-url))))))
 
+(ert-deftest slack-test-user-typing-cancels-previous-timer ()
+  (slack-test-setup
+    (let* ((channel2 (make-instance 'slack-channel
+                                    :id "C22222"
+                                    :name "OtherChannel"))
+           (old-timer nil))
+      (puthash (oref channel2 id) channel2 (oref team channels))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-find)
+                     (lambda (&rest _) t))
+                    ((symbol-function 'slack-buffer-name)
+                     (lambda (&rest _) " *slack-test-typing*"))
+                    ((symbol-function 'slack-buffer-show-typing-p)
+                     (lambda (&rest _) t))
+                    ((symbol-function 'slack-user-name)
+                     (lambda (&rest _) "TestUser")))
+            (slack-ws-handle-user-typing
+             (list :user user-id :channel channel-id) team)
+            (setq old-timer (oref team typing-timer))
+            (should (timerp old-timer))
+            (slack-ws-handle-user-typing
+             (list :user user-id :channel (oref channel2 id)) team)
+            (should-not (memq old-timer timer-list))
+            (should (timerp (oref team typing-timer))))
+        (when (timerp (oref team typing-timer))
+          (cancel-timer (oref team typing-timer)))
+        (when (timerp old-timer)
+          (cancel-timer old-timer))))))
+
 (ert-deftest slack-test-curl-downloader-failure-keeps-existing-file ()
   (let* ((dir (make-temp-file "slack-test-dl" t))
          (target (expand-file-name "existing.bin" dir))

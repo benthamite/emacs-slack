@@ -278,6 +278,9 @@ Some terminology in the `slack-` functions:
   - reconnection after a long disconnect (laptop sleep) falls back to
     a fresh authorization instead of retrying Slack's expired
     reconnect URL for hours
+  - typing indicators no longer leak repeating timers when people type
+    in different channels in quick succession (the leaked timers
+    erased the echo area every second for the rest of the session)
 
 ### Tip
 

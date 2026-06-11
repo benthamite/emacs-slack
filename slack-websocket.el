@@ -712,6 +712,8 @@ PAYLOAD is the payload argument."
                    (progn
                      (slack-typing-set-limit typing limit)
                      (slack-typing-add-user typing user limit))
+                 (when (timerp (oref team typing-timer))
+                   (cancel-timer (oref team typing-timer)))
                  (oset team
                        typing
                        (slack-typing-create room limit user))
