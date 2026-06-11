@@ -284,6 +284,9 @@ Some terminology in the `slack-` functions:
   - synchronous API requests run their success/error handlers, so the
     standard-emoji picker data, attachment action suggestions, and
     dialog external-select suggestions load correctly
+  - rate-limited (HTTP 429) requests honor no-retry and the retry cap
+    instead of requeueing forever, and a malformed Retry-After header
+    no longer causes immediate re-execution
   - reconnection after a long disconnect (laptop sleep) falls back to
     a fresh authorization instead of retrying Slack's expired
     reconnect URL for hours

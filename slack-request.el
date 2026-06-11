@@ -282,7 +282,10 @@ request's own success and error handlers run."
            (unwind-protect
                (progn
                  (slack-if-let* ((retry-after (request-response-header response "retry-after"))
-                                 (retry-after-sec (string-to-number retry-after)))
+                                 (retry-after-sec (max 1 (string-to-number retry-after)))
+                                 (retryable-p (and (not (oref req no-retry))
+                                                   (< (oref req retry-count)
+                                                      slack-request-max-retry))))
                      (progn
                        (slack-request-retry-request req retry-after-sec)
                        (slack-request-log-retry req retry-after-sec))

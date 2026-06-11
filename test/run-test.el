@@ -2681,6 +2681,31 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-rate-limit-retry-honors-no-retry ()
+  (slack-test-setup
+    (let ((req (slack-request-create "https://slack.com/api/x" team
+                                     :sync t
+                                     :without-auth t
+                                     :no-retry t
+                                     :success #'ignore
+                                     :error (cl-function
+                                             (lambda (&key &allow-other-keys) nil))))
+          (requeued nil)
+          (captured-error nil))
+      (cl-letf (((symbol-function 'request)
+                 (lambda (_url &rest args) (setq captured-error (plist-get args :error)) nil))
+                ((symbol-function 'slack-request-worker-push)
+                 (lambda (_req) (setq requeued t)))
+                ((symbol-function 'request-response-header)
+                 (lambda (_resp _header) "3")))
+        (slack-request req)
+        (funcall captured-error
+                 :error-thrown '(error http 429)
+                 :symbol-status 'error
+                 :response nil
+                 :data nil))
+      (should-not requeued))))
+
 (ert-deftest slack-test-share-omits-blocks-for-blank-comment ()
   (slack-test-setup
     (let ((captured-params nil)
