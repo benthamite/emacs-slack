@@ -402,7 +402,10 @@ TS is the ts argument."
 Optionally pass SUCCESS-CALLBACK to perform an action on the permalink
 obtained."
   (interactive)
-  (slack-buffer-copy-link slack-current-buffer (slack-get-ts) success-callback))
+  (slack-if-let* ((buffer slack-current-buffer)
+                  (ts (slack-get-ts)))
+      (slack-buffer-copy-link buffer ts success-callback)
+    (message "No slack message at point.")))
 
 (defun slack-message-copy-id ()
   "Copy the message timestamp (ID) at point to the kill ring."
