@@ -118,8 +118,14 @@ AFTER-SUCCESS is the after-success argument."
   (interactive)
   (let ((team (or team (slack-team-select))))
     (cl-labels
-        ((success (_channels groups _ims)
+        ((success (channels groups _ims)
                   (slack-team-set-groups team groups)
+                  ;; Modern private channels have C-prefixed ids with
+                  ;; is_channel true, so the list classifies them as
+                  ;; channels; dropping them made this refresh a no-op
+                  ;; for every non-legacy private channel.
+                  (when channels
+                    (slack-team-set-channels team channels))
                   (when (functionp after-success)
                     (funcall after-success team))
                   (slack-log "Slack Group List Updated"
