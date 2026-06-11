@@ -154,14 +154,19 @@ cache, since the API only needs the channel id and timestamp."
                            (slack-message-get-param-for-reaction message)
                          (cons "timestamp" ts))
                        (cons "name" reaction))))
-    (slack-message-reaction-remove-request params team)))
+    (slack-message-reaction-remove-request params team message reaction)))
 
-(defun slack-message-reaction-remove-request (params team)
-  "Send a reactions.remove request with PARAMS for TEAM."
+(defun slack-message-reaction-remove-request (params team &optional message reaction-name)
+  "Send a reactions.remove request with PARAMS for TEAM.
+When MESSAGE and REACTION-NAME are given, remove the reaction locally
+on success and refresh buffers, mirroring what the add path does so
+the UI does not wait for a websocket event."
   (cl-labels ((on-reaction-remove
                (&key data &allow-other-keys)
                (slack-request-handle-error
-                (data "slack-message-reaction-remove-request"))))
+                (data "slack-message-reaction-remove-request")
+                (slack-message-reaction--remove-local
+                 message reaction-name team))))
     (slack-request
      (slack-request-create
       slack-message-reaction-remove-url
@@ -169,6 +174,20 @@ cache, since the API only needs the channel id and timestamp."
       :type "POST"
       :params params
       :success #'on-reaction-remove))))
+
+(defun slack-message-reaction--remove-local (message reaction-name team)
+  "Remove TEAM's own user from REACTION-NAME on MESSAGE and refresh buffers.
+MESSAGE and REACTION-NAME may be nil for file reactions or uncached
+messages."
+  (when (and message reaction-name)
+    (let ((reaction (slack-reaction :name reaction-name
+                                    :count 1
+                                    :users (list (oref team self-id)))))
+      (slack-if-let* ((old-reaction (slack-reaction-find message reaction)))
+          (if (< 1 (oref old-reaction count))
+              (slack-reaction-remove-user old-reaction (oref team self-id))
+            (slack-reaction-delete message reaction))))
+    (slack-message-replace-buffer message team)))
 
 (provide 'slack-message-reaction)
 ;;; slack-message-reaction.el ends here

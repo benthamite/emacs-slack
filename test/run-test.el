@@ -2681,6 +2681,43 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-share-omits-blocks-for-blank-comment ()
+  (slack-test-setup
+    (let ((captured-params nil)
+          (slack-completing-read-function (lambda (&rest _) "chan")))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (req &rest _) (setq captured-params (oref req params))))
+                ((symbol-function 'slack-message-room-list)
+                 (lambda (_team) (list (cons "chan" channel)))))
+        (slack-message-share--send team channel "1710000000.000100" "")
+        (should captured-params)
+        (should-not (assoc "blocks" captured-params))
+        (slack-message-share--send team channel "1710000000.000100" "hi")
+        (should (assoc "blocks" captured-params))))))
+
+(ert-deftest slack-test-reaction-remove-updates-locally ()
+  (slack-test-setup
+    (let* ((ts "1710000000.000100")
+           (m (make-instance 'slack-message
+                             :type "message"
+                             :channel channel-id
+                             :ts ts
+                             :reactions (list (slack-reaction
+                                               :name "smile"
+                                               :count 1
+                                               :users (list "U38383838")))))
+           (captured-success nil)
+           (replaced nil))
+      (slack-room-set-messages channel (list m) team)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (req &rest _) (setq captured-success (oref req success))))
+                ((symbol-function 'slack-message-replace-buffer)
+                 (lambda (&rest _) (setq replaced t))))
+        (slack-message-reaction-remove "smile" ts channel team)
+        (funcall captured-success :data '(:ok t)))
+      (should replaced)
+      (should-not (oref m reactions)))))
+
 (ert-deftest slack-test-send-internal-allows-attachment-only ()
   (slack-test-setup
     (let ((uploaded nil))

@@ -299,6 +299,9 @@ Some terminology in the `slack-` functions:
   - adding or removing a reaction works even when the target message
     has dropped out of the local message cache (previously the emoji
     prompt appeared and then nothing happened)
+  - removing a reaction updates the display immediately like adding
+    one does, and sharing a message without a comment omits the
+    comment payload instead of sending empty blocks
   - running `slack-start` while a previous authorization is pending
     reports "Authorize Already Requested" instead of signaling a type
     error

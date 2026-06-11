@@ -73,13 +73,17 @@ error when the request fails at the API or transport level."
         slack-share-url
         team
         :type "POST"
-        :params (list (cons "channel" (oref room id))
-                      (cons "timestamp" ts)
-                      (cons "share_channel" share-channel-id)
-                      (cons "blocks"
-                            (json-encode (cdr (car (with-temp-buffer
-                                                     (insert msg)
-                                                     (slack-create-blocks-from-buffer)))))))
+        :params (append
+                 (list (cons "channel" (oref room id))
+                       (cons "timestamp" ts)
+                       (cons "share_channel" share-channel-id))
+                 ;; A blank comment would encode as blocks with null
+                 ;; elements; omit the param entirely instead.
+                 (unless (slack-string-blankp msg)
+                   (list (cons "blocks"
+                               (json-encode (cdr (car (with-temp-buffer
+                                                        (insert msg)
+                                                        (slack-create-blocks-from-buffer)))))))))
         :success #'on-share
         :error #'on-request-error)))))
 
