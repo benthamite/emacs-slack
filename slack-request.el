@@ -106,10 +106,13 @@ token for endpoints recorded in `slack-token-preference'."
        (string= "xoxc" (substring token 0 4))))
 
 (defun slack-url-cookie-store (team)
-  "Store required cookies for websocket connection for given TEAM."
-  (url-cookie-store "d" (slack-team-d-cookie team) nil ".slack.com" "/" t)
-  (url-cookie-store "d-s" (slack-team-d-s-cookie team) nil ".slack.com" "/" t)
-  (url-cookie-store "lc" (slack-team-lc-cookie team) nil ".slack.com" "/" t))
+  "Store required cookies for websocket connection for given TEAM.
+Do nothing when TEAM has no cookie: only xoxc tokens need one, and
+teams registered with xoxp/xoxb tokens leave the slot nil."
+  (when (slack-team-cookie team)
+    (url-cookie-store "d" (slack-team-d-cookie team) nil ".slack.com" "/" t)
+    (url-cookie-store "d-s" (slack-team-d-s-cookie team) nil ".slack.com" "/" t)
+    (url-cookie-store "lc" (slack-team-lc-cookie team) nil ".slack.com" "/" t)))
 
 (defun slack-parse ()
   "Parse the JSON response body in the current buffer into a plist."

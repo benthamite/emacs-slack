@@ -293,6 +293,8 @@ Some terminology in the `slack-` functions:
   - running `slack-start` while a previous authorization is pending
     reports "Authorize Already Requested" instead of signaling a type
     error
+  - teams registered with cookie-less tokens (xoxp/xoxb) can connect:
+    `slack-start` no longer crashes trying to parse a nil cookie
 
 ### Tip
 

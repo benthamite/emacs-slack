@@ -2362,6 +2362,11 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-authorize team))
       (should requested))))
 
+(ert-deftest slack-test-cookie-store-tolerates-nil-cookie ()
+  (slack-test-setup
+    (should-not (slack-team-cookie team))
+    (slack-url-cookie-store team)))
+
 (ert-deftest slack-test-reaction-add-works-for-uncached-message ()
   (slack-test-setup
     (let ((captured-params nil))
