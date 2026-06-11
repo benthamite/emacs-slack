@@ -1271,7 +1271,10 @@ not loaded, fetch the thread from the API and display it, then
 call CALLBACK to navigate."
   (if-let ((parent (ignore-errors
                      (slack-room-find-message room thread-ts))))
-      (funcall open-loaded parent)
+      (progn
+        (unless (slack-thread-ts parent)
+          (oset parent thread-ts thread-ts))
+        (funcall open-loaded parent))
     (slack-open-message--fetch-thread
      room thread-ts team callback)))
 

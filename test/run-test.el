@@ -1439,6 +1439,69 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-buffer-display-thread buf thread-ts))
       (should (equal shown (list parent channel team))))))
 
+(ert-deftest slack-test-activity-feed-open-loaded-parent-keeps-thread-ts ()
+  (slack-test-setup
+    (let* ((reply-ts "1710000001.000100")
+           (thread-ts "1710000000.000000")
+           (parent (make-instance 'slack-message
+                                  :type "message"
+                                  :channel channel-id
+                                  :ts thread-ts
+                                  :text "Parent message"))
+           (reply (make-instance 'slack-message
+                                 :type "message"
+                                 :channel channel-id
+                                 :ts reply-ts
+                                 :thread_ts thread-ts))
+           (activity
+            (make-instance
+             'slack-activity
+             :is-unread t
+             :feed-ts reply-ts
+             :feed-key "feed-key"
+             :item (make-instance
+                    'activity-item
+                    :type "thread_v2"
+                    :message (make-instance
+                              'activity-message
+                              :ts reply-ts
+                              :channel channel-id
+                              :is-broadcast nil
+                              :thread-ts thread-ts
+                              :author-id nil)
+                    :reaction nil)))
+           (feed-buffer
+            (make-instance 'slack-activity-feed-buffer
+                           :team-id (oref team id)
+                           :room-id "__activity-feed__"
+                           :cached-team team
+                           :activity-feed
+                           (make-instance 'slack-activity-feed
+                                          :activities (list activity))))
+           (source-buffer (generate-new-buffer " *slack-test-activity-feed*"))
+           requested-thread-ts)
+      (unwind-protect
+          (progn
+            (slack-room-set-messages channel (list parent reply) team)
+            (with-current-buffer source-buffer
+              (slack-activity-feed-buffer-mode)
+              (slack-buffer-set-current-buffer feed-buffer)
+              (oset feed-buffer buf source-buffer)
+              (let ((inhibit-read-only t))
+                (insert (propertize "Activity entry"
+                                    'ts reply-ts
+                                    'room-id channel-id
+                                    'thread-ts thread-ts)))
+              (goto-char (point-min))
+              (cl-letf (((symbol-function 'slack-conversations-replies)
+                         (lambda (_room ts _team &rest _args)
+                           (setq requested-thread-ts ts)))
+                        ((symbol-function 'slack-activity-feed--mark-read)
+                         #'ignore))
+                (slack-feed-open-at-point)))
+            (should (equal thread-ts requested-thread-ts)))
+        (kill-buffer source-buffer)))))
+
 (ert-deftest slack-test-activity-feed-mark-read-updates-cache ()
   (slack-test-setup
     (let* ((slack-activity-feed--cache (make-hash-table :test 'equal))

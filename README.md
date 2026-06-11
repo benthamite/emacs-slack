@@ -202,6 +202,9 @@ Some terminology in the `slack-` functions:
     the mark
   - press <kbd>t</kbd> on an Activity feed thread entry to open the associated
     thread
+  - opening a thread entry whose parent message is already loaded in the
+    channel opens the thread correctly even when the cached parent lacks
+    thread data
   - read Activity feed entries stay read in the local cache, so closing and
     reopening the feed does not bring back cleared unread dots
   - event-driven background refreshes update cached data without silently
