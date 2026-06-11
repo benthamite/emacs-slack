@@ -52,7 +52,11 @@ Prompts for a reminder time and saves via TEAM."
                      ((string= time "In 1 hour") (* 60 60 1000))
                      ((string= time "In 3 hours") (* 3 60 60 1000))
                      ((string= time "Tomorrow") (* 24 60 60 1000))
-                     (t (* 7 24 60 60 1000)))))
+                     ((string= time "Next week") (* 7 24 60 60 1000))
+                     ;; completing-read returns "" on empty input even
+                     ;; with REQUIRE-MATCH; don't silently schedule a
+                     ;; week out.
+                     (t (user-error "No reminder time selected")))))
     (slack-star-api-request slack-message-stars-add-url
                             (append (list (cons "channel" (oref message channel)))
                                     (slack-message-star-api-params message due-in-ms))
