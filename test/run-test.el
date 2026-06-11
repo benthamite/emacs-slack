@@ -2681,6 +2681,16 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-counts-tolerate-missing-fields ()
+  (let ((counts (slack-create-counts
+                 (list :threads nil
+                       :channels (list (list :id "C1" :has_unreads t))
+                       :mpims nil
+                       :ims nil))))
+    (should counts)
+    (let ((summary (slack-counts-summary counts)))
+      (should (eq 0 (cdr (cdr (assoc 'channel summary))))))))
+
 (ert-deftest slack-test-worker-queue-keeps-distinct-requests ()
   (slack-test-setup
     (let ((worker (make-instance 'slack-request-worker))

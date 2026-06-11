@@ -70,18 +70,22 @@
               (cons 'im im-summary))))))
 
 (defun slack-create-counts-threads (payload)
-  "Create and return a new counts threads instance from PAYLOAD."
+  "Create and return a new counts threads instance from PAYLOAD.
+Missing fields default rather than violating the slot types: one
+malformed entry would otherwise abort the whole counts object and
+silently kill every unread/mention feature."
   (make-instance 'slack-counts-threads
                  :has_unreads (eq t (plist-get payload :has_unreads))
-                 :mention_count (plist-get payload :mention_count)))
+                 :mention_count (or (plist-get payload :mention_count) 0)))
 
 (defun slack-create-counts-conversation (payload)
-  "Create and return a new counts conversation instance from PAYLOAD."
+  "Create and return a new counts conversation instance from PAYLOAD.
+Missing fields default rather than violating the slot types."
   (make-instance 'slack-counts-conversation
                  :id (plist-get payload :id)
                  :has_unreads (eq t (plist-get payload :has_unreads))
-                 :mention_count (plist-get payload :mention_count)
-                 :latest (plist-get payload :latest)))
+                 :mention_count (or (plist-get payload :mention_count) 0)
+                 :latest (or (plist-get payload :latest) "0")))
 
 (defun slack-create-counts (payload)
   "Create and return a new counts instance from PAYLOAD."

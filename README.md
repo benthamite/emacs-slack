@@ -290,6 +290,8 @@ Some terminology in the `slack-` functions:
   - the retry queue no longer silently drops a second identical
     request from a different feature (whose callbacks would never
     have fired)
+  - one malformed conversation entry in the unread-counts response no
+    longer kills every unread/mention feature for the session
   - reconnection after a long disconnect (laptop sleep) falls back to
     a fresh authorization instead of retrying Slack's expired
     reconnect URL for hours
