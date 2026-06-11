@@ -132,15 +132,18 @@ THIS is the slack-dialog-select-element instance."
          (slack-collect-slots 'slack-dialog-textarea-element payload)))
 
 (defun slack-dialog-select-element-create (payload)
-  "Build a `slack-dialog-select-element' instance from PAYLOAD plist."
-  (let ((options
-         (mapcar #'(lambda (e)
-                     (apply #'make-instance 'slack-dialog-select-option
-                            (slack-collect-slots 'slack-dialog-select-option
-                                                 e)))
-                 (plist-get payload :options)))
+  "Build a `slack-dialog-select-element' instance from PAYLOAD plist.
+Options nested inside option groups are converted to option objects
+too, so selecting from a grouped static select works the same as
+from a flat one."
+  (let ((options (slack-dialog--create-select-options
+                  (plist-get payload :options)))
         (option-groups
          (mapcar #'(lambda (e)
+                     (setq e (plist-put (copy-sequence e)
+                                        :options
+                                        (slack-dialog--create-select-options
+                                         (plist-get e :options))))
                      (apply #'make-instance
                             'slack-dialog-select-option-group
                             (slack-collect-slots 'slack-dialog-select-option-group
@@ -151,6 +154,13 @@ THIS is the slack-dialog-select-element instance."
     (apply #'make-instance 'slack-dialog-select-element
            (slack-collect-slots 'slack-dialog-select-element
                                 payload))))
+
+(defun slack-dialog--create-select-options (options-payload)
+  "Build `slack-dialog-select-option' instances from OPTIONS-PAYLOAD."
+  (mapcar #'(lambda (e)
+              (apply #'make-instance 'slack-dialog-select-option
+                     (slack-collect-slots 'slack-dialog-select-option e)))
+          options-payload))
 
 (defun slack-dialog-element-create (payload)
   "Build a dialog element instance from PAYLOAD, dispatching on `:type'."

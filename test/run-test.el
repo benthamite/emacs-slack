@@ -2599,6 +2599,40 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (should (stringp (slack-block-to-string block)))
     (should (string-prefix-p "alt" (slack-block-to-string block)))))
 
+(ert-deftest slack-test-dialog-option-groups-create-option-objects ()
+  (let ((element (slack-dialog-select-element-create
+                  (list :name "s" :label "Sel" :type "select"
+                        :data_source "static"
+                        :option_groups
+                        (list (list :label "G"
+                                    :options (list (list :label "A"
+                                                         :value "a"))))))))
+    (let* ((group (car (oref element option-groups)))
+           (option (car (oref group options))))
+      (should (cl-typep option 'slack-dialog-select-option))
+      (should (equal "A" (slack-selectable-text option))))))
+
+(ert-deftest slack-test-dialog-edit-element-init-returns-buffer ()
+  (slack-test-setup
+    (oset team name "TestTeam")
+    (let* ((dialog (make-instance 'slack-dialog
+                                  :title "T" :callback_id "cb" :elements nil))
+           (dialog-buffer (make-instance 'slack-dialog-buffer
+                                         :team-id (oref team id)
+                                         :dialog-id "D1" :dialog dialog))
+           (element (make-instance 'slack-dialog-text-element
+                                   :name "n" :label "L" :type "text"))
+           (buf-obj (make-instance 'slack-dialog-edit-element-buffer
+                                   :team-id (oref team id)
+                                   :dialog-buffer dialog-buffer
+                                   :element element)))
+      (slack-buffer-cache-team buf-obj team)
+      (let ((buf (slack-buffer-init-buffer buf-obj)))
+        (unwind-protect
+            (should (bufferp buf))
+          (when (buffer-live-p (oref buf-obj buf))
+            (kill-buffer (oref buf-obj buf))))))))
+
 (ert-deftest slack-test-feed-goto-prev-lands-on-entry-starts ()
   (with-temp-buffer
     (insert (propertize "entry one\n" 'ts "1"))

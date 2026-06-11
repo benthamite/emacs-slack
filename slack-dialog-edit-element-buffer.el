@@ -106,7 +106,8 @@ DIALOG-BUFFER is the dialog-buffer argument."
       (with-slots (value label) element
         (setq-local header-line-format
                     (format "%s: C-c to save content" label))
-        (insert (or value ""))))))
+        (insert (or value ""))))
+    buf))
 
 (provide 'slack-dialog-edit-element-buffer)
 ;;; slack-dialog-edit-element-buffer.el ends here
