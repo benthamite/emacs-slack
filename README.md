@@ -256,6 +256,12 @@ Some terminology in the `slack-` functions:
   - re-opening a file's info and loading file-list pages that contain
     already-cached files merge correctly instead of erroring inside the
     request callback
+- File and image downloads
+  - downloading to an existing path asks for confirmation before
+    overwriting
+  - downloads are written to a temporary sibling file and renamed into
+    place on success, so a failed download never deletes or corrupts an
+    existing file at the target path
 
 ### Tip
 

@@ -469,26 +469,28 @@ TOKEN and COOKIE supply auth credentials for Slack-hosted URLs."
                              :error error
                              :token token
                              :cookie cookie)
-    (cl-labels
-        ((on-success (&key _data &allow-other-keys)
-           (when (functionp success) (funcall success)))
-         (on-error (&key error-thrown symbol-status response _data)
-           (message "Error Download File: %s %s %s, url: %s"
-                    (request-response-status-code response)
-                    error-thrown symbol-status url)
-           (if (file-exists-p newname)
-               (delete-file newname))
-           (cl-case (request-response-status-code response)
-             (403 nil)
-             (404 nil)
-             (t (when (functionp error)
-                  (funcall error
-                           (request-response-status-code response)
-                           error-thrown
-                           symbol-status
-                           url)))))
-         (parser () (mm-write-region (point-min) (point-max)
-                                     newname nil nil nil 'binary t)))
+    (let ((tempfile (slack-request--download-tempfile newname)))
+      (cl-labels
+          ((on-success (&key _data &allow-other-keys)
+             (rename-file tempfile newname t)
+             (when (functionp success) (funcall success)))
+           (on-error (&key error-thrown symbol-status response _data)
+             (message "Error Download File: %s %s %s, url: %s"
+                      (request-response-status-code response)
+                      error-thrown symbol-status url)
+             (if (file-exists-p tempfile)
+                 (delete-file tempfile))
+             (cl-case (request-response-status-code response)
+               (403 nil)
+               (404 nil)
+               (t (when (functionp error)
+                    (funcall error
+                             (request-response-status-code response)
+                             error-thrown
+                             symbol-status
+                             url)))))
+           (parser () (mm-write-region (point-min) (point-max)
+                                       tempfile nil nil nil 'binary t)))
       (let* ((url-obj (url-generic-parse-url url))
              (need-token-p (and url-obj
                                 (string-match-p "slack"
@@ -505,56 +507,67 @@ TOKEN and COOKIE supply auth credentials for Slack-hosted URLs."
                      (append
                       (list (cons "Authorization" (format "Bearer %s" token)))
                       (when (slack-need-cookie-p token)
-                        (list (cons "Cookie" (format "d=%s; " cookie)))))))))))
+                        (list (cons "Cookie" (format "d=%s; " cookie))))))))))))
 
 (cl-defun slack-curl-downloader (url name team &key (success nil) (error nil) (token nil) (cookie nil))
   "Download URL to NAME asynchronously with curl, logging to TEAM on failure.
-SUCCESS and ERROR are callbacks; TOKEN and COOKIE supply Slack auth."
-  (cl-labels
-      ((sentinel (proc event)
-         (cond
-          ((string-equal "finished\n" event)
-           (when (functionp success) (funcall success)))
-          (t
-           (let ((status (process-status proc))
-                 (output (with-current-buffer (process-buffer proc)
-                           (buffer-substring-no-properties (point-min)
-                                                           (point-max)))))
-             (if (functionp error)
-                 (funcall error status output url name)
-               (slack-log
-                (format "slack-curl-downloader: Download Failed. STATUS: %s, EVENT: %s, URL: %s, NAME: %s, OUTPUT: %s"
-                        status
-                        event
-                        url
-                        name
-                        output)
-                team
-                :level 'warn))
-             (if (file-exists-p name)
-                 (delete-file name))
-             (delete-process proc))))))
-    (let* ((url-obj (url-generic-parse-url url))
-           (need-token-p (and url-obj
-                              token
-                              (string-match-p "slack" (url-host url-obj))
-                              (string-prefix-p "https" url)))
-           (proc (apply #'start-process
-                        "slack-curl-downloader"
-                        "slack-curl-downloader"
-                        (executable-find "curl")
-                        "--silent"
-                        "--show-error"
-                        "--fail"
-                        "--location"
-                        "--output" name
-                        "--url" url
-                        (append
-                         (when need-token-p
-                           `("-H" ,(format "Authorization: Bearer %s" token)))
-                         (when (and need-token-p (slack-need-cookie-p token))
-                           `("-H" ,(format "Cookie: d=%s; " cookie)))))))
-      (set-process-sentinel proc #'sentinel))))
+SUCCESS and ERROR are callbacks; TOKEN and COOKIE supply Slack auth.
+The download goes to a sibling temp file that is renamed to NAME only
+on success, so a failed download never disturbs an existing NAME."
+  (let ((tempfile (slack-request--download-tempfile name)))
+    (cl-labels
+        ((sentinel (proc event)
+           (cond
+            ((string-equal "finished\n" event)
+             (rename-file tempfile name t)
+             (when (functionp success) (funcall success)))
+            (t
+             (let ((status (process-status proc))
+                   (output (with-current-buffer (process-buffer proc)
+                             (buffer-substring-no-properties (point-min)
+                                                             (point-max)))))
+               (if (functionp error)
+                   (funcall error status output url name)
+                 (slack-log
+                  (format "slack-curl-downloader: Download Failed. STATUS: %s, EVENT: %s, URL: %s, NAME: %s, OUTPUT: %s"
+                          status
+                          event
+                          url
+                          name
+                          output)
+                  team
+                  :level 'warn))
+               (if (file-exists-p tempfile)
+                   (delete-file tempfile))
+               (delete-process proc))))))
+      (let* ((url-obj (url-generic-parse-url url))
+             (need-token-p (and url-obj
+                                token
+                                (string-match-p "slack" (url-host url-obj))
+                                (string-prefix-p "https" url)))
+             (proc (apply #'start-process
+                          "slack-curl-downloader"
+                          "slack-curl-downloader"
+                          (executable-find "curl")
+                          "--silent"
+                          "--show-error"
+                          "--fail"
+                          "--location"
+                          "--output" tempfile
+                          "--url" url
+                          (append
+                           (when need-token-p
+                             `("-H" ,(format "Authorization: Bearer %s" token)))
+                           (when (and need-token-p (slack-need-cookie-p token))
+                             `("-H" ,(format "Cookie: d=%s; " cookie)))))))
+        (set-process-sentinel proc #'sentinel)))))
+
+(defun slack-request--download-tempfile (target)
+  "Return a fresh temp file path beside TARGET for an in-flight download.
+Downloading to a sibling temp file and renaming on success keeps a
+failed download from clobbering or deleting an existing file at
+TARGET, and keeps readers from seeing a partially written TARGET."
+  (make-temp-file (concat (expand-file-name target) ".part-")))
 
 (provide 'slack-request)
 ;;; slack-request.el ends here

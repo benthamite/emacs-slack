@@ -2201,6 +2201,72 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (oset req retry-count slack-request-max-retry)
     (should-not (slack-request-retry-failed-request-p req '(end-of-file) 'error))))
 
+(ert-deftest slack-test-curl-downloader-failure-keeps-existing-file ()
+  (let* ((dir (make-temp-file "slack-test-dl" t))
+         (target (expand-file-name "existing.bin" dir))
+         (errored nil))
+    (unwind-protect
+        (progn
+          (with-temp-file target (insert "precious"))
+          (slack-curl-downloader "http://127.0.0.1:1/nonexistent" target nil
+                                 :error (lambda (&rest _) (setq errored t)))
+          (with-timeout (10 (error "curl did not finish"))
+            (while (not errored) (sleep-for 0.05)))
+          (should (file-exists-p target))
+          (should (equal "precious"
+                         (with-temp-buffer
+                           (insert-file-contents target)
+                           (buffer-string)))))
+      (delete-directory dir t))))
+
+(ert-deftest slack-test-curl-downloader-renames-temp-on-success ()
+  (let* ((dir (make-temp-file "slack-test-dl" t))
+         (source (expand-file-name "source.bin" dir))
+         (target (expand-file-name "downloaded.bin" dir))
+         (done nil))
+    (unwind-protect
+        (progn
+          (with-temp-file source (insert "payload"))
+          (slack-curl-downloader (concat "file://" source) target nil
+                                 :success (lambda () (setq done t)))
+          (with-timeout (10 (error "curl did not finish"))
+            (while (not done) (sleep-for 0.05)))
+          (should (equal "payload"
+                         (with-temp-buffer
+                           (insert-file-contents target)
+                           (buffer-string))))
+          (should (equal (list "downloaded.bin" "source.bin")
+                         (sort (directory-files dir nil "^[^.]") #'string<))))
+      (delete-directory dir t))))
+
+(ert-deftest slack-test-file-download-confirms-overwrite ()
+  (slack-test-setup
+    (let* ((dir (make-temp-file "slack-test-dl" t))
+           (target (expand-file-name "report.pdf" dir))
+           (file (slack-file-create
+                  (list :id "F11111"
+                        :url_private_download "https://example.com/report.pdf")))
+           (download-started nil))
+      (unwind-protect
+          (progn
+            (with-temp-file target (insert "precious"))
+            (cl-letf (((symbol-function 'read-file-name)
+                       (lambda (&rest _) target))
+                      ((symbol-function 'y-or-n-p)
+                       (lambda (&rest _) nil))
+                      ((symbol-function 'slack-url-copy-file)
+                       (cl-function
+                        (lambda (&rest _args &key &allow-other-keys)
+                          (setq download-started t)))))
+              (should-error (slack-file-download file team)
+                            :type 'user-error)
+              (should-not download-started)
+              (cl-letf (((symbol-function 'y-or-n-p)
+                         (lambda (&rest _) t)))
+                (slack-file-download file team)
+                (should download-started))))
+        (delete-directory dir t)))))
+
 (ert-deftest slack-test-merge-and-equalp-on-strings ()
   (should (equal "abc" (slack-merge "abc" "xyz")))
   (should (slack-equalp "abc" "abc"))
