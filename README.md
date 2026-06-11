@@ -298,6 +298,9 @@ Some terminology in the `slack-` functions:
   - `slack-start-and-select` starts disconnected teams again (the
     disconnected check always came back empty, so it skipped straight
     to channel selection)
+  - stopping Slack while a connection attempt is pending no longer
+    leaves a stale connect-timeout timer that later errors (or pops
+    the debugger) against the shut-down connection
 
 ### Tip
 

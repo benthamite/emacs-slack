@@ -63,14 +63,15 @@
 
 
 (defun slack-ws-on-timeout (team-id)
-  "Close and reconnect the websocket when opening timed out for TEAM-ID."
-  (let* ((team (slack-team-find team-id))
-         (ws (oref team ws)))
-    (let ((debug-on-error t))
-      (slack-log (format "websocket open timeout")
-                 team)
-      (slack-ws--close ws team)
-      (slack-ws-reconnect ws team))))
+  "Close and reconnect the websocket when opening timed out for TEAM-ID.
+Do nothing when the team is no longer registered, which happens when
+`slack-stop' deregistered it while this timer was pending."
+  (slack-if-let* ((team (slack-team-find team-id))
+                  (ws (oref team ws)))
+      (progn
+        (slack-log "websocket open timeout" team)
+        (slack-ws--close ws team)
+        (slack-ws-reconnect ws team))))
 
 (cl-defmethod slack-ws-open ((ws slack-team-ws) team &key (on-open nil) (ws-url nil))
   "Attempt to open Slack websocket for interactive experience.
@@ -171,6 +172,7 @@ Non-nil CLOSE-RECONNECTION also cancels the reconnect timer and sets
       ((close (ws team)
               (slack-ws-cancel-ping-timer ws)
               (slack-ws-cancel-ping-check-timers ws)
+              (slack-ws-cancel-connect-timeout-timer ws)
               (when close-reconnection
                 (slack-ws-cancel-reconnect-timer ws)
                 (oset ws inhibit-reconnection t))

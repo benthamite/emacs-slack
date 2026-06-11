@@ -2376,6 +2376,25 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (oset (oref team ws) connected t)
     (should-not (slack-disconnected-teams))))
 
+(ert-deftest slack-test-ws-close-cancels-connect-timeout-timer ()
+  (slack-test-setup
+    (let ((ws (make-instance 'slack-team-ws)))
+      (oset team ws ws)
+      (cl-letf (((symbol-function 'slack-log) #'ignore))
+        (slack-ws-set-connect-timeout-timer ws #'ignore)
+        (let ((timer (oref ws connect-timeout-timer)))
+          (should (timerp timer))
+          (unwind-protect
+              (progn
+                (slack-ws--close ws team)
+                (should-not (memq timer timer-list)))
+            (when (timerp timer)
+              (cancel-timer timer))))))))
+
+(ert-deftest slack-test-ws-on-timeout-tolerates-missing-team ()
+  (cl-letf (((symbol-function 'slack-team-find) (lambda (_id) nil)))
+    (slack-ws-on-timeout "T-GONE")))
+
 (ert-deftest slack-test-reaction-add-works-for-uncached-message ()
   (slack-test-setup
     (let ((captured-params nil))
