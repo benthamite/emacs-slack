@@ -271,6 +271,11 @@ Some terminology in the `slack-` functions:
     place on success, so a failed download never deletes or corrupts an
     existing file at the target path
 
+- Reliability fixes
+  - synchronous API requests run their success/error handlers, so the
+    standard-emoji picker data, attachment action suggestions, and
+    dialog external-select suggestions load correctly
+
 ### Tip
 
 If your Slack team has a huge number of public channels, you may find

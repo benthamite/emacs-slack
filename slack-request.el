@@ -317,8 +317,8 @@ request's own success and error handlers run."
                      (list (cons "Cookie" (format "d=%s; " (slack-team-cookie team)))))
                    headers)
                   :parser parser
-                  :success (unless sync #'-on-success)
-                  :error (unless sync #'-on-error)
+                  :success #'-on-success
+                  :error #'-on-error
                   :timeout timeout)))
         req))))
 

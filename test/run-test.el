@@ -2276,6 +2276,27 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                    (mapcar (lambda (el) (plist-get el :text)) elements)))
     (should (eq t (plist-get (plist-get (nth 1 elements) :style) :code)))))
 
+(ert-deftest slack-test-sync-request-invokes-success-handler ()
+  (slack-test-setup
+    (let ((captured nil)
+          (success-data nil))
+      (cl-letf (((symbol-function 'request)
+                 (lambda (url &rest args)
+                   (setq captured (cons url args))
+                   nil)))
+        (slack-request
+         (slack-request-create
+          "https://slack.com/api/test" team
+          :sync t
+          :without-auth t
+          :success (cl-function
+                    (lambda (&key data &allow-other-keys)
+                      (setq success-data data))))))
+      (let ((success-fn (plist-get (cdr captured) :success)))
+        (should (functionp success-fn))
+        (funcall success-fn :data '(:ok t))
+        (should (equal '(:ok t) success-data))))))
+
 (ert-deftest slack-test-curl-downloader-failure-keeps-existing-file ()
   (let* ((dir (make-temp-file "slack-test-dl" t))
          (target (expand-file-name "existing.bin" dir))
