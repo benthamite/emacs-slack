@@ -350,8 +350,9 @@ if t, animate gif images."
          (team (slack-team-find-by-token
                 (cdr-safe (cl-assoc selected alist :test #'string=)))))
     (setq slack-current-team team)
-    (message "Deleting %s to clear old Slack cookies" (request--curl-cookie-jar))
-    (delete-file (request--curl-cookie-jar))
+    (when (file-exists-p (request--curl-cookie-jar))
+      (message "Deleting %s to clear old Slack cookies" (request--curl-cookie-jar))
+      (delete-file (request--curl-cookie-jar)))
     (message "Set slack-current-team to %s" (or (and team (oref team name))
                                                 "nil"))
     (if team
