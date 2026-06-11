@@ -2395,6 +2395,28 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
   (cl-letf (((symbol-function 'slack-team-find) (lambda (_id) nil)))
     (slack-ws-on-timeout "T-GONE")))
 
+(ert-deftest slack-test-dnd-team-info-stores-string-keys ()
+  (slack-test-setup
+    (let ((im (make-instance 'slack-im :id "D11111" :user user-id))
+          (captured-success nil))
+      (cl-letf (((symbol-function 'slack-team-ims)
+                 (lambda (_team) (list im)))
+                ((symbol-function 'slack-room-open-p)
+                 (lambda (_room) t))
+                ((symbol-function 'slack-request)
+                 (lambda (req &rest _) (setq captured-success (oref req success)))))
+        (slack-dnd-status-team-info team))
+      (should (functionp captured-success))
+      (funcall captured-success
+               :data (list :ok t
+                           :users (list (intern (concat ":" user-id))
+                                        (list :dnd_enabled t
+                                              :next_dnd_start_ts 0
+                                              :next_dnd_end_ts 9999999999))))
+      (let ((statuses (oref team dnd-status)))
+        (should (hash-table-p statuses))
+        (should (gethash user-id statuses))))))
+
 (ert-deftest slack-test-reaction-add-works-for-uncached-message ()
   (slack-test-setup
     (let ((captured-params nil))

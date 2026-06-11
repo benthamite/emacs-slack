@@ -62,8 +62,12 @@
          (data "slack-dnd-status-team-info")
          (let* ((users (plist-get data :users))
                 (statuses (make-hash-table :test 'equal)))
+           ;; KEY is a keyword like :U123 (JSON plist parsing); readers
+           ;; look statuses up by user-id string, so strip the colon.
            (slack-plist-each users
-               (puthash key (slack-create-dnd-status value) statuses))
+               (puthash (substring (symbol-name key) 1)
+                        (slack-create-dnd-status value)
+                        statuses))
            (oset team dnd-status statuses)))
         (when (functionp after-success)
           (funcall after-success team))))

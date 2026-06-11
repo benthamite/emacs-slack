@@ -301,6 +301,8 @@ Some terminology in the `slack-` functions:
   - stopping Slack while a connection attempt is pending no longer
     leaves a stale connect-timeout timer that later errors (or pops
     the debugger) against the shut-down connection
+  - the do-not-disturb ("Z") indicator works from the bulk DND fetch
+    at connect time, not only after a live dnd_updated event
 
 ### Tip
 
