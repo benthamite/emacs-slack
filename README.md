@@ -308,6 +308,10 @@ Some terminology in the `slack-` functions:
     hovering bot messages
   - thread fetches no longer send `oldest=nil`, duplicate `oldest`
     parameters, or junk `nil=nil` pairs to conversations.replies
+  - partial thread fetches (loading messages missed while
+    disconnected, pagination) merge into the thread's reply list
+    instead of replacing it, so reopening a thread no longer shows
+    only the most recently fetched slice
 
 ### Tip
 

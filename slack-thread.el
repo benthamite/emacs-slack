@@ -60,7 +60,7 @@ invoked with (NEXT-CURSOR HAS-MORE) after messages are stored."
          (oldest (or oldest ts)))
     (cl-labels ((success (messages next-cursor has-more)
                   (slack-room-set-messages room messages team)
-                  (slack-message-set-replies room ts messages cursor)
+                  (slack-message-set-replies room ts messages)
                   (when (functionp after-success)
                     (funcall after-success next-cursor has-more))))
       (slack-conversations-replies room ts team

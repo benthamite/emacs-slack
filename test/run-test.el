@@ -2451,6 +2451,30 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (should (eq 1 (cl-count "oldest" captured-params
                                 :key #'car-safe :test #'equal)))))))
 
+(ert-deftest slack-test-set-replies-merges-partial-fetches ()
+  (slack-test-setup
+    (let* ((parent (make-instance 'slack-message :type "message"
+                                  :channel channel-id
+                                  :ts "1710000000.000100"))
+           (r1 (make-instance 'slack-message :type "message"
+                              :channel channel-id
+                              :ts "1710000000.000101"
+                              :thread_ts "1710000000.000100"))
+           (r2 (make-instance 'slack-message :type "message"
+                              :channel channel-id
+                              :ts "1710000000.000102"
+                              :thread_ts "1710000000.000100")))
+      (slack-room-set-messages channel (list parent r1 r2) team)
+      (slack-message-set-replies channel "1710000000.000100" (list r1))
+      (slack-message-set-replies channel "1710000000.000100" (list r2))
+      (should (equal '("1710000000.000101" "1710000000.000102")
+                     (sort (copy-sequence (oref parent replies))
+                           #'string<))))))
+
+(ert-deftest slack-test-set-replies-tolerates-uncached-parent ()
+  (slack-test-setup
+    (slack-message-set-replies channel "1710000000.000999" nil)))
+
 (ert-deftest slack-test-reaction-add-works-for-uncached-message ()
   (slack-test-setup
     (let ((captured-params nil))

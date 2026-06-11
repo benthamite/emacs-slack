@@ -383,15 +383,21 @@ TEAM is the team argument."
   (slack-if-let* ((ids (oref this replies)))
       (slack-room-sorted-messages room ids)))
 
-(defun slack-message-set-replies (room ts messages &optional append-p)
-  "Set the replies of the message TS in ROOM to MESSAGES.
-If APPEND-P is non-nil, append to the existing replies instead of
-replacing them."
-  (let ((message (slack-room-find-message room ts))
-        (replies (mapcar #'(lambda (m) (slack-ts m)) messages)))
-    (oset message replies (cl-remove-if #'(lambda (timestamp) (string= ts timestamp))
-                                        (if append-p (append (oref message replies) replies)
-                                          replies)))))
+(defun slack-message-set-replies (room ts messages)
+  "Merge MESSAGES into the reply index of the message TS in ROOM.
+Reply ids accumulate across partial fetches (pagination,
+missing-message loads), so a fetch that returns only a slice of the
+thread never discards already-known replies.  Ordering is applied by
+`slack-message-replies' via `slack-room-sorted-messages'.  The
+thread root TS itself is excluded.  Do nothing when the parent is
+not in the room cache."
+  (slack-if-let* ((message (slack-room-find-message room ts)))
+      (let ((replies (mapcar #'(lambda (m) (slack-ts m)) messages)))
+        (oset message replies
+              (cl-remove-if #'(lambda (timestamp) (string= ts timestamp))
+                            (cl-remove-duplicates
+                             (append (oref message replies) replies)
+                             :test #'string=))))))
 
 (defun slack-message-get-or-fetch (ts room-id team &optional thread-ts)
   "Get a message given a TS a ROOM-ID and TEAM, optionally a THREAD-TS.
