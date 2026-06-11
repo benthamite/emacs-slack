@@ -88,13 +88,21 @@ error when the request fails at the API or transport level."
         :error #'on-request-error)))))
 
 (defun slack-message-cancel-edit ()
-  "Abort the current edit/compose and close its buffer."
+  "Abort the current edit/compose and close its buffer.
+The pending attachment buffer, when present, is closed too so its
+files are not silently re-attached to a later compose."
   (interactive)
-  (let ((buffer (slack-buffer-buffer slack-current-buffer)))
-    (with-current-buffer buffer
-      (kill-buffer)
-      (unless (and (equal slack-buffer-function #'switch-to-buffer) (> (count-windows) 1))
-        (delete-window)))))
+  (let ((buf-obj slack-current-buffer))
+    (when (and (slot-exists-p buf-obj 'attachment-buffer)
+               (oref buf-obj attachment-buffer))
+      (slack-buffer-kill-buffer-window (oref buf-obj attachment-buffer)))
+    (let ((buffer (slack-buffer-buffer buf-obj)))
+      (with-current-buffer buffer
+        (kill-buffer)
+        (unless (or (one-window-p)
+                    (and (equal slack-buffer-function #'switch-to-buffer)
+                         (> (count-windows) 1)))
+          (delete-window))))))
 
 (defun slack-message-send-from-buffer ()
   "Send the entire current buffer text as a Slack message."
