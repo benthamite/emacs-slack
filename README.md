@@ -296,6 +296,8 @@ Some terminology in the `slack-` functions:
     erroring during message display
   - pressing RET on an empty minibuffer when picking a grouped select
     option aborts cleanly instead of signaling a type error
+  - company completion links mentions correctly for user names
+    containing regexp special characters such as `[`, `+`, or `.`
   - reconnection after a long disconnect (laptop sleep) falls back to
     a fresh authorization instead of retrying Slack's expired
     reconnect URL for hours
