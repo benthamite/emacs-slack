@@ -73,10 +73,11 @@ HAS-MORE indicates whether more replies remain on the server."
               room-name
               (oref this thread-ts))))
 
-(cl-defmethod slack-buffer-key ((_class (subclass slack-thread-message-buffer)) _room ts)
+(cl-defmethod slack-buffer-key ((_class (subclass slack-thread-message-buffer)) room ts)
   "Return the class-level buffer key for the thread message buffer.
-TS is the ts argument."
-  ts)
+ROOM disambiguates: Slack guarantees ts uniqueness per channel only,
+so keying on TS alone could return another room's thread buffer."
+  (concat (oref room id) ":" ts))
 
 (cl-defmethod slack-buffer-key ((this  slack-thread-message-buffer))
   "Return the lookup key identifying the buffer for THIS buffer."
