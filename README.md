@@ -303,6 +303,9 @@ Some terminology in the `slack-` functions:
     the debugger) against the shut-down connection
   - the do-not-disturb ("Z") indicator works from the bulk DND fetch
     at connect time, not only after a live dnd_updated event
+  - the sender-name tooltip shows the user's actual local time (the
+    old arithmetic was wrong by hours) and no longer errors when
+    hovering bot messages
 
 ### Tip
 

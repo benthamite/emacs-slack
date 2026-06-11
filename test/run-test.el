@@ -2417,6 +2417,21 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (should (hash-table-p statuses))
         (should (gethash user-id statuses))))))
 
+(ert-deftest slack-test-user-local-time-uses-tz-offset ()
+  (let* ((before (format-time-string "%I:%M %p" nil 7200))
+         (actual (slack-user-local-time (list :tz_offset 7200)))
+         (after (format-time-string "%I:%M %p" nil 7200)))
+    (should (member actual (list before after))))
+  (let* ((before (format-time-string "%I:%M %p" nil -10800))
+         (actual (slack-user-local-time (list :tz_offset -10800)))
+         (after (format-time-string "%I:%M %p" nil -10800)))
+    (should (member actual (list before after)))))
+
+(ert-deftest slack-test-user-local-time-nil-without-offset ()
+  (should-not (slack-user-local-time (list :name "bot")))
+  (should-not (slack-user-local-time nil))
+  (should-not (slack-user-timezone (list :name "bot"))))
+
 (ert-deftest slack-test-reaction-add-works-for-uncached-message ()
   (slack-test-setup
     (let ((captured-params nil))

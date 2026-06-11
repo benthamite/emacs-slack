@@ -316,7 +316,7 @@ TEAM is the team argument."
                'help-echo (let ((user (slack-user--find user-id team)))
                             (lambda (_window _string _pos)
                               (format "%s - %s"
-                                      (slack-user-local-time user)
+                                      (or (slack-user-local-time user) "")
                                       (if-let ((p (plist-get (plist-get user :profile) :pronouns)))
                                           p
                                         ""))))
