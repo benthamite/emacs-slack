@@ -309,21 +309,30 @@ ids 30 at a time against users.info."
                           queue))
         (setq queue (reverse queue))
         (cl-labels
-            ((on-success
+            ((continue ()
+               (if (< 0 (length queue))
+                   (progn
+                     (slack-log (format "Fetching users... [%s/%s]"
+                                        (* batch-size (- iter-count (length queue)))
+                                        (length user-ids))
+                                team :level 'info)
+                     (request (pop queue)))
+                 (when (functionp after-success)
+                   (funcall after-success))))
+             (on-success
               (&key data &allow-other-keys)
               (slack-request-handle-error
                (data "slack-users-info-request")
                (let* ((users (plist-get data :users)))
                  (slack-team-set-users team users)))
-              (if (< 0 (length queue))
-                  (progn
-                    (slack-log (format "Fetching users... [%s/%s]"
-                                       (* batch-size (- iter-count (length queue)))
-                                       (length user-ids))
-                               team :level 'info)
-                    (request (pop queue)))
-                (when (functionp after-success)
-                  (funcall after-success))))
+              (continue))
+             (on-error (&rest _args)
+               ;; This request sits mid-chain (history/replies render
+               ;; only through it); keep the continuation alive with
+               ;; unresolved names rather than dropping the fetch.
+               (slack-log "users.info failed; continuing without those users"
+                          team :level 'warn)
+               (continue))
              (request (user-ids)
                (slack-request
                 (slack-request-create
@@ -331,7 +340,8 @@ ids 30 at a time against users.info."
                  team
                  :params (list (cons "users"
                                      (mapconcat #'identity user-ids ",")))
-                 :success #'on-success))))
+                 :success #'on-success
+                 :error #'on-error))))
           (request (pop queue)))))))
 
 (cl-defun slack-user-info-request (user-id team &key after-success)
@@ -353,13 +363,19 @@ with \"B\"."
              (let ((user (plist-get data :user)))
                (slack-team-set-users team (list user))))
             (when (functionp after-success)
+              (funcall after-success)))
+           (on-error (&rest _args)
+            (slack-log (format "users.info failed for %s; continuing" user-id)
+                       team :level 'warn)
+            (when (functionp after-success)
               (funcall after-success))))
         (slack-request
          (slack-request-create
           slack-user-info-url
           team
           :params (list (cons "user" user-id))
-          :success #'on-success))))))
+          :success #'on-success
+          :error #'on-error))))))
 
 (defun slack-user-image-url-24 (user)
   "Return URL of USER's 24x24 profile image."

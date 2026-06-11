@@ -45,13 +45,19 @@ AFTER-SUCCESS is called with no arguments when the request succeeds."
                     (let ((bot (plist-get data :bot)))
                       (slack-team-set-bots team (list bot))))
                    (if after-success
-                       (funcall after-success))))
+                       (funcall after-success)))
+       (on-error (&rest _args)
+         (slack-log (format "bots.info failed for %s; continuing" bot-id)
+                    team :level 'warn)
+         (when (functionp after-success)
+           (funcall after-success))))
     (slack-request
      (slack-request-create
       slack-bot-info-url
       team
       :params (list (cons "bot" bot-id))
-      :success #'on-success))))
+      :success #'on-success
+      :error #'on-error))))
 
 (defun slack-bots-info-request (bot-ids team &optional after-success)
   "Fetch info for the bots with BOT-IDS on TEAM and cache them.
@@ -83,7 +89,12 @@ the entire batch if any one ID is invalid (e.g. a deleted bot)."
       slack-bot-info-url
       team
       :params (list (cons "bots" (mapconcat #'identity bot-ids ",")))
-      :success #'success))))
+      :success #'success
+      :error (lambda (&rest _args)
+               (slack-log "bots.info batch failed; continuing without bots"
+                          team :level 'warn)
+               (when after-success
+                 (funcall after-success)))))))
 
 (defun slack-bot-profile-to-string (bot)
   "Format BOT's profile as a display string."

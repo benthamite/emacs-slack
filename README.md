@@ -292,6 +292,9 @@ Some terminology in the `slack-` functions:
   - the retry queue no longer silently drops a second identical
     request from a different feature (whose callbacks would never
     have fired)
+  - a failed users.info or bots.info lookup no longer silently
+    discards an already-fetched history or thread page — the buffer
+    renders with unresolved names instead of never rendering
   - one malformed conversation entry in the unread-counts response no
     longer kills every unread/mention feature for the session
   - app action labels containing backslashes render instead of

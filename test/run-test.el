@@ -2762,6 +2762,22 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (slack-display-inline-action)
     (should (string= "run C:\\tool" (buffer-string)))))
 
+(ert-deftest slack-test-users-info-error-keeps-continuation ()
+  (slack-test-setup
+    (let ((captured-error nil)
+          (continued nil))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (req &rest _) (setq captured-error (oref req error))))
+                ((symbol-function 'slack-log) #'ignore))
+        (slack-users-info-request (list "U99999") team
+                                  :after-success (lambda () (setq continued t)))
+        (should (functionp captured-error))
+        (funcall captured-error
+                 :error-thrown '(error "timeout")
+                 :symbol-status 'timeout
+                 :response nil :data nil))
+      (should continued))))
+
 (ert-deftest slack-test-counts-tolerate-missing-fields ()
   (let ((counts (slack-create-counts
                  (list :threads nil
