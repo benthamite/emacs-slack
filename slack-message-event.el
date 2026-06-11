@@ -101,12 +101,14 @@
       (slack-room-find-message room thread-ts))))
 
 (cl-defmethod slack-event-save-message ((this slack-message-changed-event) message team)
-  "Persist THIS MESSAGE carried by the message changed event event into TEAM."
+  "Persist THIS MESSAGE carried by the message changed event event into TEAM.
+The edited message is stored even when the original is no longer in
+the cache; only the reactions copy needs the old object."
   (with-slots (payload) this
-    (slack-if-let* ((room (slack-room-find message team))
-                    (old (slack-room-find-message room (slack-ts message))))
+    (slack-if-let* ((room (slack-room-find message team)))
         (progn
-          (oset message reactions (oref old reactions))
+          (slack-if-let* ((old (slack-room-find-message room (slack-ts message))))
+              (oset message reactions (oref old reactions)))
           (slack-room-push-message room message team)))))
 
 (cl-defmethod slack-event-save-message ((_this slack-message-deleted-event) message team)
@@ -186,16 +188,17 @@ TEAM is the team argument."
             (let* ((buf (slack-buffer-find 'slack-message-buffer team room))
                    (buffer (and buf (slack-buffer-buffer buf)))
                    (focused (and buffer (slack-buffer-in-current-frame buffer))))
-              (if (slack-mpim-p room)
-                  (when (and not-self (not focused))
-                    (slack-room-set-has-unreads room t team))
+              ;; Own or currently-focused messages must not flag the
+              ;; room unread; previously only MPIMs had this guard.
+              (when (and not-self (not focused))
                 (slack-room-set-has-unreads room t team))
               (when (or (slack-message-mentioned-p message team)
                         (and (slack-im-p room) not-self)
                         (and (slack-mpim-p room) not-self))
                 (slack-room-set-mention-count
                  room (1+ (slack-room-mention-count room team)) team))))
-          (when (fboundp 'slack-activity-feed-watch-channel-message)
+          (when (and not-self
+                     (fboundp 'slack-activity-feed-watch-channel-message))
             (slack-activity-feed-watch-channel-message message room team))
           (when (and (fboundp 'slack-activity-feed-refresh-cache-from-event)
                      not-self
@@ -205,7 +208,11 @@ TEAM is the team argument."
                          (slack-message-subscribed-thread-message-p
                           message room)))
             (slack-activity-feed-refresh-cache-from-event team))
-          (when (and not-self (slack-thread-message-p message))
+          ;; Slack reserves the threads indicator for subscribed
+          ;; threads; any-reply-by-anyone kept it effectively always
+          ;; on in busy teams.
+          (when (and not-self
+                     (slack-message-subscribed-thread-message-p message room))
             (slack-message-event--mark-thread-unread team)))
         (slack-update-modeline))))
 

@@ -254,7 +254,13 @@ Some terminology in the `slack-` functions:
   - `slack-activity-feed-watch-channel-limit` controls how many recent
     messages are fetched from each watched channel
   - entries can be channel names without `#` or channel IDs such as
-    `C1234567890`
+    `C1234567890`; private channel names resolve too, and unresolved
+    entries are logged
+  - your own messages no longer flag rooms unread, bump the Activity
+    unread count, or light the subscribed-threads indicator; the
+    threads indicator only lights for threads you are subscribed to;
+    @-name matching treats names as literal text (a name with a dot no
+    longer false-positives)
 - `slack-saved-items`
   - show saved messages and cache message data returned by Slack so the buffer
     can render newly fetched saved items immediately
