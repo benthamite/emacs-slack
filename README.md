@@ -336,6 +336,8 @@ Some terminology in the `slack-` functions:
   - Slack-app dialogs with grouped select options work: selecting an
     option no longer signals, and the first press of an " Edit "
     button shows the edit buffer instead of an unrelated buffer
+  - the saved-items buffer stops paginating at the last page instead
+    of re-fetching page one forever and appending duplicate items
 
 ### Tip
 

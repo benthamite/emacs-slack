@@ -61,8 +61,10 @@
   (oref this ts))
 
 (cl-defmethod slack-star-has-next-page-p ((this slack-star))
-  "Are there more saved for later for THIS?"
-  (not (null (oref this cursor))))
+  "Are there more saved for later for THIS?
+Slack's cursor pagination returns an empty next_cursor on the last
+page, so only a non-empty cursor means another page exists."
+  (< 0 (length (oref this cursor))))
 
 (cl-defmethod slack-star-items ((this slack-star))
   "GET THIS star items."
