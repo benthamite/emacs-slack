@@ -286,8 +286,10 @@ NOT-TRACKED-P is the not-tracked-p argument."
                   (team (slack-buffer-team buf))
                   (page (oref file page)))
       (slack-file-request-info
-       file page team
+       (oref file id) page team
        #'(lambda (file team &rest _args)
+           (oset buf file file)
+           (slack-buffer-update buf)
            (slack-if-let* ((buffer (slack-buffer-find 'slack-file-list-buffer team)))
                (slack-buffer-replace buffer file))))))
 

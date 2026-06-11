@@ -2634,6 +2634,21 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
           (when (buffer-live-p (oref buf-obj buf))
             (kill-buffer (oref buf-obj buf))))))))
 
+(ert-deftest slack-test-file-update-passes-file-id ()
+  (slack-test-setup
+    (let* ((file (slack-file-create (list :id "F11111")))
+           (buf-obj (make-instance 'slack-file-info-buffer
+                                   :team-id (oref team id)
+                                   :file file))
+           (captured-id nil))
+      (slack-buffer-cache-team buf-obj team)
+      (cl-letf (((symbol-function 'slack-file-request-info)
+                 (lambda (file-id _page _team &optional _after-success)
+                   (setq captured-id file-id))))
+        (let ((slack-current-buffer buf-obj))
+          (slack-file-update)))
+      (should (equal "F11111" captured-id)))))
+
 (ert-deftest slack-test-pins-list-skips-unknown-item-types ()
   (slack-test-setup
     (let ((captured-success nil)
