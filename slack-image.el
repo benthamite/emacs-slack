@@ -89,7 +89,7 @@ the bottom."
              (height (cdr size))
              (width (car size))
              (h (min height max-height))
-             (w (if (< max-height height)
+             (w (if (and (< max-height height) (< 0 height))
                     (ceiling
                      (* (/ (float max-height) height)
                         width))
