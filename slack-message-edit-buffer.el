@@ -91,14 +91,19 @@ TS is the ts argument."
     buf))
 
 (cl-defmethod slack-buffer-send-message ((this slack-message-edit-buffer) message)
-  "Send a MESSAGE from THIS message edit buffer."
+  "Send a MESSAGE from THIS message edit buffer.
+Close the buffer only after the server confirms the edit; on failure
+keep the buffer so the text is not lost.  The edit is sent even when
+the original message is no longer in the local room cache, since the
+API only needs the channel id and timestamp."
   (slack-if-let* ((ts (oref this ts))
                   (team (slack-buffer-team this))
-                  (room (slack-buffer-room this))
-                  (m (slack-room-find-message room ts)))
-      (progn
-        (slack-message--edit (oref room id) team ts message)
-        (cl-call-next-method))))
+                  (room (slack-buffer-room this)))
+      (slack-message--edit (oref room id) team ts message
+                           :on-success (lambda (&rest _)
+                                         (slack-buffer-close-after-send this))
+                           :on-error (lambda (&rest err)
+                                       (slack-buffer-send-message-failed this (car err))))))
 
 (provide 'slack-message-edit-buffer)
 ;;; slack-message-edit-buffer.el ends here

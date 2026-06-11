@@ -78,14 +78,19 @@ TS is the ts argument."
       buf)))
 
 (cl-defmethod slack-buffer-send-message ((this slack-thread-message-compose-buffer) message)
-  "Send a MESSAGE from THIS buffer."
+  "Send a MESSAGE from THIS buffer.
+Close the buffer only after the server confirms the send; on failure
+keep the buffer so the text is not lost."
   (with-slots (thread-ts) this
     (slack-thread-send-message (slack-buffer-room this)
                                (slack-buffer-team this)
                                message
                                thread-ts
-                               (slack-buffer-attachments this)))
-  (cl-call-next-method))
+                               :files (slack-buffer-attachments this)
+                               :on-success (lambda (&rest _)
+                                             (slack-buffer-close-after-send this))
+                               :on-error (lambda (&rest err)
+                                           (slack-buffer-send-message-failed this (car err))))))
 
 (cl-defmethod slack-buffer-display-message-compose-buffer ((this slack-thread-message-buffer))
   "Open a compose buffer targeting THIS buffer."

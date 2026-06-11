@@ -87,12 +87,11 @@
   (with-slots (room-id) this
     (slack-room-find room-id (slack-buffer-team this))))
 
-(cl-defmethod slack-buffer-send-message ((this slack-message-compose-buffer) _message)
-  "Send a message from THIS message compose buffer."
+(cl-defmethod slack-buffer-close-after-send ((this slack-message-compose-buffer))
+  "Close THIS compose buffer and its attachment buffer after a confirmed send."
   (when (oref this attachment-buffer)
     (slack-buffer-kill-buffer-window (oref this attachment-buffer)))
-
-  (slack-buffer-kill-buffer-window this))
+  (cl-call-next-method))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-message-compose-buffer))
   "Initialize and return the display buffer for THIS buffer."

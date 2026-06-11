@@ -184,9 +184,10 @@ AFTER-SUCCESS is the after-success argument."
                                message
                                thread-ts)))
 
-(defun slack-thread-send-message (room team message thread-ts &optional files)
+(cl-defun slack-thread-send-message (room team message thread-ts &key files on-success on-error)
   "Send MESSAGE as a reply to the thread at THREAD-TS in ROOM on TEAM.
-Optional FILES are sent as attachments."
+FILES are sent as attachments.  ON-SUCCESS and ON-ERROR are passed to
+`slack-message-send-internal'."
   (let ((broadcast (if (eq slack-thread-also-send-to-room 'ask)
                        (y-or-n-p (format "Also send to %s ? "
                                          (slack-room-name room team)))
@@ -197,7 +198,9 @@ Optional FILES are sent as attachments."
                           (cons "thread_ts" thread-ts))))
       (slack-message-send-internal message room team
                                    :payload payload
-                                   :files files))))
+                                   :files files
+                                   :on-success on-success
+                                   :on-error on-error))))
 
 (defun slack-thread-message--send (message)
   "Send MESSAGE from the current thread message buffer."

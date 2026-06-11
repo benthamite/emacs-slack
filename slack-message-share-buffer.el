@@ -93,13 +93,18 @@ TS is the ts argument."
     buf))
 
 (cl-defmethod slack-buffer-send-message ((this slack-message-share-buffer) message)
-  "Send a MESSAGE from THIS message share buffer."
+  "Send a MESSAGE from THIS message share buffer.
+Close the buffer only after the server confirms the share; on failure
+keep the buffer so the text is not lost."
   (with-slots (ts) this
     (slack-message-share--send (slack-buffer-team this)
                                (slack-buffer-room this)
                                ts
-                               message)
-    (slack-buffer-kill-buffer-window this)))
+                               message
+                               :on-success (lambda (&rest _)
+                                             (slack-buffer-close-after-send this))
+                               :on-error (lambda (&rest err)
+                                           (slack-buffer-send-message-failed this (car err))))))
 
 (provide 'slack-message-share-buffer)
 ;;; slack-message-share-buffer.el ends here

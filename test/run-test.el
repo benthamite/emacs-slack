@@ -1,6 +1,7 @@
 ;;; run-test.el --- run emacs-slack tests  -*- lexical-binding: t; -*-
 
 (require 'ert)
+(require 'slack)
 (require 'slack-team)
 (require 'slack-channel)
 (require 'slack-usergroup)
@@ -2199,6 +2200,164 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                                    :success #'ignore)))
     (oset req retry-count slack-request-max-retry)
     (should-not (slack-request-retry-failed-request-p req '(end-of-file) 'error))))
+
+(ert-deftest slack-test-room-compose-send-kills-buffer-only-on-success ()
+  (slack-test-setup
+    (let* ((buf-obj (slack-create-room-message-compose-buffer channel team))
+           (buffer (slack-buffer-buffer buf-obj))
+           (captured-success nil)
+           (captured-error nil))
+      (unwind-protect
+          (progn
+            (cl-letf (((symbol-function 'slack-message-send-internal)
+                       (cl-function
+                        (lambda (_message _room _team
+                                          &key on-success on-error
+                                          &allow-other-keys)
+                          (setq captured-success on-success
+                                captured-error on-error)))))
+              (slack-buffer-send-message buf-obj "hello"))
+            (should (buffer-live-p buffer))
+            (should (functionp captured-error))
+            (funcall captured-error "is_archived")
+            (should (buffer-live-p buffer))
+            (should (functionp captured-success))
+            (funcall captured-success)
+            (should-not (buffer-live-p buffer)))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
+(ert-deftest slack-test-thread-compose-send-kills-buffer-only-on-success ()
+  (slack-test-setup
+    (let* ((slack-thread-also-send-to-room nil)
+           (buf-obj (slack-create-thread-message-compose-buffer
+                     channel "1710000000.000000" team))
+           (buffer (slack-buffer-buffer buf-obj))
+           (captured-success nil)
+           (captured-error nil))
+      (unwind-protect
+          (progn
+            (cl-letf (((symbol-function 'slack-message-send-internal)
+                       (cl-function
+                        (lambda (_message _room _team
+                                          &key on-success on-error
+                                          &allow-other-keys)
+                          (setq captured-success on-success
+                                captured-error on-error)))))
+              (slack-buffer-send-message buf-obj "hello thread"))
+            (should (buffer-live-p buffer))
+            (should (functionp captured-error))
+            (funcall captured-error "is_archived")
+            (should (buffer-live-p buffer))
+            (should (functionp captured-success))
+            (funcall captured-success)
+            (should-not (buffer-live-p buffer)))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
+(ert-deftest slack-test-edit-buffer-send-kills-buffer-only-on-success ()
+  (slack-test-setup
+    (let* ((ts "1710000000.000000")
+           (m (make-instance 'slack-message
+                             :type "message"
+                             :channel channel-id
+                             :ts ts
+                             :text "original"))
+           (buf-obj nil)
+           (buffer nil)
+           (captured-success nil)
+           (captured-error nil))
+      (slack-room-set-messages channel (list m) team)
+      (setq buf-obj (slack-create-edit-message-buffer channel team ts))
+      (setq buffer (slack-buffer-buffer buf-obj))
+      (unwind-protect
+          (progn
+            (cl-letf (((symbol-function 'slack-message--edit)
+                       (cl-function
+                        (lambda (_channel _team _ts _text
+                                          &key on-success on-error)
+                          (setq captured-success on-success
+                                captured-error on-error)))))
+              (slack-buffer-send-message buf-obj "edited"))
+            (should (buffer-live-p buffer))
+            (should (functionp captured-error))
+            (funcall captured-error "cant_update_message")
+            (should (buffer-live-p buffer))
+            (should (functionp captured-success))
+            (funcall captured-success)
+            (should-not (buffer-live-p buffer)))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
+(ert-deftest slack-test-edit-buffer-send-works-when-message-uncached ()
+  (slack-test-setup
+    (let* ((ts "1710000000.000000")
+           (m (make-instance 'slack-message
+                             :type "message"
+                             :channel channel-id
+                             :ts ts
+                             :text "original"))
+           (buf-obj nil)
+           (buffer nil)
+           (edit-sent nil))
+      (slack-room-set-messages channel (list m) team)
+      (setq buf-obj (slack-create-edit-message-buffer channel team ts))
+      (setq buffer (slack-buffer-buffer buf-obj))
+      (unwind-protect
+          (progn
+            (slack-room-set-messages channel nil team)
+            (cl-letf (((symbol-function 'slack-message--edit)
+                       (cl-function
+                        (lambda (&rest _args &key &allow-other-keys)
+                          (setq edit-sent t)))))
+              (slack-buffer-send-message buf-obj "edited"))
+            (should edit-sent))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
+(ert-deftest slack-test-share-buffer-send-kills-buffer-only-on-success ()
+  (slack-test-setup
+    (let* ((ts "1710000000.000000")
+           (buf-obj (slack-create-message-share-buffer channel team ts))
+           (buffer (slack-buffer-buffer buf-obj))
+           (captured-success nil)
+           (captured-error nil))
+      (unwind-protect
+          (progn
+            (cl-letf (((symbol-function 'slack-message-share--send)
+                       (cl-function
+                        (lambda (_team _room _ts _msg
+                                       &key on-success on-error)
+                          (setq captured-success on-success
+                                captured-error on-error)))))
+              (slack-buffer-send-message buf-obj "share comment"))
+            (should (buffer-live-p buffer))
+            (should (functionp captured-error))
+            (funcall captured-error "channel_not_found")
+            (should (buffer-live-p buffer))
+            (should (functionp captured-success))
+            (funcall captured-success)
+            (should-not (buffer-live-p buffer)))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
+(ert-deftest slack-test-chat-post-message-network-error-calls-on-error ()
+  (slack-test-setup
+    (let ((captured-req nil)
+          (reported-error nil))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (req &rest _args) (setq captured-req req))))
+        (slack-chat-post-message team
+                                 (list (cons "channel" channel-id))
+                                 :on-error (lambda (err &rest _)
+                                             (setq reported-error err))))
+      (should (functionp (oref captured-req error)))
+      (funcall (oref captured-req error)
+               :error-thrown '(error "Connection refused")
+               :symbol-status 'error
+               :response nil
+               :data nil)
+      (should reported-error))))
 
 (if noninteractive
     (ert-run-tests-batch-and-exit)

@@ -50,17 +50,24 @@
   (slack-enable-wysiwyg)
   (slack-buffer-enable-emojify))
 
-(defun slack-message-share--send (team room ts msg)
-  "Share message at TS from ROOM on TEAM to a user-selected channel with body MSG."
+(cl-defun slack-message-share--send (team room ts msg &key on-success on-error)
+  "Share message at TS from ROOM on TEAM to a user-selected channel with body MSG.
+Call ON-SUCCESS once the server accepts the share, or ON-ERROR with the
+error when the request fails at the API or transport level."
   (let* ((slack-room-list (slack-message-room-list team))
          (share-channel-id (oref (slack-select-from-list
                                      (slack-room-list
                                       "Select Channel: "))
                                  id)))
     (cl-labels
-        ((on-success (&key data &allow-other-keys)
+        ((on-share (&key data &allow-other-keys)
            (slack-request-handle-error
-            (data "slack-message-share"))))
+            (data "slack-message-share" on-error)
+            (when (functionp on-success)
+              (funcall on-success))))
+         (on-request-error (&key error-thrown &allow-other-keys)
+           (when (functionp on-error)
+             (funcall on-error error-thrown))))
       (slack-request
        (slack-request-create
         slack-share-url
@@ -73,7 +80,8 @@
                             (json-encode (cdr (car (with-temp-buffer
                                                      (insert msg)
                                                      (slack-create-blocks-from-buffer)))))))
-        :success #'on-success)))))
+        :success #'on-share
+        :error #'on-request-error)))))
 
 (defun slack-message-cancel-edit ()
   "Abort the current edit/compose and close its buffer."
@@ -91,11 +99,18 @@
                   (text (buffer-substring-no-properties (point-min) (point-max))))
       (slack-buffer-send-message buf text)))
 
-(defun slack-message--edit (channel team ts text)
-  "Edit the message at TS in CHANNEL for TEAM, replacing its body with TEXT."
+(cl-defun slack-message--edit (channel team ts text &key on-success on-error)
+  "Edit the message at TS in CHANNEL for TEAM, replacing its body with TEXT.
+Call ON-SUCCESS once the server accepts the edit, or ON-ERROR with the
+error when the request fails at the API or transport level."
   (cl-labels ((on-edit (&key data &allow-other-keys)
-                       (slack-request-handle-error
-                        (data "slack-message--edit"))))
+                (slack-request-handle-error
+                 (data "slack-message--edit" on-error)
+                 (when (functionp on-success)
+                   (funcall on-success))))
+              (on-request-error (&key error-thrown &allow-other-keys)
+                (when (functionp on-error)
+                  (funcall on-error error-thrown))))
     (slack-request
      (slack-request-create
       slack-message-edit-url
@@ -109,7 +124,8 @@
                                 (with-temp-buffer
                                   (insert text)
                                   (slack-create-blocks-from-buffer))))
-      :success #'on-edit))))
+      :success #'on-edit
+      :error #'on-request-error))))
 
 (provide 'slack-message-editor)
 ;;; slack-message-editor.el ends here

@@ -236,6 +236,12 @@ Some terminology in the `slack-` functions:
 - `slack-message-edit`
   - opens an edit buffer for the message at point, including messages shown in
     thread buffers
+  - the edit is sent even when the original message has dropped out of the
+    local message cache
+- Compose, edit, and share buffers (<kbd>C-c C-c</kbd> to send)
+  - the buffer closes only after Slack confirms the send; if the send fails
+    (network error, archived channel, rejected message), the buffer stays
+    open with your text intact and the error is shown in the echo area
 - Quoted Slack messages
   - press <kbd>RET</kbd> on a quoted/shared message to open the original
     message in emacs-slack

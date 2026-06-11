@@ -142,7 +142,13 @@ response."
                                                         :messages)
                                              "\n")))
                         team
-                        :level 'error)))))
+                        :level 'error))))
+       (on-request-error (&key error-thrown &allow-other-keys)
+         (if on-error
+             (funcall on-error error-thrown)
+           (slack-log (format "Failed to post message: %s" error-thrown)
+                      team
+                      :level 'error))))
     (slack-request
      (slack-request-create
       "https://slack.com/api/chat.postMessage"
@@ -151,7 +157,8 @@ response."
       :data (json-encode message)
       :headers (list (cons "Content-Type"
                            "application/json;charset=utf-8"))
-      :success #'success))))
+      :success #'success
+      :error #'on-request-error))))
 
 (defun slack-chat-post-message--echo (data team)
   "Echo the sent message from chat.postMessage response DATA locally.

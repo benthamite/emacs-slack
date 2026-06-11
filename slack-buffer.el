@@ -301,6 +301,18 @@ their previous buffer."
             (quit-restore-window w 'kill)
           (kill-buffer b))))))
 
+(cl-defmethod slack-buffer-close-after-send ((this slack-buffer))
+  "Close THIS buffer once the server has confirmed the send."
+  (slack-buffer-kill-buffer-window this))
+
+(cl-defmethod slack-buffer-send-message-failed ((this slack-buffer) &optional err)
+  "Report a failed send from THIS buffer, keeping the typed text.
+ERR is the API error payload or transport error, when available."
+  (let ((reason (or (and (listp err) (plist-get err :error)) err)))
+    (message "Slack: message not sent%s; your text is still in %s"
+             (if reason (format " (%s)" reason) "")
+             (buffer-name (slack-buffer-buffer this)))))
+
 (cl-defmethod slack-buffer-create-kill-hook ((this slack-buffer))
   "Return a `kill-buffer-hook' that removes THIS from its team's buffer table."
   #'(lambda ()
