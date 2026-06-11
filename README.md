@@ -273,6 +273,8 @@ Some terminology in the `slack-` functions:
   - re-opening a file's info and loading file-list pages that contain
     already-cached files merge correctly instead of erroring inside the
     request callback
+  - file lists render even when an entry lacks timestamp metadata
+    (tombstones, hidden-by-limit files)
 - File and image downloads
   - downloading to an existing path asks for confirmation before
     overwriting

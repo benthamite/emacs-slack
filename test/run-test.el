@@ -2681,6 +2681,10 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-file-without-timestamp-reads-nil ()
+  (let ((file (slack-file-create (list :id "F11111"))))
+    (should-not (oref file timestamp))))
+
 (ert-deftest slack-test-channel-rename-without-normalized-name ()
   (slack-test-setup
     (let ((event (make-instance 'slack-room-rename-event

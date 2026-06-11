@@ -234,7 +234,10 @@ When nil, save directly to `slack-file-dir' using the file's original name."
    (url-download :initarg :url_download :initform "" :type string)
    (url-private :initarg :url_private :initform "" :type string)
    (url-private-download :initarg :url_private_download :initform "" :type string)
-   (timestamp :initarg :timestamp :type number)
+   ;; The timestamp field is API-deprecated and absent from minimal
+   ;; payloads (tombstones, hidden-by-limit, search matches); the
+   ;; render guards expect nil, not an unbound slot.
+   (timestamp :initarg :timestamp :type (or null number) :initform nil)
    (comments :initarg :comments :type list :initform '())
    (mode :initarg :mode :type (or null string) :initform nil)
    (content :initarg :content :type (or null slack-file-content) :initform nil)
