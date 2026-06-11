@@ -246,9 +246,11 @@ ON-SUCCESS and ON-ERROR, when functions, are invoked after the
 request's own success and error handlers run."
   (let* (;; we don't want to save cookies because they break switching teams using the trick from  https://github.com/tkf/emacs-request/issues/155
          (request-curl-options slack-request-curl-options)
+         ;; make-temp-file creates the jar 0600; make-temp-name only
+         ;; predicts a name, leaving a symlink-race surface for a file
+         ;; that will hold auth cookies.
          (temp-cookie (unless (oref req sync)
-                        (expand-file-name (make-temp-name "my-cookie-")
-                                          temporary-file-directory)))
+                        (make-temp-file "slack-cookie-")))
          (request--curl-cookie-jar (or temp-cookie request--curl-cookie-jar))
          (team (oref req team)))
     (cl-labels
@@ -270,6 +272,9 @@ request's own success and error handlers run."
                               team :level 'info)
                    (oset req token-retried t)
                    (oset req response nil)
+                   ;; The retry creates its own jar; this attempt's
+                   ;; would otherwise be left on disk with the cookie.
+                   (cleanup-temp-cookie)
                    (slack-request req :on-success on-success :on-error on-error))
                (unwind-protect
                    (progn
@@ -554,22 +559,27 @@ on success, so a failed download never disturbs an existing NAME."
                                 token
                                 (string-match-p "slack" (url-host url-obj))
                                 (string-prefix-p "https" url)))
-             (proc (apply #'start-process
-                          "slack-curl-downloader"
-                          "slack-curl-downloader"
-                          (executable-find "curl")
-                          "--silent"
-                          "--show-error"
-                          "--fail"
-                          "--location"
-                          "--output" tempfile
-                          "--url" url
-                          (append
-                           (when need-token-p
-                             `("-H" ,(format "Authorization: Bearer %s" token)))
-                           (when (and need-token-p (slack-need-cookie-p token))
-                             `("-H" ,(format "Cookie: d=%s; " cookie)))))))
-        (set-process-sentinel proc #'sentinel)))))
+             ;; Credentials go through a curl config read from stdin,
+             ;; not argv, where any local user could see them via ps.
+             (proc (start-process
+                    "slack-curl-downloader"
+                    "slack-curl-downloader"
+                    (executable-find "curl")
+                    "--silent"
+                    "--show-error"
+                    "--fail"
+                    "--location"
+                    "--config" "-"
+                    "--output" tempfile
+                    "--url" url)))
+        (set-process-sentinel proc #'sentinel)
+        (when need-token-p
+          (process-send-string
+           proc (format "header = \"Authorization: Bearer %s\"\n" token))
+          (when (slack-need-cookie-p token)
+            (process-send-string
+             proc (format "header = \"Cookie: d=%s; \"\n" cookie))))
+        (process-send-eof proc)))))
 
 (defun slack-request--download-tempfile (target)
   "Return a fresh temp file path beside TARGET for an in-flight download.

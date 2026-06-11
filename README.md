@@ -337,6 +337,10 @@ Some terminology in the `slack-` functions:
   - websocket URLs are logged with the workspace token redacted, so
     setting `slack-log-level` to `debug` no longer writes the
     credential to the log buffer
+  - download credentials are passed to curl via stdin instead of the
+    command line (where other local users could see them), and the
+    per-request cookie jar is created 0600 and cleaned up on the
+    token-retry path
   - a failed attachment upload reports the failure once and stops,
     instead of erroring from a leaked once-per-second timer until
     Emacs restarts
