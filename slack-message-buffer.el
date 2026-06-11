@@ -308,13 +308,17 @@ CURSOR is the pagination cursor for fetching older messages."
                             (paginate next-cursor)
                           (write-messages)))
          (write-messages ()
-                         (let* ((messages (slack-room-sorted-messages room)))
-                           (with-current-buffer (slack-buffer-buffer this)
-                             (let ((inhibit-read-only t))
-                               (slack-buffer-delete-overlay this))
-                             (slack-buffer-insert-messages this messages nil t)
-                             (slack-buffer-goto (slack-buffer-last-read this))
-                             (slack-buffer-update-marker-overlay this)))))
+                         ;; The fetch is async; the buffer may have been
+                         ;; killed in the meantime. slack-buffer-buffer
+                         ;; would re-create it, so check liveness instead.
+                         (when (buffer-live-p (oref this buf))
+                           (let* ((messages (slack-room-sorted-messages room)))
+                             (with-current-buffer (oref this buf)
+                               (let ((inhibit-read-only t))
+                                 (slack-buffer-delete-overlay this))
+                               (slack-buffer-insert-messages this messages nil t)
+                               (slack-buffer-goto (slack-buffer-last-read this))
+                               (slack-buffer-update-marker-overlay this))))))
       (slack-conversations-history room team
                                    :oldest latest
                                    :after-success #'after-success))))
@@ -331,7 +335,11 @@ CURSOR is the pagination cursor for fetching older messages."
     (cl-labels
         ((update-buffer
           (messages)
-          (with-current-buffer (slack-buffer-buffer this)
+          ;; The fetch is async; the buffer may have been killed in the
+          ;; meantime. slack-buffer-buffer would re-create it, so check
+          ;; liveness instead.
+          (when (buffer-live-p (oref this buf))
+          (with-current-buffer (oref this buf)
             (slack-buffer-widen
              (let ((inhibit-read-only t))
                (goto-char (point-min))
@@ -355,7 +363,7 @@ CURSOR is the pagination cursor for fetching older messages."
                ))
             (if current-ts
                 (slack-buffer-goto current-ts)
-              (goto-char cur-point))))
+              (goto-char cur-point)))))
          (after-success (messages next-cursor)
                         (oset this cursor next-cursor)
                         (slack-room-set-messages room messages team)

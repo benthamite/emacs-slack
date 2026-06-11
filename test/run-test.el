@@ -2495,6 +2495,23 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
 
 (defclass slack-test--plain-buffer (slack-buffer) ())
 
+(ert-deftest slack-test-load-missing-messages-skips-killed-buffer ()
+  (slack-test-setup
+    (let ((buf-obj (make-instance 'slack-message-buffer
+                                  :room-id channel-id
+                                  :team-id (oref team id)))
+          (buffer (generate-new-buffer " *slack-test-missing*")))
+      (slack-buffer-cache-team buf-obj team)
+      (oset buf-obj buf buffer)
+      (kill-buffer buffer)
+      (let ((buffers-after-kill (buffer-list)))
+        (cl-letf (((symbol-function 'slack-conversations-history)
+                   (cl-function
+                    (lambda (_room _team &key after-success &allow-other-keys)
+                      (funcall after-success nil nil)))))
+          (slack-buffer-load-missing-messages buf-obj))
+        (should (equal buffers-after-kill (buffer-list)))))))
+
 (ert-deftest slack-test-load-more-resets-flag-on-error ()
   (slack-test-setup
     (let* ((buf-obj (make-instance 'slack-test--plain-buffer

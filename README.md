@@ -321,7 +321,7 @@ Some terminology in the `slack-` functions:
   - a failed or rate-limited history request no longer permanently
     disables "(load more)" in thread and feed buffers, and a buffer
     killed while the request is in flight stays dead instead of being
-    re-created by the response
+    re-created by the response (channel buffers included)
 
 ### Tip
 
