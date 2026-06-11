@@ -109,9 +109,19 @@ USER-ID is the user-id argument."
        user-id team
        :after-success
        (lambda ()
-         (slack-if-let* ((buf (slack-buffer-buffer this)))
+         (slack-if-let* ((buf (and (buffer-live-p (oref this buf))
+                                   (oref this buf))))
              (with-current-buffer buf
-               (slack-buffer--insert this)))))))))
+               (if (or (slack-user-find user-id team)
+                       (slack-find-bot user-id team))
+                   (slack-buffer--insert this)
+                 ;; Re-rendering would refetch forever; show a
+                 ;; terminal state instead of "Fetching..." for ids
+                 ;; the API cannot resolve.
+                 (let ((inhibit-read-only t))
+                   (erase-buffer)
+                   (insert (propertize (format "\nUser %s not found" user-id)
+                                       'ts 'dummy))))))))))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-user-profile-buffer))
   "Initialize and return the display buffer for THIS buffer."
