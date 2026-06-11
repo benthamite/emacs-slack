@@ -228,6 +228,9 @@ Some terminology in the `slack-` functions:
   - thread subscribe/unsubscribe events that cannot be applied (the parent
     message is not cached locally) are logged instead of vanishing, making
     notification drift diagnosable
+  - the startup conversations sync completes once instead of four times, so
+    "Slack is ready!" appears once and the users.info burst is not repeated
+    per conversation type
   - the visible Activity feed is refreshed when the feed is shown or when
     <kbd>g</kbd> is pressed
   - `slack-activity-feed-watch-channel-limit` controls how many recent

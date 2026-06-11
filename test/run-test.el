@@ -2762,6 +2762,29 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (slack-display-inline-action)
     (should (string= "run C:\\tool" (buffer-string)))))
 
+(ert-deftest slack-test-rate-limit-safe-list-calls-back-once ()
+  (slack-test-setup
+    (let ((calls 0)
+          (received nil))
+      (cl-letf (((symbol-function 'slack-conversations-list)
+                 (lambda (_team callback types)
+                   (funcall callback
+                            (when (equal types (list "public_channel"))
+                              (list 'public))
+                            (when (equal types (list "private_channel"))
+                              (list 'private))
+                            (when (equal types (list "im"))
+                              (list 'im)))))
+                ((symbol-function 'slack-log) #'ignore))
+        (slack-conversations-list--safe-for-rate-limiting
+         team
+         (lambda (channels groups ims)
+           (cl-incf calls)
+           (setq received (list channels groups ims)))))
+      (should (eq 1 calls))
+      (should (equal (list (list 'public) (list 'private) (list 'im))
+                     received)))))
+
 (ert-deftest slack-test-feed-render-stops-when-buffer-killed ()
   (slack-test-setup
     (let ((buf-obj (make-instance 'slack-activity-feed-buffer

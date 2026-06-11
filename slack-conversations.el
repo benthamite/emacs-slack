@@ -372,39 +372,46 @@ was accumulated so the loading chain is never silently broken."
 
 (defun slack-conversations-list--safe-for-rate-limiting (team success-callback)
   "Retrieve the list of conversations for TEAM.
-Run SUCCESS-CALLBACK on success.
+Run SUCCESS-CALLBACK once, after all conversation types have been
+fetched.  Invoking it per type would re-run the caller's completion
+side effects (counts refresh, users.info bursts, \"Slack is ready!\")
+up to four times per refresh — the very traffic this rate-limit
+optimized variant exists to avoid.
 
 This is an optimized call for rate limiting:
 it does a call for each type and `slack-conversation-list' doesn't do
 more than 20 api calls."
-  (slack-conversations-list
-   team
-   (lambda (channels groups ims)
-     (funcall success-callback channels groups ims)
-     (slack-log (format "slack-conversations-list: completed private channels channels:%s groups:%s ims:%s" (length channels) (length groups) (length ims)) team :level 'info)
-     (slack-conversations-list
-      team
-      (lambda (channels groups ims)
-        (slack-log (format "slack-conversations-list: completed im channels:%s groups:%s ims:%s" (length channels) (length groups) (length ims)) team :level 'info)
-        (funcall success-callback channels groups ims)
-        (slack-conversations-list
-         team
-         (lambda (channels groups ims)
-           (funcall success-callback channels groups ims)
-           (slack-log (format "slack-conversations-list: completed mpim channels:%s groups:%s ims:%s" (length channels) (length groups) (length ims)) team :level 'info)
+  (let ((all-channels nil)
+        (all-groups nil)
+        (all-ims nil))
+    (cl-labels
+        ((fetch (types next)
            (slack-conversations-list
             team
             (lambda (channels groups ims)
-              (funcall success-callback channels groups ims)
-              (slack-log (format "slack-conversations-list: completed public channels:%s groups:%s ims:%s" (length channels) (length groups) (length ims)) team :level 'info)
-              )
-            (list "public_channel"))
-           )
-         (list "im"))
-        )
-      (list "mpim"))
-     )
-   (list "private_channel")))
+              (setq all-channels (append all-channels channels)
+                    all-groups (append all-groups groups)
+                    all-ims (append all-ims ims))
+              (slack-log (format "slack-conversations-list: completed %s channels:%s groups:%s ims:%s"
+                                 (mapconcat #'identity types ",")
+                                 (length channels) (length groups) (length ims))
+                         team :level 'info)
+              (funcall next))
+            types)))
+      (fetch
+       (list "private_channel")
+       (lambda ()
+         (fetch
+          (list "mpim")
+          (lambda ()
+            (fetch
+             (list "im")
+             (lambda ()
+               (fetch
+                (list "public_channel")
+                (lambda ()
+                  (funcall success-callback
+                           all-channels all-groups all-ims))))))))))))
 
 (defun slack-conversations-info (channel-id team &optional after-success on-error)
   "Fetch info for CHANNEL-ID in TEAM and run AFTER-SUCCESS or ON-ERROR."
