@@ -87,10 +87,13 @@ THIS is the slack-selectable-option-group instance."
                         options
                         nil t)))
     (with-slots (options option-groups) this
+      ;; Empty minibuffer input makes the group lookup return nil even
+      ;; with REQUIRE-MATCH; bind the group before dereferencing it.
       (slack-if-let*
           ((options (if option-groups
-                        (oref (select-option-group option-groups)
-                              options)
+                        (slack-if-let*
+                            ((group (select-option-group option-groups)))
+                            (oref group options))
                       options))
            (option-text (select-option options)))
           (find-option option-text options)))))

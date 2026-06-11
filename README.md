@@ -294,6 +294,8 @@ Some terminology in the `slack-` functions:
     longer kills every unread/mention feature for the session
   - app action labels containing backslashes render instead of
     erroring during message display
+  - pressing RET on an empty minibuffer when picking a grouped select
+    option aborts cleanly instead of signaling a type error
   - reconnection after a long disconnect (laptop sleep) falls back to
     a fresh authorization instead of retrying Slack's expired
     reconnect URL for hours

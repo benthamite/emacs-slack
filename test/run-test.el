@@ -2681,6 +2681,17 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-selectable-empty-group-input-returns-nil ()
+  (let ((element (slack-dialog-select-element-create
+                  (list :name "s" :label "Sel" :type "select"
+                        :data_source "static"
+                        :option_groups
+                        (list (list :label "G"
+                                    :options (list (list :label "A"
+                                                         :value "a")))))))
+        (slack-completing-read-function (lambda (&rest _) "")))
+    (should-not (slack-selectable-select-from-static-data-source element))))
+
 (ert-deftest slack-test-inline-action-label-with-backslash ()
   (with-temp-buffer
     (insert "<slack-action://B1/payload|run C:\\tool>")
