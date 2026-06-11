@@ -773,9 +773,12 @@ TEAM is the team argument."
     (oset buffer render-timer nil)))
 
 (defun slack-activity-feed--insert-activity-batch (buffer activities)
-  "Insert ACTIVITIES into BUFFER's live Emacs buffer."
-  (when activities
-    (with-current-buffer (slack-buffer-buffer buffer)
+  "Insert ACTIVITIES into BUFFER's live Emacs buffer.
+Does nothing when the underlying buffer has been killed:
+`slack-buffer-buffer' would re-create and fully re-render it, after
+which the pending render chain would append its batches again."
+  (when (and activities (buffer-live-p (oref buffer buf)))
+    (with-current-buffer (oref buffer buf)
       (slack-buffer-with-deferred-hooks
         (dolist (activity activities)
           (slack-buffer-insert buffer activity))))))
@@ -791,14 +794,16 @@ TEAM is the team argument."
       (cl-labels
           ((render-next
             ()
-            (let* ((batch (seq-take remaining batch-size))
-                   (batch-length (length batch)))
-              (setq remaining (nthcdr batch-length remaining))
-              (slack-activity-feed--insert-activity-batch buffer batch)
-              (if remaining
-                  (oset buffer render-timer
-                        (run-at-time 0.01 nil #'render-next))
-                (oset buffer render-timer nil)))))
+            (if (not (buffer-live-p (oref buffer buf)))
+                (oset buffer render-timer nil)
+              (let* ((batch (seq-take remaining batch-size))
+                     (batch-length (length batch)))
+                (setq remaining (nthcdr batch-length remaining))
+                (slack-activity-feed--insert-activity-batch buffer batch)
+                (if remaining
+                    (oset buffer render-timer
+                          (run-at-time 0.01 nil #'render-next))
+                  (oset buffer render-timer nil))))))
         (oset buffer render-timer
               (run-at-time 0.01 nil #'render-next))))))
 

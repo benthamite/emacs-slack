@@ -195,6 +195,8 @@ Some terminology in the `slack-` functions:
     and a reaction, are kept as separate feed rows
   - large Activity feeds keep their newest rows while asynchronous rendering
     finishes, including when an existing Activity feed buffer is refreshed
+  - killing the Activity feed buffer mid-render stops the render instead of
+    resurrecting the buffer with duplicated rows
   - missing Activity feed messages are fetched asynchronously and replace
     loading placeholders in place without redisplaying or reordering the buffer
   - opening a watched-channel Activity feed entry marks that channel read and

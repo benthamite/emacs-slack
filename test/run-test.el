@@ -2762,6 +2762,35 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (slack-display-inline-action)
     (should (string= "run C:\\tool" (buffer-string)))))
 
+(ert-deftest slack-test-feed-render-stops-when-buffer-killed ()
+  (slack-test-setup
+    (let ((buf-obj (make-instance 'slack-activity-feed-buffer
+                                  :team-id (oref team id)
+                                  :room-id "__activity-feed__"
+                                  :activity-feed (make-instance
+                                                  'slack-activity-feed
+                                                  :activities nil
+                                                  :pagination nil
+                                                  :last nil)))
+          (buffer (generate-new-buffer " *slack-test-feed-render*"))
+          (slack-activity-feed-render-batch-size 1)
+          (inserted 0))
+      (slack-buffer-cache-team buf-obj team)
+      (oset buf-obj buf buffer)
+      (with-current-buffer buffer
+        (setq-local lui-output-marker (point-min-marker)))
+      (cl-letf (((symbol-function 'slack-buffer-insert)
+                 (lambda (&rest _) (cl-incf inserted))))
+        (slack-activity-feed--render-activities buf-obj (list 'a 'b 'c))
+        (should (eq 1 inserted))
+        (kill-buffer buffer)
+        (let ((timer (oref buf-obj render-timer)))
+          (should (timerp timer))
+          (timer-event-handler timer))
+        (should (eq 1 inserted))
+        (should-not (oref buf-obj render-timer))
+        (should-not (buffer-live-p buffer))))))
+
 (ert-deftest slack-test-event-cache-refresh-is-debounced ()
   (slack-test-setup
     (let ((slack-activity-feed--cache (make-hash-table :test 'equal))
