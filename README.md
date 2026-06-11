@@ -315,6 +315,15 @@ Some terminology in the `slack-` functions:
     request callback
   - file lists render even when an entry lacks timestamp metadata
     (tombstones, hidden-by-limit files)
+  - loading more files no longer duplicates entries that share a
+    creation second, and the post-download point search treats the
+    filename literally
+  - re-running an identical search shows the fresh results instead of
+    the first search's cached buffer
+  - deleting a scheduled draft tolerates short update timestamps; the
+    user-profile buffer shows "not found" instead of a stuck
+    "Fetching…" for unresolvable ids; channel info falls back to the
+    creator's id when their name is not cached
 - File and image downloads
   - downloading to an existing path asks for confirmation before
     overwriting

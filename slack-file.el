@@ -630,7 +630,7 @@ dired at the destination when `slack-file-download-open-dired' is non-nil."
                                           (dired (file-name-directory target))
                                           (revert-buffer-quick)
                                           (goto-char (point-min))
-                                          (re-search-forward (file-name-nondirectory target) nil t))
+                                          (search-forward (file-name-nondirectory target) nil t))
                                         (message "Slack file download finished: %s" target))
                              :error (lambda (&rest args)
                                       (message "Slack file download FAILED for %s: %s"
