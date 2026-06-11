@@ -2762,6 +2762,20 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (slack-display-inline-action)
     (should (string= "run C:\\tool" (buffer-string)))))
 
+(ert-deftest slack-test-message-buffer-load-more-needs-cursor ()
+  (slack-test-setup
+    (let ((buf-obj (make-instance 'slack-message-buffer
+                                  :room-id channel-id
+                                  :team-id (oref team id)
+                                  :cursor ""))
+          (requested nil))
+      (slack-buffer-cache-team buf-obj team)
+      (cl-letf (((symbol-function 'slack-conversations-history)
+                 (lambda (&rest _) (setq requested t))))
+        (with-temp-buffer
+          (slack-buffer-load-more buf-obj)))
+      (should-not requested))))
+
 (ert-deftest slack-test-rate-limit-safe-list-calls-back-once ()
   (slack-test-setup
     (let ((calls 0)

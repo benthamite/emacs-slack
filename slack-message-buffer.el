@@ -323,14 +323,17 @@ CURSOR is the pagination cursor for fetching older messages."
                                    :after-success #'after-success))))
 
 (cl-defmethod slack-buffer-load-more ((this slack-message-buffer))
-  "Fetch additional history to display in THIS buffer."
-  (let ((oldest (oref this oldest))
+  "Fetch additional history to display in THIS buffer.
+Point is restored via the ts at (or after) point: a numeric offset
+would be stale once history is inserted above it."
+  (when (< 0 (length (oref this cursor)))
+    (let ((oldest (oref this oldest))
         (team (slack-buffer-team this))
         (room (slack-buffer-room this))
-        (current-ts (let ((change (next-single-property-change (point) 'ts)))
-                      (when change
-                        (get-text-property change 'ts))))
-        (cur-point (point)))
+        (current-ts (or (get-text-property (point) 'ts)
+                        (let ((change (next-single-property-change (point) 'ts)))
+                          (when change
+                            (get-text-property change 'ts))))))
     (cl-labels
         ((update-buffer
           (messages)
@@ -360,16 +363,15 @@ CURSOR is the pagination cursor for fetching older messages."
                (lui-recover-output-marker)
                (slack-buffer-update-marker-overlay this)
                ))
-            (if current-ts
-                (slack-buffer-goto current-ts)
-              (goto-char cur-point)))))
+            (when current-ts
+              (slack-buffer-goto current-ts)))))
          (after-success (messages next-cursor)
                         (oset this cursor next-cursor)
                         (slack-room-set-messages room messages team)
                         (update-buffer (slack-room-sorted-messages room))))
       (slack-conversations-history room team
                                    :cursor (oref this cursor)
-                                   :after-success #'after-success))))
+                                   :after-success #'after-success)))))
 
 (cl-defmethod slack-buffer-display-pins-list ((this slack-message-buffer))
   "Open the pinned-items buffer for THIS buffer."

@@ -231,6 +231,10 @@ Some terminology in the `slack-` functions:
   - the startup conversations sync completes once instead of four times, so
     "Slack is ready!" appears once and the users.info burst is not repeated
     per conversation type
+  - `slack-load-more-message` keeps point on the message it was on
+    (instead of jumping to a stale offset) and does nothing in a fully
+    loaded channel instead of stacking duplicate "(no more messages)"
+    lines
   - the visible Activity feed is refreshed when the feed is shown or when
     <kbd>g</kbd> is pressed
   - `slack-activity-feed-watch-channel-limit` controls how many recent
