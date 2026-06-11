@@ -126,7 +126,9 @@ TEAM is the team argument."
   (with-slots (creator) room
     (when creator
       (let ((user (slack-user--find creator team)))
-        (insert (format " by %s" (plist-get user :real_name)))))
+        ;; The creator may not be in the lazily-populated user cache;
+        ;; fall back to the id rather than rendering "by nil".
+        (insert (format " by %s" (or (plist-get user :real_name) creator)))))
     ))
 
 (cl-defmethod slack-buffer-insert-purpose ((room slack-group))
