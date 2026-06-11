@@ -59,11 +59,11 @@
 (defun slack-dialog-edit-buffer-abort ()
   "Abort the current dialog edit buffer and close its window."
   (interactive)
-  (let* ((buffer-name (slack-buffer-name slack-current-buffer))
-         (buf (get-buffer buffer-name))
+  (let* ((buf (slack-buffer-buffer slack-current-buffer))
          (win (get-buffer-window buf)))
     (kill-buffer buf)
-    (when (< 1 (count-windows))
+    ;; A nil WIN would make delete-window delete the selected window.
+    (when (and (window-live-p win) (< 1 (count-windows)))
       (delete-window win))))
 
 (cl-defmethod slack-buffer-name ((this slack-dialog-edit-element-buffer))
