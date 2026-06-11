@@ -312,6 +312,9 @@ Some terminology in the `slack-` functions:
     disconnected, pagination) merge into the thread's reply list
     instead of replacing it, so reopening a thread no longer shows
     only the most recently fetched slice
+  - looking up a thread reply by timestamp fetches the requested
+    reply rather than silently returning the thread parent, and
+    tolerates rooms missing from the local cache
 
 ### Tip
 

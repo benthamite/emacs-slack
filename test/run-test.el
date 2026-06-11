@@ -2475,6 +2475,24 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
   (slack-test-setup
     (slack-message-set-replies channel "1710000000.000999" nil)))
 
+(ert-deftest slack-test-get-or-fetch-anchors-reply-fetch-at-ts ()
+  (slack-test-setup
+    (let ((captured-args nil))
+      (cl-letf (((symbol-function 'slack-conversations-replies)
+                 (cl-function
+                  (lambda (_room _ts _team &rest args &key &allow-other-keys)
+                    (setq captured-args args)
+                    nil))))
+        (slack-message-get-or-fetch "1710000000.000200" channel-id team
+                                    "1710000000.000100"))
+      (should (equal "1710000000.000200"
+                     (plist-get captured-args :oldest))))))
+
+(ert-deftest slack-test-get-or-fetch-tolerates-unknown-room ()
+  (slack-test-setup
+    (should-not (slack-message-get-or-fetch "1710000000.000200"
+                                            "C-UNKNOWN" team))))
+
 (ert-deftest slack-test-reaction-add-works-for-uncached-message ()
   (slack-test-setup
     (let ((captured-params nil))
