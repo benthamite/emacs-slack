@@ -2762,6 +2762,57 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (slack-display-inline-action)
     (should (string= "run C:\\tool" (buffer-string)))))
 
+(ert-deftest slack-test-thread-sync-inserts-gap-replies-in-order ()
+  (slack-test-setup
+    (let* ((parent (make-instance 'slack-message :type "message"
+                                  :channel channel-id
+                                  :ts "100.000100"))
+           (r1 (make-instance 'slack-message :type "message"
+                              :channel channel-id :ts "100.000200"
+                              :thread_ts "100.000100"))
+           (r2 (make-instance 'slack-message :type "message"
+                              :channel channel-id :ts "100.000300"
+                              :thread_ts "100.000100"))
+           (r3 (make-instance 'slack-message :type "message"
+                              :channel channel-id :ts "100.000400"
+                              :thread_ts "100.000100"))
+           (buf-obj (make-instance 'slack-thread-message-buffer
+                                   :room-id channel-id
+                                   :team-id (oref team id)
+                                   :thread-ts "100.000100"
+                                   :has-more nil))
+           (buffer (generate-new-buffer " *slack-test-thread-sync*")))
+      (slack-buffer-cache-team buf-obj team)
+      (oset buf-obj buf buffer)
+      (slack-room-set-messages channel (list parent r1 r2 r3) team)
+      (slack-message-set-replies channel "100.000100" (list r1 r2 r3))
+      (unwind-protect
+          (progn
+            (with-current-buffer buffer
+              (setq-local lui-output-marker (point-max-marker))
+              (insert (propertize "100.000200\n" 'ts "100.000200"))
+              (insert (propertize "100.000400\n" 'ts "100.000400"))
+              (set-marker lui-output-marker (point-max)))
+            (cl-letf (((symbol-function 'slack-buffer-insert)
+                       (lambda (_buf m &optional _nt)
+                         (save-excursion
+                           (goto-char lui-output-marker)
+                           (insert-before-markers
+                            (propertize (concat (slack-ts m) "\n")
+                                        'ts (slack-ts m))))))
+                      ((symbol-function 'lui-recover-output-marker)
+                       #'ignore)
+                      ((symbol-function 'slack-buffer-update-mark)
+                       #'ignore)
+                      ((symbol-function 'slack-thread-mark)
+                       #'ignore))
+              (slack-thread--sync-buffer buf-obj parent channel))
+            (with-current-buffer buffer
+              (should (equal "100.000200\n100.000300\n100.000400\n"
+                             (buffer-substring-no-properties
+                              (point-min) (point-max))))))
+        (kill-buffer buffer)))))
+
 (ert-deftest slack-test-message-buffer-load-more-needs-cursor ()
   (slack-test-setup
     (let ((buf-obj (make-instance 'slack-message-buffer

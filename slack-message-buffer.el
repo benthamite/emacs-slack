@@ -1337,11 +1337,39 @@ Call CALLBACK after displaying the thread buffer."
   "Insert newly-fetched replies missing from an existing thread BUF.
 PARENT is the thread's parent message in ROOM.  Does nothing when
 the underlying Emacs buffer is not yet live (i.e. the buffer will
-be initialized fresh by `slack-buffer-init-buffer')."
+be initialized fresh by `slack-buffer-init-buffer').  Replies that
+fill a gap in the middle of the displayed thread are inserted at
+their chronological position rather than appended at the bottom."
   (when (slack-thread--buffer-live-p buf)
     (when-let ((replies (slack-message-replies parent room)))
       (dolist (m replies)
-        (slack-buffer-update buf m)))))
+        (unless (slack-buffer-message-exists-p buf (slack-ts m))
+          (slack-thread--insert-in-order buf m))))))
+
+(defun slack-thread--insert-in-order (buf m)
+  "Insert reply M into thread buffer BUF at its chronological position.
+Newest replies go through `slack-buffer-update' (the usual
+end-of-buffer insert with read-mark handling); gap-filling replies
+are spliced in before the first displayed message newer than M, with
+no read-mark side effects."
+  (with-current-buffer (oref buf buf)
+    (slack-if-let* ((pos (slack-thread--first-newer-ts-position (slack-ts m))))
+        (progn
+          (set-marker lui-output-marker pos)
+          (slack-buffer-insert buf m t)
+          (lui-recover-output-marker))
+      (slack-buffer-update buf m))))
+
+(defun slack-thread--first-newer-ts-position (ts)
+  "Return the start of the first displayed region with a ts newer than TS."
+  (let ((pos (point-min))
+        (found nil))
+    (while (and pos (not found))
+      (let ((pts (get-text-property pos 'ts)))
+        (if (and pts (string< ts pts))
+            (setq found pos)
+          (setq pos (next-single-property-change pos 'ts)))))
+    found))
 
 (defun slack-thread--buffer-live-p (buf)
   "Return non-nil if BUF has a live underlying Emacs buffer."

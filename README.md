@@ -235,6 +235,8 @@ Some terminology in the `slack-` functions:
     (instead of jumping to a stale offset) and does nothing in a fully
     loaded channel instead of stacking duplicate "(no more messages)"
     lines
+  - re-opening a thread that was missing middle replies splices them
+    in chronologically instead of appending them after newer messages
   - the visible Activity feed is refreshed when the feed is shown or when
     <kbd>g</kbd> is pressed
   - `slack-activity-feed-watch-channel-limit` controls how many recent
