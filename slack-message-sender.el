@@ -692,12 +692,14 @@ alone instead of being sent as bogus emoji elements."
       (setq timer (run-at-time t 1 #'(lambda ()
                                        (slack-log (format "Uploading files... (%s/%s)" (length result) files-count)
                                                   team)
-                                       (when failed-p
-                                         (funcall on-error)
-                                         (cancel-timer timer))
-                                       (when (<= files-count (length result))
-                                         (funcall on-success files)
-                                         (cancel-timer timer))))))))
+                                       (cond (failed-p
+                                              (cancel-timer timer)
+                                              (message "Slack: file upload failed")
+                                              (when (functionp on-error)
+                                                (funcall on-error)))
+                                             ((<= files-count (length result))
+                                              (cancel-timer timer)
+                                              (funcall on-success files)))))))))
 
 (cl-defun slack-files-upload-complete (team files message-payload &key (on-success nil) (on-error nil))
   "Finalize the upload of FILES with MESSAGE-PAYLOAD on TEAM.

@@ -284,6 +284,9 @@ Some terminology in the `slack-` functions:
   - websocket URLs are logged with the workspace token redacted, so
     setting `slack-log-level` to `debug` no longer writes the
     credential to the log buffer
+  - a failed attachment upload reports the failure once and stops,
+    instead of erroring from a leaked once-per-second timer until
+    Emacs restarts
 
 ### Tip
 

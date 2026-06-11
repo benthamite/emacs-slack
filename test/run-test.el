@@ -2350,6 +2350,40 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
   (should (equal "wss://example.com/socket"
                  (slack-ws--redact-url "wss://example.com/socket"))))
 
+(ert-deftest slack-test-upload-files-failure-stops-timer ()
+  (slack-test-setup
+    (cl-letf (((symbol-function 'slack-upload-file)
+               (lambda (_file _team cb) (funcall cb nil)))
+              ((symbol-function 'slack-log) #'ignore))
+      (let ((before (copy-sequence timer-list))
+            (errors 0))
+        (slack-message-upload-files team (list "f.txt")
+                                    :on-error (lambda (&rest _)
+                                                (cl-incf errors)))
+        (let ((new-timers (cl-set-difference timer-list before)))
+          (should (eq 1 (length new-timers)))
+          (unwind-protect
+              (progn
+                (timer-event-handler (car new-timers))
+                (should (eq 1 errors))
+                (should-not (memq (car new-timers) timer-list)))
+            (cancel-timer (car new-timers))))))))
+
+(ert-deftest slack-test-upload-files-failure-without-on-error-stops-timer ()
+  (slack-test-setup
+    (cl-letf (((symbol-function 'slack-upload-file)
+               (lambda (_file _team cb) (funcall cb nil)))
+              ((symbol-function 'slack-log) #'ignore))
+      (let ((before (copy-sequence timer-list)))
+        (slack-message-upload-files team (list "f.txt"))
+        (let ((new-timers (cl-set-difference timer-list before)))
+          (should (eq 1 (length new-timers)))
+          (unwind-protect
+              (progn
+                (timer-event-handler (car new-timers))
+                (should-not (memq (car new-timers) timer-list)))
+            (cancel-timer (car new-timers))))))))
+
 (ert-deftest slack-test-curl-downloader-failure-keeps-existing-file ()
   (let* ((dir (make-temp-file "slack-test-dl" t))
          (target (expand-file-name "existing.bin" dir))
