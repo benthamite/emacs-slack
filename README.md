@@ -275,6 +275,9 @@ Some terminology in the `slack-` functions:
   - synchronous API requests run their success/error handlers, so the
     standard-emoji picker data, attachment action suggestions, and
     dialog external-select suggestions load correctly
+  - reconnection after a long disconnect (laptop sleep) falls back to
+    a fresh authorization instead of retrying Slack's expired
+    reconnect URL for hours
 
 ### Tip
 

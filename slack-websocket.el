@@ -306,12 +306,18 @@ Provide AFTER-SUCCESS to run a side effect."
     (slack-ws--close ws team t)))
 
 (defun slack-ws-reconnect-with-reconnect-url (team-id)
-  "Reconnect TEAM-ID using the cached reconnect URL from Slack."
+  "Reconnect TEAM-ID using the cached reconnect URL from Slack.
+The cached URL is consumed (cleared) before the attempt: Slack
+reconnect URLs expire after about 30 seconds, so a failed attempt
+must fall back to `slack-authorize' instead of retrying the same
+stale URL forever.  A fresh `reconnect_url' event arrives on every
+successful connection."
   (let* ((team (slack-team-find team-id))
-         (ws (oref team ws)))
+         (ws (oref team ws))
+         (url (oref ws reconnect-url)))
     (slack-log "Reconnect with reconnect-url" team)
-    (slack-ws-open ws team
-                   :ws-url (oref ws reconnect-url))))
+    (oset ws reconnect-url "")
+    (slack-ws-open ws team :ws-url url)))
 
 (defvar slack--lock-user-list-update nil
   "Lock expensive user list request to run less often.

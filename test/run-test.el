@@ -2297,6 +2297,23 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (funcall success-fn :data '(:ok t))
         (should (equal '(:ok t) success-data))))))
 
+(ert-deftest slack-test-reconnect-url-cleared-after-use ()
+  (slack-test-setup
+    (let ((ws (make-instance 'slack-team-ws))
+          (opened-url nil))
+      (oset team ws ws)
+      (oset ws reconnect-url "wss://stale.example/reconnect")
+      (cl-letf (((symbol-function 'slack-team-find)
+                 (lambda (_id) team))
+                ((symbol-function 'slack-ws-open)
+                 (cl-function
+                  (lambda (_ws _team &key ws-url &allow-other-keys)
+                    (setq opened-url ws-url))))
+                ((symbol-function 'slack-log) #'ignore))
+        (slack-ws-reconnect-with-reconnect-url "T111"))
+      (should (equal "wss://stale.example/reconnect" opened-url))
+      (should (equal "" (oref ws reconnect-url))))))
+
 (ert-deftest slack-test-curl-downloader-failure-keeps-existing-file ()
   (let* ((dir (make-temp-file "slack-test-dl" t))
          (target (expand-file-name "existing.bin" dir))
