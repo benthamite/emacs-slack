@@ -128,7 +128,9 @@ recomputation of load-more placeholders next time."
 
 (cl-defmethod slack-buffer-update-mark ((this slack-message-buffer) &key (force nil))
   "Update the read-mark position for THIS buffer.
-With FORCE non-nil, bypass the debounce timer and mark immediately."
+With FORCE non-nil, bypass the debounce timer and mark immediately.
+Does nothing when point is not on a message: a nil ts would violate
+the room's last-read slot type inside the deferred timer."
   (let* ((team (slack-buffer-team this))
          (room (slack-buffer-room this))
          (update-mark-timer (oref this update-mark-timer))
@@ -137,8 +139,9 @@ With FORCE non-nil, bypass the debounce timer and mark immediately."
          (prev-mark (or (car update-mark-timer)
                         (slack-buffer-last-read this)))
          (prev-timer (cdr update-mark-timer)))
-    (when (or force (or (string< prev-mark ts)
-                        (string= prev-mark ts)))
+    (when (and ts
+               (or force (or (string< prev-mark ts)
+                             (string= prev-mark ts))))
       (slack-log (format "%s: update mark to %s" (slack-room-name room team) ts)
                  (slack-buffer-team this))
       (when (timerp prev-timer)

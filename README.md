@@ -239,6 +239,11 @@ Some terminology in the `slack-` functions:
     lines
   - re-opening a thread that was missing middle replies splices them
     in chronologically instead of appending them after newer messages
+  - assorted interactive-command guards: marking read off a message,
+    first/last-message navigation in empty buffers, and copying a
+    message link outside a Slack buffer report cleanly instead of
+    signaling; thread buffers are keyed per channel so same-second
+    threads in different channels cannot collide
   - the visible Activity feed is refreshed when the feed is shown or when
     <kbd>g</kbd> is pressed
   - `slack-activity-feed-watch-channel-limit` controls how many recent
