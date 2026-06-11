@@ -34,7 +34,9 @@
 (declare-function emojify-download-emoji-maybe "emojify")
 (declare-function slack-buffer--render-native-emoji "slack-buffer")
 (defvar emojify-user-emojis)
+(defvar emojify-emojis)
 (defvar slack-current-buffer)
+(defvar slack-teams-by-token)
 
 (defconst slack-emoji-list "https://slack.com/api/emoji.list")
 
@@ -354,6 +356,26 @@ the shortcode string.  Triggers a lazy fetch on first use."
          (char (when (< 0 (hash-table-count slack-emoji-master))
                  (gethash shortcode slack-emoji-master))))
     (if (stringp char) char shortcode)))
+
+(defun slack-emoji-known-name-p (name)
+  "Return non-nil when NAME is a known emoji shortcode.
+NAME is a bare name without colons (e.g. \"+1\", \"smile\").  Check
+the standard emoji table, every registered team's custom emoji, and
+emojify's database when it is loaded."
+  (let ((shortcode (format ":%s:" name)))
+    (or (gethash shortcode slack-emoji-master)
+        (slack-emoji--team-emoji-p shortcode)
+        (and (boundp 'emojify-emojis)
+             (hash-table-p emojify-emojis)
+             (gethash shortcode emojify-emojis)))))
+
+(defun slack-emoji--team-emoji-p (shortcode)
+  "Return non-nil when SHORTCODE is a custom emoji of a registered team."
+  (catch 'found
+    (maphash (lambda (_token team)
+               (when (gethash shortcode (oref team emoji-master))
+                 (throw 'found t)))
+             slack-teams-by-token)))
 
 (defun slack-insert-emoji ()
   "Insert emoji in slack buffer."

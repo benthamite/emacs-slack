@@ -35,6 +35,7 @@
 (require 'slack-conversations)
 (require 'slack-usergroup)
 (require 'slack-mrkdwn)
+(require 'slack-emoji)
 
 (defvar slack-completing-read-function)
 (defvar slack-buffer-function)
@@ -306,15 +307,23 @@ TEAM is the team argument."
 (defun slack-mark-inline-format (regex type &optional beg-group)
   "Mark inline formatting matches for REGEX with TYPE.
 BEG-GROUP is the match group for the beginning of the block
-properties region (default 1)."
+properties region (default 1).  The delimiters are marked with their
+own `delimiter' type and the styled content with TYPE, so that later
+marking passes (emoji, links, mentions) can split the content into
+independently encoded segments without duplicating the span text."
   (let ((beg-group (or beg-group 1)))
     (goto-char (point-min))
     (while (re-search-forward regex (point-max) t)
       (unless (slack-mark-inside-code-p (match-beginning 1))
         (slack-put-block-props (match-beginning beg-group)
+                               (match-beginning 3)
+                               (list :type 'delimiter))
+        (slack-put-block-props (match-beginning 3)
+                               (match-end 3)
+                               (list :type type))
+        (slack-put-block-props (match-end 3)
                                (match-end 4)
-                               (list :type type
-                                     :text (match-string 3)))))))
+                               (list :type 'delimiter))))))
 
 (defun slack-mark-bold ()
   "Mark bold inline spans with block properties throughout the buffer."
@@ -407,10 +416,15 @@ properties region (default 1)."
                                    :range (match-string 2))))))
 
 (defun slack-mark-emojis ()
-  "Mark `:shortcode:' emoji occurrences in the buffer with block properties."
+  "Mark `:shortcode:' emoji occurrences in the buffer with block properties.
+Only shortcodes naming a known emoji are marked, so ordinary
+colon-separated text such as times (12:30:45) or ratios is left
+alone instead of being sent as bogus emoji elements."
   (goto-char (point-min))
-  (while (re-search-forward ":\\([a-z0-9_-]+\\):" (point-max) t)
-    (unless (slack-mark-inside-code-p (match-beginning 0))
+  (while (re-search-forward ":\\([a-zA-Z0-9_+-]+\\):" (point-max) t)
+    (if (or (slack-mark-inside-code-p (match-beginning 0))
+            (not (slack-emoji-known-name-p (match-string 1))))
+        (goto-char (1- (match-end 0)))
       (slack-put-block-props (match-beginning 0)
                              (match-end 0)
                              (list :type 'emoji
@@ -446,8 +460,7 @@ properties region (default 1)."
 
 (defun slack-mark-inhibit-mention-p (point)
   "Return non-nil when mention parsing should be skipped at POINT."
-  (or (slack-mark-inside-code-p point)
-      (slack-mark-inside-bold-p point)))
+  (slack-mark-inside-code-p point))
 
 (defun slack-mark-inside-code-p (point)
   "Return non-nil when POINT lies inside an inline code or code-block span."
@@ -455,11 +468,6 @@ properties region (default 1)."
                              (get-text-property point 'slack-section-block-props))))
       (or (eq 'code (plist-get props :type))
           (eq 'code-block (plist-get props :section-type)))))
-
-(defun slack-mark-inside-bold-p (point)
-  "Return non-nil when POINT lies inside a bold span."
-  (slack-if-let* ((props (get-text-property point 'slack-block-props)))
-      (eq 'bold (plist-get props :type))))
 
 (defun slack-mark-rich-text-elements ()
   "Mark every kind of rich-text inline element in the buffer."
@@ -620,12 +628,14 @@ properties region (default 1)."
                                    (block-text (and block-props (plist-get block-props :text)))
                                    (next-change-point (or (next-single-property-change cur-point 'slack-block-props)
                                                           (point-max)))
+                                   (segment-text (buffer-substring-no-properties cur-point next-change-point))
                                    (element (progn
                                               (cl-case block-type
-                                                (bold (create-text-element block-text (list (cons "bold" t))))
-                                                (italic (create-text-element block-text (list (cons "italic" t))))
-                                                (strike (create-text-element block-text (list (cons "strike" t))))
-                                                (code (create-text-element block-text (list (cons "code" t))))
+                                                (delimiter nil)
+                                                (bold (create-text-element segment-text (list (cons "bold" t))))
+                                                (italic (create-text-element segment-text (list (cons "italic" t))))
+                                                (strike (create-text-element segment-text (list (cons "strike" t))))
+                                                (code (create-text-element segment-text (list (cons "code" t))))
                                                 (text (create-text-element block-text))
                                                 (user (list (cons "type" "user")
                                                             (cons "user_id" (plist-get block-props :user-id))))
@@ -643,9 +653,7 @@ properties region (default 1)."
                                                        ;; if we have text, let's hide the url
                                                        (when (plist-get block-props :text)
                                                          (list (cons "text" (plist-get block-props :text))))))
-                                                (t (create-text-element
-                                                    (buffer-substring-no-properties cur-point
-                                                                                    next-change-point)))))))
+                                                (t (create-text-element segment-text))))))
                               ;; (message "props: %s, element: %s" block-props element)
                               (when element
                                 (push element elements))

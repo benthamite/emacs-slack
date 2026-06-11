@@ -242,6 +242,14 @@ Some terminology in the `slack-` functions:
   - the buffer closes only after Slack confirms the send; if the send fails
     (network error, archived channel, rejected message), the buffer stays
     open with your text intact and the error is shown in the echo area
+- Message formatting on send
+  - emoji shortcodes, links, inline code, and mentions inside `*bold*`,
+    `_italic_`, and `~strike~` spans encode correctly instead of
+    duplicating the span text or sending the mention as literal
+    `<@USERID>` text
+  - only `:shortcodes:` naming a known emoji (standard or team custom)
+    are sent as emoji, so times like `12:30:45` stay plain text, and
+    `:+1:` is now recognized
 - Quoted Slack messages
   - press <kbd>RET</kbd> on a quoted/shared message to open the original
     message in emacs-slack

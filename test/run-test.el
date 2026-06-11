@@ -709,13 +709,14 @@
         (should (eq 1 (length elements)))
         (let ((section (car elements)))
           (let ((elements (plist-get section :elements)))
-            (should (eq 1 (length elements)))
-            (let ((element (car elements)))
-              (should (string= "text" (plist-get element :type)))
-              (should (string= "<!here> fff" (plist-get element :text)))
-              (should (eq 2 (length (plist-get element :style))))
-              (let ((style (plist-get element :style)))
-                (should (eq t (plist-get style :bold))))))))))
+            (should (eq 2 (length elements)))
+            (let ((mention (nth 0 elements))
+                  (text (nth 1 elements)))
+              (should (string= "broadcast" (plist-get mention :type)))
+              (should (string= "here" (plist-get mention :range)))
+              (should (string= "text" (plist-get text :type)))
+              (should (string= " fff" (plist-get text :text)))
+              (should (eq t (plist-get (plist-get text :style) :bold)))))))))
 ;; (:type "mrkdwn" :text "*<!channel|channel> お題案だしてもらったので以下から2つ選んでください*
 ;; You may vote for multiple options" :verbatim t)
   (let* ((str (string-trim "
@@ -883,7 +884,9 @@ https://google.com
                                                                               type))
                                                       elements)
                                           key)))))))))
-  (let* ((str (string-trim "
+  (let* ((slack-emoji-master (slack-test-emoji-master
+                              "dog2" "man-biking" "man_dancing"))
+         (str (string-trim "
 :dog2:
 :man-biking:
 :man_dancing:
@@ -2200,6 +2203,78 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                                    :success #'ignore)))
     (oset req retry-count slack-request-max-retry)
     (should-not (slack-request-retry-failed-request-p req '(end-of-file) 'error))))
+
+(defun slack-test-emoji-master (&rest names)
+  (let ((h (make-hash-table :test 'equal :size 16)))
+    (dolist (name names)
+      (puthash (format ":%s:" name) "x" h))
+    h))
+
+(defun slack-test-section-elements (str)
+  (let* ((blocks (slack-test-parse-blocks str))
+         (section (car (plist-get (car blocks) :elements))))
+    (plist-get section :elements)))
+
+(ert-deftest slack-test-blocks-emoji-in-bold-no-duplication ()
+  (let* ((slack-emoji-master (slack-test-emoji-master "smile"))
+         (elements (slack-test-section-elements "*bold :smile: end*")))
+    (should (equal '(("text" . "bold ") ("emoji" . "smile") ("text" . " end"))
+                   (mapcar (lambda (el)
+                             (cons (plist-get el :type)
+                                   (or (plist-get el :text)
+                                       (plist-get el :name))))
+                           elements)))
+    (should (eq t (plist-get (plist-get (nth 0 elements) :style) :bold)))
+    (should (eq t (plist-get (plist-get (nth 2 elements) :style) :bold)))))
+
+(ert-deftest slack-test-blocks-colon-times-are-not-emoji ()
+  (let* ((slack-emoji-master (slack-test-emoji-master "smile"))
+         (elements (slack-test-section-elements "meeting at 12:30:45")))
+    (should (eq 1 (length elements)))
+    (should (string= "meeting at 12:30:45"
+                     (plist-get (car elements) :text)))))
+
+(ert-deftest slack-test-blocks-plus-one-is-emoji ()
+  (let* ((slack-emoji-master (slack-test-emoji-master "+1"))
+         (elements (slack-test-section-elements "nice :+1:")))
+    (should (equal '(("text" . "nice ") ("emoji" . "+1"))
+                   (mapcar (lambda (el)
+                             (cons (plist-get el :type)
+                                   (or (plist-get el :text)
+                                       (plist-get el :name))))
+                           elements)))))
+
+(ert-deftest slack-test-blocks-mention-in-bold-is-user-element ()
+  (let* ((slack-emoji-master (slack-test-emoji-master))
+         (elements (slack-test-section-elements "*hi <@U11111> bye*")))
+    (should (equal '(("text" . "hi ") ("user" . "U11111") ("text" . " bye"))
+                   (mapcar (lambda (el)
+                             (cons (plist-get el :type)
+                                   (or (plist-get el :text)
+                                       (plist-get el :user_id))))
+                           elements)))
+    (should (eq t (plist-get (plist-get (nth 0 elements) :style) :bold)))
+    (should (eq t (plist-get (plist-get (nth 2 elements) :style) :bold)))))
+
+(ert-deftest slack-test-blocks-link-in-bold-no-duplication ()
+  (let* ((slack-emoji-master (slack-test-emoji-master))
+         (elements (slack-test-section-elements
+                    "*see https://example.com now*")))
+    (should (equal '(("text" . "see ")
+                     ("link" . "https://example.com")
+                     ("text" . " now"))
+                   (mapcar (lambda (el)
+                             (cons (plist-get el :type)
+                                   (or (plist-get el :text)
+                                       (plist-get el :url))))
+                           elements)))))
+
+(ert-deftest slack-test-blocks-code-in-bold-no-duplication ()
+  (let* ((slack-emoji-master (slack-test-emoji-master))
+         (elements (slack-test-section-elements "*a `b` c*")))
+    (should (equal '("a " "b" " c")
+                   (mapcar (lambda (el) (plist-get el :text)) elements)))
+    (should (eq t (plist-get (plist-get (nth 1 elements) :style) :code)))))
 
 (ert-deftest slack-test-curl-downloader-failure-keeps-existing-file ()
   (let* ((dir (make-temp-file "slack-test-dl" t))
