@@ -212,6 +212,9 @@ Some terminology in the `slack-` functions:
     reopening the feed does not bring back cleared unread dots
   - event-driven background refreshes update cached data without silently
     redrawing the visible Activity feed
+  - event-driven cache refreshes are debounced with
+    `slack-activity-refresh-debounce`, so busy workspaces no longer trigger
+    several Activity API calls per second
   - Activity unread-summary refreshes also merge unread Activity rows into
     existing cached feed data, so opening the feed is less likely to show stale
     cached results after new notifications arrive

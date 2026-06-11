@@ -612,12 +612,26 @@ content."
       (message "Activity feed has newer cached results; press g to refresh."))
     changed))
 
+(defvar slack-activity-refresh-debounce)
+
+(defvar slack-activity-feed--event-refresh-time 0
+  "Time of the last event-driven Activity cache refresh.")
+
 (defun slack-activity-feed-refresh-cache-from-event (team)
   "Refresh existing Activity Feed cache snapshots for TEAM after an event.
-This updates cache data only; it does not redraw visible Activity Feed buffers."
-  (dolist (key (slack-activity-feed--cache-keys-for-team team))
-    (let ((slack-activity-feed-mode-show-only-unread (cadr key)))
-      (slack-activity-feed--refresh-cache team))))
+This updates cache data only; it does not redraw visible Activity
+Feed buffers.  Refreshes are debounced with
+`slack-activity-refresh-debounce': message and reaction events can
+arrive several times per second in a busy workspace, and each
+unthrottled refresh issues one activity.feed request per cached
+snapshot plus per-watched-channel history calls."
+  (let ((now (float-time)))
+    (when (< slack-activity-refresh-debounce
+             (- now slack-activity-feed--event-refresh-time))
+      (setq slack-activity-feed--event-refresh-time now)
+      (dolist (key (slack-activity-feed--cache-keys-for-team team))
+        (let ((slack-activity-feed-mode-show-only-unread (cadr key)))
+          (slack-activity-feed--refresh-cache team))))))
 
 (defun slack-activity-feed-request (team &optional after-success cursor on-error)
   "Request activity feed for CHANNEL-ID of TEAM.

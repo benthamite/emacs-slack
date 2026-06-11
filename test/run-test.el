@@ -2762,6 +2762,22 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (slack-display-inline-action)
     (should (string= "run C:\\tool" (buffer-string)))))
 
+(ert-deftest slack-test-event-cache-refresh-is-debounced ()
+  (slack-test-setup
+    (let ((slack-activity-feed--cache (make-hash-table :test 'equal))
+          (slack-activity-feed--event-refresh-time 0)
+          (slack-activity-refresh-debounce 30)
+          (refreshes 0))
+      (puthash (list (oref team id) nil)
+               (list :activities nil :pagination nil)
+               slack-activity-feed--cache)
+      (cl-letf (((symbol-function 'slack-activity-feed--refresh-cache)
+                 (lambda (_team &optional _after _quiet) (cl-incf refreshes))))
+        (slack-activity-feed-refresh-cache-from-event team)
+        (slack-activity-feed-refresh-cache-from-event team)
+        (slack-activity-feed-refresh-cache-from-event team))
+      (should (eq 1 refreshes)))))
+
 (ert-deftest slack-test-unread-count-fetch-reports-zero-on-error ()
   (slack-test-setup
     (let ((reported 'unset))
