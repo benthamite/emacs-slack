@@ -823,8 +823,7 @@ seed the search; the remaining forms run when no target is found."
        (let ((next-point ,find-point))
          (if next-point
              (goto-char next-point)
-           (if (< 0 (length ',else))
-               ,@else))))))
+           (progn ,@else))))))
 
 (defun slack-buffer-goto-next-message ()
   "Move point to the next message in the current Slack buffer."
@@ -852,14 +851,17 @@ seed the search; the remaining forms run when no target is found."
 (defun slack-buffer-goto-first-message ()
   "Move point to the first message in the current Slack buffer."
   (interactive)
-  (goto-char
-   (slack-buffer-next-point (point-min) (point-max) "0")))
+  (slack-if-let* ((pos (slack-buffer-next-point (point-min) (point-max) "0")))
+      (goto-char pos)
+    (message "No messages in this buffer.")))
 
 (defun slack-buffer-goto-last-message ()
   "Move point to the last message in the current Slack buffer."
   (interactive)
-  (goto-char
-   (slack-buffer-prev-point (point-max) (point-min) (format-time-string "%s"))))
+  (slack-if-let* ((pos (slack-buffer-prev-point (point-max) (point-min)
+                                                (format-time-string "%s"))))
+      (goto-char pos)
+    (message "No messages in this buffer.")))
 
 (defun slack-buffer-next-point (start end ts)
   "Return the next position between START and END with a `ts' newer than TS."
