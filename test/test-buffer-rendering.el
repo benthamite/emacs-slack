@@ -1255,6 +1255,35 @@ produces a newline with `not-tracked-p'."
               (should (search-forward "\u2764" nil t))))
         (slack-test--unregister-team team)))))
 
+;;; ---- Saved file items ----
+
+(ert-deftest slack-test-stars-buffer-inserts-file-items ()
+  "File-type saved items render instead of being silently dropped."
+  (slack-test-setup
+    (slack-test--register-team team)
+    (unwind-protect
+        (slack-test--with-slack-buffer-mode
+          (let* ((file (slack-file-create
+                        (list :id "F11111"
+                              :name "report.pdf"
+                              :title "report.pdf"
+                              :mimetype "application/pdf"
+                              :created 1710000000
+                              :timestamp 1710000000)))
+                 (item (make-instance 'slack-star-item
+                                      :item-id "F11111"
+                                      :item-type "file"
+                                      :ts "1710000000.000300"
+                                      :file file)))
+            (slack-stars--insert-items
+             (make-instance 'slack-stars-buffer :team-id (oref team id))
+             (list item))
+            (let ((props (slack-test--text-properties-at-ts
+                          "1710000000.000300")))
+              (should props)
+              (should (string= "F11111" (plist-get props 'file-id))))))
+      (slack-test--unregister-team team))))
+
 ;;; ---- Runner ----
 
 (provide 'test-buffer-rendering)

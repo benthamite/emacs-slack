@@ -229,12 +229,28 @@ MESSAGE is the message argument."
   "Remove the \"load more\" marker from the buffer for the stars buffer.")
 
 (cl-defmethod slack-stars--insert-items ((this slack-stars-buffer) star-items)
-  "Insert messages for STAR-ITEMS into THIS buffer."
+  "Insert messages for STAR-ITEMS into THIS buffer.
+File-type items carry the file id in `item-id', never a room, so
+they get their own insert path instead of being silently dropped."
   (let ((team (slack-buffer-team this)))
     (cl-loop for i in star-items
-             for room = (slack-room-find (oref i item-id) team)
+             for file = (oref i file)
+             for room = (and (not file)
+                             (slack-room-find (oref i item-id) team))
              for m = (and room (slack-room-find-message room (oref i ts)))
-             when m do (slack-buffer-insert this m))))
+             do (cond (file (slack-stars--insert-file-item this i file))
+                      (m (slack-buffer-insert this m))))))
+
+(cl-defmethod slack-stars--insert-file-item ((this slack-stars-buffer) item file)
+  "Insert a saved FILE entry for ITEM into THIS buffer."
+  (let ((lui-time-stamp-format "[%Y-%m-%d %H:%M] ")
+        (lui-time-stamp-time (seconds-to-time
+                              (string-to-number (oref item ts)))))
+    (lui-insert-with-text-properties
+     (slack-message-to-string file (oref item ts) (slack-buffer-team this))
+     'ts (oref item ts)
+     'file-id (oref file id))
+    (lui-insert "" t)))
 
 (cl-defmethod slack-stars--insert-tail ((this slack-stars-buffer))
   "Insert end-of-list marker when all items have been loaded.

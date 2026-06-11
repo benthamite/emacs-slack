@@ -221,6 +221,8 @@ Some terminology in the `slack-` functions:
 - `slack-saved-items`
   - show saved messages and cache message data returned by Slack so the buffer
     can render newly fetched saved items immediately
+  - saved files render as entries (previously every file-type saved item was
+    silently invisible)
   - press <kbd>RET</kbd> on a saved item's thread-status link ("N replies, Last
     reply ...") to open the associated thread
 - `slack-room-pins-list`
