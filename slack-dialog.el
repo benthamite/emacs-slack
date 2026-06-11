@@ -240,11 +240,18 @@ THIS is the slack-dialog-text-element instance."
 AFTER-SUCCESS is invoked with the response data when the request
 succeeds."
   (let* ((url "https://slack.com/api/dialog.selectSuggestion")
-         (min-query-length (oref this min-query-length))
-         (prompt (format "Type hints to see options (minimum: %s) : " min-query-length))
+         (min-query-length (or (oref this min-query-length) 1))
+         (prompt (format "Type hints to see options (minimum %s characters): "
+                         min-query-length))
+         (value (let ((input (read-from-minibuffer prompt)))
+                  (while (< (length input) min-query-length)
+                    (setq input (read-from-minibuffer
+                                 (format "Need at least %s characters. %s"
+                                         min-query-length prompt))))
+                  input))
          (params (list (cons "dialog_id" dialog-id)
                        (cons "name" (oref this name))
-                       (cons "value" (read-from-minibuffer prompt)))))
+                       (cons "value" value))))
     (cl-labels
         ((on-success (&key data &allow-other-keys)
                      (slack-request-handle-error
