@@ -2681,6 +2681,40 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-scheduled-messages-tolerate-unscheduled-drafts ()
+  (slack-test-setup
+    (let ((displayed nil))
+      (cl-letf (((symbol-function 'slack-list-scheduled-messages-request)
+                 (lambda (_team cb)
+                   (funcall cb :data
+                            (list :ok t
+                                  :drafts (list (list :id "D1"
+                                                      :last_updated_ts "1")
+                                                (list :id "D2"
+                                                      :date_scheduled 9999999999
+                                                      :last_updated_ts "2"))))))
+                ((symbol-function 'slack-buffer-display)
+                 (lambda (buf) (setq displayed buf)))
+                ((symbol-function 'slack-scheduled-messages--team)
+                 (lambda (&optional _t) team)))
+        (slack-scheduled-messages-show team))
+      (should displayed)
+      (should (eq 1 (length (oref displayed messages)))))))
+
+(ert-deftest slack-test-scheduled-messages-surface-api-errors ()
+  (slack-test-setup
+    (let ((displayed nil))
+      (cl-letf (((symbol-function 'slack-list-scheduled-messages-request)
+                 (lambda (_team cb)
+                   (funcall cb :data (list :ok :json-false
+                                           :error "invalid_auth"))))
+                ((symbol-function 'slack-buffer-display)
+                 (lambda (buf) (setq displayed buf)))
+                ((symbol-function 'slack-scheduled-messages--team)
+                 (lambda (&optional _t) team)))
+        (slack-scheduled-messages-show team))
+      (should-not displayed))))
+
 (ert-deftest slack-test-file-without-timestamp-reads-nil ()
   (let ((file (slack-file-create (list :id "F11111"))))
     (should-not (oref file timestamp))))

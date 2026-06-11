@@ -236,6 +236,8 @@ buffer.")
     (slack-list-scheduled-messages-request
      team
      (lambda (&rest data)
+       (slack-request-handle-error
+        ((plist-get data :data) "slack-scheduled-messages-show")
        (let* ((all-drafts (plist-get (plist-get data :data) :drafts))
               (messages (--keep
                          (let* ((draft-id (plist-get it :id))
@@ -245,8 +247,10 @@ buffer.")
                                           "??"))
                                 (channel-id (or (--> (plist-get it :destinations) car (plist-get it :channel_id))
                                                 "??")))
-                           ;; Only process drafts that are actually scheduled for the future.
-                           (when (> date-scheduled 0)
+                           ;; Only process drafts that are actually
+                           ;; scheduled for the future; unscheduled
+                           ;; drafts carry no date_scheduled at all.
+                           (when (and date-scheduled (> date-scheduled 0))
                              (make-instance 'slack-scheduled-message
                                             :draft-id draft-id
                                             :channel-id channel-id
@@ -260,7 +264,7 @@ buffer.")
          (slack-if-let* ((old-buf (slack-buffer-find 'slack-scheduled-messages-buffer team)))
              (when (buffer-live-p (oref old-buf buf))
                (kill-buffer (oref old-buf buf))))
-         (slack-buffer-display buffer-obj))))))
+         (slack-buffer-display buffer-obj)))))))
 
 
 (defun slack-schedule-message (channel-id text minutes-from-now &optional team)
