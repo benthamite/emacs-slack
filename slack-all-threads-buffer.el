@@ -219,7 +219,7 @@ Adds `room-id' property so `slack-feed-open-at-point' can find the channel."
   "Insert loaded history items into the buffer for THIS buffer."
   (slack-buffer-insert-history this))
 
-(cl-defmethod slack-buffer-request-history ((this slack-all-threads-buffer) after-success)
+(cl-defmethod slack-buffer-request-history ((this slack-all-threads-buffer) after-success &optional _on-error)
   "Request older history for THIS buffer from the Slack API.
 AFTER-SUCCESS is the after-success argument."
   (let ((cur-point (point)))

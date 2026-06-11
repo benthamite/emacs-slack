@@ -215,7 +215,7 @@ TEAM is the team argument."
 (cl-defmethod slack-buffer-insert-history ((_this slack-scheduled-messages-buffer))
   "Insert historical messages into the buffer for the scheduled messages buffer.")
 
-(cl-defmethod slack-buffer-request-history ((_this slack-scheduled-messages-buffer) _after-success)
+(cl-defmethod slack-buffer-request-history ((_this slack-scheduled-messages-buffer) _after-success &optional _on-error)
   "Request older history for the scheduled messages buffer from the Slack API.")
 
 (cl-defmethod slack-buffer-loading-message-end-point ((_this slack-scheduled-messages-buffer))

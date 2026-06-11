@@ -144,7 +144,7 @@ MATCH is the match argument."
              do (slack-buffer-insert this match))
     (goto-char cur-point)))
 
-(cl-defmethod slack-buffer-request-history ((this slack-search-result-buffer) after-success)
+(cl-defmethod slack-buffer-request-history ((this slack-search-result-buffer) after-success &optional _on-error)
   "Request older history for THIS buffer from the Slack API.
 AFTER-SUCCESS is the after-success argument."
   (with-slots (search-result) this

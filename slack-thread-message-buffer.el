@@ -134,9 +134,10 @@ buffer.")
   "Insert loaded history items into the buffer for THIS buffer."
   (slack-buffer-insert-history this))
 
-(cl-defmethod slack-buffer-request-history ((this slack-thread-message-buffer) after-success)
+(cl-defmethod slack-buffer-request-history ((this slack-thread-message-buffer) after-success &optional on-error)
   "Request older history for THIS buffer from the Slack API.
-AFTER-SUCCESS is the after-success argument."
+AFTER-SUCCESS is the after-success argument.  ON-ERROR is invoked on
+request failure."
   (with-slots (thread-ts last-read) this
     (slack-if-let* ((team (slack-buffer-team this))
                     (room (slack-buffer-room this))
@@ -147,6 +148,7 @@ AFTER-SUCCESS is the after-success argument."
                       (funcall after-success)))
           (slack-thread-replies message room team
                                 :after-success #'success
+                                :on-error on-error
                                 :oldest last-read)))))
 
 (cl-defmethod slack-buffer-update-mark ((this slack-thread-message-buffer))

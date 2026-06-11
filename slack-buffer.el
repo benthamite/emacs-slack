@@ -455,21 +455,34 @@ NOT-TRACKED-P is the not-tracked-p argument."
   (slack-buffer-insert-history this))
 
 (cl-defmethod slack-buffer-load-more ((this slack-buffer))
-  "Fetch additional history to display in THIS buffer."
+  "Fetch additional history to display in THIS buffer.
+The in-flight flag is reset on success, on request failure, and on
+insertion errors, so one failed request does not permanently disable
+load-more for the buffer.  The buffer captured at call time is
+re-checked for liveness, so a buffer killed while the request is in
+flight is left dead instead of being re-created."
   (when (and (slack-buffer-has-next-page-p this)
              (not slack-buffer--loading-more-p))
     (setq slack-buffer--loading-more-p t)
-    (cl-labels
-        ((after-success
-          ()
-          (with-current-buffer (slack-buffer-buffer this)
-            (let ((inhibit-read-only t))
-              (slack-buffer-delete-load-more-string this)
-              (slack-buffer-prepare-marker-for-history this)
-              (slack-buffer-insert--history this)
-              (lui-recover-output-marker))
-            (setq slack-buffer--loading-more-p nil))))
-      (slack-buffer-request-history this #'after-success))))
+    (let ((buf (current-buffer)))
+      (cl-labels
+          ((reset-loading-flag ()
+             (when (buffer-live-p buf)
+               (with-current-buffer buf
+                 (setq slack-buffer--loading-more-p nil))))
+           (after-success ()
+             (unwind-protect
+                 (when (buffer-live-p buf)
+                   (with-current-buffer buf
+                     (let ((inhibit-read-only t))
+                       (slack-buffer-delete-load-more-string this)
+                       (slack-buffer-prepare-marker-for-history this)
+                       (slack-buffer-insert--history this)
+                       (lui-recover-output-marker))))
+               (reset-loading-flag)))
+           (on-error (&rest _args)
+             (reset-loading-flag)))
+        (slack-buffer-request-history this #'after-success #'on-error)))))
 
 (cl-defmethod slack-buffer-cant-execute ((this slack-buffer))
   "Signal an error because the command is not supported in THIS buffer."
@@ -543,7 +556,7 @@ THIS is the slack-buffer instance."
 (cl-defmethod slack-buffer-insert-history ((this slack-buffer))
   "Insert historical messages into the buffer for THIS buffer."
   (slack-buffer-cant-execute this))
-(cl-defmethod slack-buffer-request-history ((this slack-buffer) _after-success)
+(cl-defmethod slack-buffer-request-history ((this slack-buffer) _after-success &optional _on-error)
   "Request older history for THIS buffer from the Slack API."
   (slack-buffer-cant-execute this))
 (cl-defmethod slack-buffer-select-file ((this slack-buffer))

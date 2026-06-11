@@ -1147,7 +1147,7 @@ ACTIVITY is the activity argument."
       (goto-char cur-point))
     ))
 
-(cl-defmethod slack-buffer-request-history ((this slack-activity-feed-buffer) after-success)
+(cl-defmethod slack-buffer-request-history ((this slack-activity-feed-buffer) after-success &optional _on-error)
   "Request older history for THIS buffer from the Slack API.
 AFTER-SUCCESS is the after-success argument."
   (with-slots (activity-feed) this

@@ -2493,6 +2493,30 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (should-not (slack-message-get-or-fetch "1710000000.000200"
                                             "C-UNKNOWN" team))))
 
+(defclass slack-test--plain-buffer (slack-buffer) ())
+
+(ert-deftest slack-test-load-more-resets-flag-on-error ()
+  (slack-test-setup
+    (let* ((buf-obj (make-instance 'slack-test--plain-buffer
+                                   :team-id (oref team id)))
+           (buffer (generate-new-buffer " *slack-test-load-more*"))
+           (captured-error nil))
+      (oset buf-obj buf buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-has-next-page-p)
+                     (lambda (_this) t))
+                    ((symbol-function 'slack-buffer-request-history)
+                     (lambda (_this _success &optional on-error)
+                       (setq captured-error on-error))))
+            (with-current-buffer buffer
+              (slack-buffer-load-more buf-obj)
+              (should slack-buffer--loading-more-p))
+            (should (functionp captured-error))
+            (funcall captured-error "rate_limited")
+            (with-current-buffer buffer
+              (should-not slack-buffer--loading-more-p)))
+        (kill-buffer buffer)))))
+
 (ert-deftest slack-test-feed-goto-prev-lands-on-entry-starts ()
   (with-temp-buffer
     (insert (propertize "entry one\n" 'ts "1"))

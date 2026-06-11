@@ -52,10 +52,11 @@ Any other non-nil value: send to the room."
                  (const :tag "Always send message to the room." t))
   :group 'slack)
 
-(cl-defmethod slack-thread-replies ((this slack-message) room team &key after-success (cursor nil) (oldest nil))
+(cl-defmethod slack-thread-replies ((this slack-message) room team &key after-success on-error (cursor nil) (oldest nil))
   "Fetch thread replies for THIS message in ROOM on TEAM.
 CURSOR and OLDEST are paging parameters; AFTER-SUCCESS is a callback
-invoked with (NEXT-CURSOR HAS-MORE) after messages are stored."
+invoked with (NEXT-CURSOR HAS-MORE) after messages are stored.
+ON-ERROR is invoked on request failure."
   (let* ((ts (slack-thread-ts this))
          (oldest (or oldest ts)))
     (cl-labels ((success (messages next-cursor has-more)
@@ -65,6 +66,7 @@ invoked with (NEXT-CURSOR HAS-MORE) after messages are stored."
                     (funcall after-success next-cursor has-more))))
       (slack-conversations-replies room ts team
                                    :after-success #'success
+                                   :on-error on-error
                                    :cursor cursor
                                    :oldest oldest))))
 

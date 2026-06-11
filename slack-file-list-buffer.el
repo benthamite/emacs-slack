@@ -99,7 +99,7 @@ PAGES is the pages argument."
                                                before-oldest-id)))
         (goto-char point))))
 
-(cl-defmethod slack-buffer-request-history ((this slack-file-list-buffer) after-success)
+(cl-defmethod slack-buffer-request-history ((this slack-file-list-buffer) after-success &optional _on-error)
   "Request older history for THIS buffer from the Slack API.
 AFTER-SUCCESS is the after-success argument."
   (cl-labels

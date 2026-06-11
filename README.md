@@ -318,6 +318,10 @@ Some terminology in the `slack-` functions:
   - <kbd>p</kbd> in the Activity feed and All threads buffers lands on
     entry starts, so <kbd>RET</kbd> after moving backward opens the
     entry instead of saying "No message at point"
+  - a failed or rate-limited history request no longer permanently
+    disables "(load more)" in thread and feed buffers, and a buffer
+    killed while the request is in flight stays dead instead of being
+    re-created by the response
 
 ### Tip
 
