@@ -1194,9 +1194,9 @@ THIS is the slack-section-layout-block instance."
    (image-url :initarg :image_url :type string)
    (alt-text :initarg :alt_text :type string)
    (title :initarg :title :initform nil (or null slack-text-message-composition-object))
-   (image-height :initarg :image_height :type number)
-   (image-width :initarg :image_width :type number)
-   (image-bytes :initarg :image_bytes :type number)))
+   (image-height :initarg :image_height :type (or null number) :initform nil)
+   (image-width :initarg :image_width :type (or null number) :initform nil)
+   (image-bytes :initarg :image_bytes :type (or null number) :initform nil)))
 
 (defun slack-create-image-layout-block (payload)
   "Create and return a new image layout block instance from PAYLOAD."
@@ -1219,7 +1219,10 @@ THIS is the slack-image-layout-block instance."
                       image-height
                       slack-image-max-height)))
       ;; Use SI kB (1000) not KiB (1024), matching Slack's web UI
-      (slack-format-message (format "%s (%s kB)" alt-text (round (/ image-bytes 1000.0)))
+      (slack-format-message (if image-bytes
+                                (format "%s (%s kB)" alt-text
+                                        (round (/ image-bytes 1000.0)))
+                              (format "%s" alt-text))
                             (slack-image-string spec)))))
 
 (defclass slack-actions-layout-block (slack-layout-block)

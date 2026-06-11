@@ -328,6 +328,9 @@ Some terminology in the `slack-` functions:
   - with two teams sharing a channel name, the unread "New Message"
     marker and first-open positioning operate on the right team's
     buffer instead of whichever buffer claimed the name first
+  - messages containing Block Kit image blocks without size metadata
+    (common for bot/app posts) render instead of aborting the whole
+    message
 
 ### Tip
 

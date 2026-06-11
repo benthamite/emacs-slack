@@ -2590,6 +2590,15 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (kill-buffer own)
         (when decoy (kill-buffer decoy))))))
 
+(ert-deftest slack-test-image-layout-block-without-size-metadata ()
+  (let ((block (slack-create-image-layout-block
+                (list :type "image"
+                      :image_url "https://example.com/x.png"
+                      :alt_text "alt"))))
+    (should block)
+    (should (stringp (slack-block-to-string block)))
+    (should (string-prefix-p "alt" (slack-block-to-string block)))))
+
 (ert-deftest slack-test-feed-goto-prev-lands-on-entry-starts ()
   (with-temp-buffer
     (insert (propertize "entry one\n" 'ts "1"))
