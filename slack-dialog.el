@@ -164,7 +164,8 @@ from a flat one."
 
 (defun slack-dialog-element-create (payload)
   "Build a dialog element instance from PAYLOAD, dispatching on `:type'."
-  (let ((type (plist-get payload :type)))
+  (let* ((payload (slack-dialog--prune-nil-keys payload))
+         (type (plist-get payload :type)))
     (cond
      ((string= type "select")
       (slack-dialog-select-element-create payload))
@@ -174,10 +175,20 @@ from a flat one."
       (slack-dialog-textarea-element-create payload))
      (t (error "Unknown dialog element type: %s" type)))))
 
+(defun slack-dialog--prune-nil-keys (payload)
+  "Drop keys with nil values from PAYLOAD plist.
+Dialog payloads from Slack apps can carry explicit JSON nulls
+(e.g. \"max_length\": null), which parse to nil and would violate
+the strictly typed slots; pruning lets the slot initforms apply."
+  (cl-loop for (key value) on payload by #'cddr
+           when value
+           nconc (list key value)))
+
 (defun slack-dialog-create (payload)
   "Build a `slack-dialog' instance from PAYLOAD plist."
-  (let ((elements (mapcar #'slack-dialog-element-create
-                          (plist-get payload :elements))))
+  (let* ((payload (slack-dialog--prune-nil-keys payload))
+         (elements (mapcar #'slack-dialog-element-create
+                           (plist-get payload :elements))))
     (setq payload (plist-put payload :elements elements))
     (apply #'make-instance 'slack-dialog
            (slack-collect-slots 'slack-dialog payload))))

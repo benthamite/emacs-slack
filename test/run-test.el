@@ -2600,6 +2600,21 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (should (stringp (slack-block-to-string block)))
     (should (string-prefix-p "alt" (slack-block-to-string block)))))
 
+(ert-deftest slack-test-dialog-create-tolerates-json-nulls ()
+  (let ((dialog (slack-dialog-create
+                 (list :title "T"
+                       :callback_id "cb"
+                       :submit_label nil
+                       :state nil
+                       :elements (list (list :type "text"
+                                             :name "n"
+                                             :label "L"
+                                             :max_length nil
+                                             :subtype nil))))))
+    (should dialog)
+    (should (equal "Submit" (oref dialog submit-label)))
+    (should (eq 150 (oref (car (oref dialog elements)) max-length)))))
+
 (ert-deftest slack-test-dialog-option-groups-create-option-objects ()
   (let ((element (slack-dialog-select-element-create
                   (list :name "s" :label "Sel" :type "select"
