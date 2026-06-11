@@ -689,9 +689,11 @@ Note the input timestamp must drop the last 6 digits.
                     (s-split "?" it)
                     (car it)
                     (concat (substring it 0 (- (length it) 6)) "." (substring it (- (length it) 6) (length it)))))
-           (thread-ts (if (string-match "thread_ts=\\([0-9]*\\.[0-9]*\\)" ts-s)
-                          (match-string 1 ts-s)
-                        ts)))
+           ;; Only thread permalinks carry thread_ts; defaulting it to
+           ;; TS would route plain messages through the thread-open
+           ;; path and fabricate pseudo thread parents downstream.
+           (thread-ts (when (string-match "thread_ts=\\([0-9]*\\.[0-9]*\\)" ts-s)
+                        (match-string 1 ts-s))))
       (list
        :team-domain team-domain
        :room-id room-id

@@ -735,7 +735,7 @@
     (should (string= "clojurians" (plist-get info :team-domain)))
     (should (string= "C099W16KZ" (plist-get info :room-id)))
     (should (string= "1730182493.679269" (plist-get info :ts)))
-    (should (string= "1730182493.679269" (plist-get info :thread-ts)))))
+    (should-not (plist-get info :thread-ts))))
 
 (ert-deftest slack-test-permalink-to-info-with-thread-ts ()
   (let ((info (slack-permalink-to-info

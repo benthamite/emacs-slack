@@ -283,6 +283,9 @@ Some terminology in the `slack-` functions:
     message in emacs-slack
   - quoted-message permalinks can open messages from public channels, private
     channels, and direct messages
+  - permalinks to plain (non-threaded) messages open the channel directly
+    instead of being routed through the thread path, which could leave the
+    message displaying a spurious "0 replies" thread line
   - if emacs-slack has not loaded the target team or channel, the permalink
     opens in the default browser instead of raising an error
 - `slack-file-upload`

@@ -426,7 +426,7 @@ obtained."
              (room (slack-room-find room-id team))
              (ts (plist-get info :ts))
              (thread-ts (plist-get info :thread-ts)))
-        (if (and team room ts thread-ts)
+        (if (and team room ts)
             (slack-open-message team room ts thread-ts ts)
           (message "slack-open-url: opening unresolved permalink in browser")
           (browse-url-default-browser url)))
