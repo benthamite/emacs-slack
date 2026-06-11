@@ -191,10 +191,14 @@ ROOM is the room argument."
          (payload (oref this payload))
          (channel (plist-get payload :channel))
          (name (plist-get channel :name))
-         (name-normalized (plist-get channel :name_normalized)))
+         ;; The documented channel_rename payload carries only
+         ;; {id, name, created}; a nil normalized name would violate
+         ;; the slot type after the name was already updated, leaving
+         ;; the room half-renamed.
+         (name-normalized (or (plist-get channel :name_normalized) name)))
     (oset this previous-name previous-name)
-    (oset room name name)
-    (oset room name-normalized name-normalized)))
+    (oset room name-normalized name-normalized)
+    (oset room name name)))
 
 (cl-defmethod slack-event-save-room ((this slack-channel-rename-event) room team _cb)
   "Persist any rooms mentioned by the channel rename event event into TEAM.

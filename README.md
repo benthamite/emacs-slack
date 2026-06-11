@@ -298,6 +298,9 @@ Some terminology in the `slack-` functions:
     option aborts cleanly instead of signaling a type error
   - company completion links mentions correctly for user names
     containing regexp special characters such as `[`, `+`, or `.`
+  - channel renames apply fully even when the event payload omits the
+    normalized name (previously the rename half-applied and the team
+    channel table was never re-keyed)
   - reconnection after a long disconnect (laptop sleep) falls back to
     a fresh authorization instead of retrying Slack's expired
     reconnect URL for hours

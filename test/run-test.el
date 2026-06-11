@@ -2681,6 +2681,17 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-channel-rename-without-normalized-name ()
+  (slack-test-setup
+    (let ((event (make-instance 'slack-room-rename-event
+                                :payload (list :channel
+                                               (list :id channel-id
+                                                     :name "renamed")))))
+      (oset channel name-normalized "TestChannel")
+      (slack-event-update-name event channel team)
+      (should (equal "renamed" (oref channel name)))
+      (should (equal "renamed" (oref channel name-normalized))))))
+
 (ert-deftest slack-test-selectable-empty-group-input-returns-nil ()
   (let ((element (slack-dialog-select-element-create
                   (list :name "s" :label "Sel" :type "select"
