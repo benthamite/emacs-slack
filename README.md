@@ -359,6 +359,10 @@ Some terminology in the `slack-` functions:
     no longer silently lost
   - a reaction on a thread reply that is not in the local cache no
     longer shows up on an unrelated older channel message
+  - custom notification predicates honor `slack-notify-keep` (the
+    persistent variant really persists), and one-shot predicates are
+    no longer consumed by your own messages or by background history
+    scans without an alert ever firing
 
 ### Tip
 

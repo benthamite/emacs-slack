@@ -2681,6 +2681,31 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-custom-notification-predicates-lifecycle ()
+  (slack-test-setup
+    (let ((m (make-instance 'slack-message
+                            :type "message"
+                            :channel channel-id
+                            :ts "1710000000.000100"
+                            :text "hello")))
+      (cl-letf (((symbol-function 'slack-message-minep)
+                 (lambda (&rest _) nil)))
+        (let ((slack-custom-notification-predicates
+               (list (lambda (&rest _) 'slack-notify-keep))))
+          (should (slack-message-notify-p m channel team))
+          (should (eq 1 (length slack-custom-notification-predicates)))
+          (should (slack-message-notify-p m channel team)))
+        (let ((slack-custom-notification-predicates
+               (list (lambda (&rest _) t))))
+          (should (slack-message-notify-p m channel team))
+          (should (eq 0 (length slack-custom-notification-predicates)))))
+      (cl-letf (((symbol-function 'slack-message-minep)
+                 (lambda (&rest _) t)))
+        (let ((slack-custom-notification-predicates
+               (list (lambda (&rest _) t))))
+          (should-not (slack-message-notify-p m channel team))
+          (should (eq 1 (length slack-custom-notification-predicates))))))))
+
 (ert-deftest slack-test-reaction-fetch-rejects-ts-mismatch ()
   (slack-test-setup
     (let ((req (slack-request-create "https://example.com" team

@@ -117,27 +117,41 @@ success.")
                          (oref team usergroups))))))
 
 
+(defvar slack-custom-notification--consume t
+  "When nil, matching one-shot predicates are not removed.
+Bound to nil by callers that only probe whether a message would
+notify (e.g. tracking faces over fetched history), so one-shot
+predicates are not consumed without an alert ever being shown.")
+
 (defun slack-custom-notification-p (message room team)
   "Check MESSAGE ROOM and TEAM against `slack-custom-notification-predicates'.
-Removes the first predicate that is true, unless it returns
-`slack-notify-keep'."
-  (when-let ((found-index (--find-index
-                           (funcall it message room team)
-                           slack-custom-notification-predicates)))
-    (setq slack-custom-notification-predicates (-remove-at found-index slack-custom-notification-predicates))
-    found-index))
+Remove the first predicate that matches, unless it returns
+`slack-notify-keep' or `slack-custom-notification--consume' is nil."
+  (cl-loop for predicate in slack-custom-notification-predicates
+           for index from 0
+           for value = (funcall predicate message room team)
+           when value
+           return (progn
+                    (when (and slack-custom-notification--consume
+                               (not (eq value 'slack-notify-keep)))
+                      (setq slack-custom-notification-predicates
+                            (-remove-at index slack-custom-notification-predicates)))
+                    t)))
 
 (defun slack-message-notify-p (message room team)
-  "Decide if an alert needs to happen for MESSAGE ROOM and TEAM."
-  (let ((custom-notification-p (slack-custom-notification-p message room team)))
-    (and (not (slack-message-minep message team))
-         (or (not (slack-room-muted-p room team)) custom-notification-p)
-         (or (slack-im-p room)
-             (slack-group-p room)
-             (slack-room-subscribedp room team)
-             (slack-message-mentioned-p message team)
-             (slack-message-subscribed-thread-message-p message room)
-             custom-notification-p))))
+  "Decide if an alert needs to happen for MESSAGE ROOM and TEAM.
+Own messages are rejected before the custom predicates run, so a
+one-shot predicate is not consumed by a message that can never
+notify."
+  (and (not (slack-message-minep message team))
+       (let ((custom-notification-p (slack-custom-notification-p message room team)))
+         (and (or (not (slack-room-muted-p room team)) custom-notification-p)
+              (or (slack-im-p room)
+                  (slack-group-p room)
+                  (slack-room-subscribedp room team)
+                  (slack-message-mentioned-p message team)
+                  (slack-message-subscribed-thread-message-p message room)
+                  custom-notification-p)))))
 
 (defun slack-message-add-text-custom-notification-predicate (needle room-id)
   "Add a notification for NEEDLE in message text for ROOM-ID.
@@ -193,9 +207,10 @@ you can remove by clearing
 (defun slack-messages-tracking-faces (messages room team)
   "Return `slack-message-tracking-faces' if any of MESSAGES in ROOM should alert for TEAM."
   (when (and slack-message-tracking-faces
-             (cl-find-if (lambda (m)
-                           (ignore-errors (slack-message-notify-p m room team)))
-                         messages))
+             (let ((slack-custom-notification--consume nil))
+               (cl-find-if (lambda (m)
+                             (ignore-errors (slack-message-notify-p m room team)))
+                           messages)))
     slack-message-tracking-faces))
 
 (defun slack-message-notify-alert (message room team)
