@@ -578,10 +578,12 @@ channel selection."
       (call-interactively #'slack-channel-select))))
 
 (defun slack-disconnected-teams ()
-  "Return a list of registered teams that have no active WebSocket."
+  "Return a list of registered teams whose WebSocket is not connected.
+Tests the connection state: the `ws' slot itself is set at team
+construction and is always non-nil."
   (let (teams)
     (maphash (lambda (_token team)
-               (unless (oref team ws)
+               (unless (slack-team-connectedp team)
                  (push team teams)))
              slack-teams-by-token)
     teams))
@@ -591,7 +593,7 @@ channel selection."
   "Disconnect all connected Slack teams."
   (interactive)
   (maphash (lambda (_token team)
-             (when (oref team ws)
+             (when (slack-team-connectedp team)
                (slack-team-disconnect team)))
            slack-teams-by-token)
   (message "Disconnected all Slack teams."))

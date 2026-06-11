@@ -295,6 +295,9 @@ Some terminology in the `slack-` functions:
     error
   - teams registered with cookie-less tokens (xoxp/xoxb) can connect:
     `slack-start` no longer crashes trying to parse a nil cookie
+  - `slack-start-and-select` starts disconnected teams again (the
+    disconnected check always came back empty, so it skipped straight
+    to channel selection)
 
 ### Tip
 

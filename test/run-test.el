@@ -2367,6 +2367,15 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (should-not (slack-team-cookie team))
     (slack-url-cookie-store team)))
 
+(ert-deftest slack-test-disconnected-teams-uses-connection-state ()
+  (let ((slack-teams-by-token (make-hash-table :test 'equal))
+        (team (make-instance 'slack-team :self-id "U0" :token "tok")))
+    (oset team ws (make-instance 'slack-team-ws))
+    (puthash "tok" team slack-teams-by-token)
+    (should (equal (list team) (slack-disconnected-teams)))
+    (oset (oref team ws) connected t)
+    (should-not (slack-disconnected-teams))))
+
 (ert-deftest slack-test-reaction-add-works-for-uncached-message ()
   (slack-test-setup
     (let ((captured-params nil))
