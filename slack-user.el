@@ -265,7 +265,7 @@ Return nil when USER carries no :tz_offset."
   "Return non-nil when USER-ID refers to the current user of TEAM."
   (string= user-id (oref team self-id)))
 
-(defun slack-user-name-alist (team &key filter)
+(cl-defun slack-user-name-alist (team &key filter)
   "Return an alist of (label .
 user) for TEAM users, optionally filtered by
 FILTER."
