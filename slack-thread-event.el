@@ -31,13 +31,20 @@
 
 (cl-defmethod slack-event-find-message ((this slack-thread-event) team)
   "Return the message referenced by the thread event event from TEAM, or nil.
-THIS is the slack-thread-event instance."
+THIS is the slack-thread-event instance.  A drop is logged: losing a
+subscribe/unsubscribe for an uncached parent silently changes which
+threads notify."
   (let* ((payload (oref this payload))
          (subscription (plist-get payload :subscription))
          (channel (plist-get subscription :channel))
-         (thread-ts (plist-get subscription :thread_ts)))
-    (slack-if-let* ((room (slack-room-find channel team)))
-        (slack-room-find-message room thread-ts))))
+         (thread-ts (plist-get subscription :thread_ts))
+         (room (slack-room-find channel team))
+         (message (and room (slack-room-find-message room thread-ts))))
+    (unless message
+      (slack-log (format "Thread event for uncached parent dropped. CHANNEL: %s, THREAD-TS: %s"
+                         channel thread-ts)
+                 team :level 'warn))
+    message))
 
 (defclass slack-thread-marked-event (slack-thread-event) ())
 

@@ -225,6 +225,9 @@ Some terminology in the `slack-` functions:
     longer loses read items (or its pagination cursor) every refresh cycle
   - one failing or unconnected team no longer freezes the modeline Activity
     unread summary for every team
+  - thread subscribe/unsubscribe events that cannot be applied (the parent
+    message is not cached locally) are logged instead of vanishing, making
+    notification drift diagnosable
   - the visible Activity feed is refreshed when the feed is shown or when
     <kbd>g</kbd> is pressed
   - `slack-activity-feed-watch-channel-limit` controls how many recent
