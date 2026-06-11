@@ -120,9 +120,14 @@ AFTER-SUCCESS is the after-success argument."
            ("_x_mode" . "online")
            ("_x_sonic" . "true")
            ("_x_app_name" . "client")
-           ("client_last_updated_ts" . ,(let* ((str (s-join "" (s-split "\\." last-updated-ts))) ;; for some reason the . for these ts has always to leave 3 final numbers
+           ;; The API wants the dot placed before the final 3 digits;
+           ;; short or dot-less values pass through unchanged instead
+           ;; of producing a negative substring position.
+           ("client_last_updated_ts" . ,(let* ((str (s-join "" (s-split "\\." last-updated-ts)))
                                                (pos (- (length str) 3)))
-                                          (concat (s-left pos str) "." (s-right (- (length str) pos) str)))))))
+                                          (if (< 0 pos)
+                                              (concat (s-left pos str) "." (s-right (- (length str) pos) str))
+                                            last-updated-ts))))))
     (slack-request
      (slack-request-create
       slack-drafts-delete-url team
