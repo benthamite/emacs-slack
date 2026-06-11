@@ -2432,6 +2432,25 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
   (should-not (slack-user-local-time nil))
   (should-not (slack-user-timezone (list :name "bot"))))
 
+(ert-deftest slack-test-conversations-replies-params-clean ()
+  (slack-test-setup
+    (let ((captured-params nil))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (req &rest _) (setq captured-params (oref req params)))))
+        (slack-conversations-replies channel "1710000000.000000" team)
+        (should-not (assoc "oldest" captured-params))
+        (should-not (memq nil captured-params))
+        (slack-conversations-replies channel "1710000000.000000" team
+                                     :cursor "cur" :oldest "1709.1")
+        (should (equal "cur" (cdr (assoc "cursor" captured-params))))
+        (should (eq 1 (cl-count "oldest" captured-params
+                                :key #'car-safe :test #'equal)))
+        (slack-conversations-replies channel "1710000000.000000" team
+                                     :oldest "1709.1")
+        (should (equal "1709.1" (cdr (assoc "oldest" captured-params))))
+        (should (eq 1 (cl-count "oldest" captured-params
+                                :key #'car-safe :test #'equal)))))))
+
 (ert-deftest slack-test-reaction-add-works-for-uncached-message ()
   (slack-test-setup
     (let ((captured-params nil))

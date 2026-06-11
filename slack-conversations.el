@@ -484,14 +484,14 @@ messages, next cursor, and has-more flag; ON-ERROR handles failures."
        (slack-request-create
         slack-conversations-replies-url
         team
-        :params (list (cons "channel" channel)
-                      (and latest (cons "latest" latest))
-                      (and oldest (cons "oldest" oldest))
-                      (and inclusive (cons "inclusive" inclusive))
-                      (cons "ts" ts)
-                      (cons "limit" limit)
-                      (if cursor (cons "cursor" cursor)
-                        (cons "oldest" oldest)))
+        :params (-non-nil
+                 (list (cons "channel" channel)
+                       (and latest (cons "latest" latest))
+                       (and oldest (cons "oldest" oldest))
+                       (and inclusive (cons "inclusive" inclusive))
+                       (cons "ts" ts)
+                       (cons "limit" limit)
+                       (and cursor (cons "cursor" cursor))))
         :success #'on-success
         :error #'fail
         :sync sync)))))

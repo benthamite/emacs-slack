@@ -306,6 +306,8 @@ Some terminology in the `slack-` functions:
   - the sender-name tooltip shows the user's actual local time (the
     old arithmetic was wrong by hours) and no longer errors when
     hovering bot messages
+  - thread fetches no longer send `oldest=nil`, duplicate `oldest`
+    parameters, or junk `nil=nil` pairs to conversations.replies
 
 ### Tip
 
