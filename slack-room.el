@@ -291,9 +291,6 @@ Defaults to 100. Used to reduce memory after closing buffers."
   "Increment the displayed unread-message count for ROOM by one."
   (cl-incf (oref room unread-count-display)))
 
-(cl-defmethod slack-user-find ((room slack-room) team)
-  "Return the user referenced by the ROOM in TEAM."
-  (slack-user--find (oref room user) team))
 
 (cl-defmethod slack-room-member-p ((_this slack-room))
   "Return non-nil when the current user is a member of the room."

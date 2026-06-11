@@ -44,6 +44,11 @@
    (is-frozen :initarg :is_frozen :initform nil)
    (properties :initarg :properties :initform nil :documnetation "This contains extra property like :is_dormant, useful to calculate if channel is open.")))
 
+(cl-defmethod slack-user-find ((room slack-im) team)
+  "Return the user referenced by the im ROOM in TEAM.
+Specialized on `slack-im': only IMs have a `user' slot."
+  (slack-user--find (oref room user) team))
+
 (cl-defmethod slack-merge ((this slack-im) other)
   "Merge new data into the existing im in place.
 THIS is the slack-im instance.
