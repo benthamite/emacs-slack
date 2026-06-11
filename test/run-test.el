@@ -2634,6 +2634,27 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
           (when (buffer-live-p (oref buf-obj buf))
             (kill-buffer (oref buf-obj buf))))))))
 
+(ert-deftest slack-test-pins-list-skips-unknown-item-types ()
+  (slack-test-setup
+    (let ((captured-success nil)
+          (received-items 'unset))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (req &rest _) (setq captured-success (oref req success)))))
+        (slack-pins-list channel team
+                         (lambda (items) (setq received-items items))))
+      (funcall captured-success
+               :data (list :ok t
+                           :items (list
+                                   (list :type "file_comment"
+                                         :comment (list :comment "legacy"))
+                                   (list :type "message"
+                                         :message (list :type "message"
+                                                        :user "U11111"
+                                                        :ts "1710000000.000100"
+                                                        :text "pinned")))))
+      (should (eq 1 (length received-items)))
+      (should (cl-typep (car received-items) 'slack-pinned-item)))))
+
 (ert-deftest slack-test-star-empty-cursor-means-no-next-page ()
   (let ((star (slack-create-star
                (list :saved_items nil

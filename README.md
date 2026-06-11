@@ -340,6 +340,9 @@ Some terminology in the `slack-` functions:
     of re-fetching page one forever and appending duplicate items
   - opening a thread from the pinned-items buffer works (the wrapper
     object was passed where the message was expected)
+  - the pinned-items list opens even when the channel contains legacy
+    or unknown pin types (they are skipped instead of crashing the
+    response handler)
 
 ### Tip
 

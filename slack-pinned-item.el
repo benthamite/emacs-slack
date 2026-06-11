@@ -52,7 +52,11 @@ THIS is the slack-pinned-item instance."
                                          team)
                         (slack-file-create (plist-get payload
                                                       :file)))))))
-    (slack-pinned-item :message message)))
+    ;; Unknown pin types (legacy file_comment pins) have no message;
+    ;; return nil so callers can drop them instead of crashing on a
+    ;; wrapper with an empty message slot.
+    (when message
+      (slack-pinned-item :message message))))
 
 (cl-defmethod slack-ts ((this slack-pinned-item))
   "Return the timestamp string identifying the pinned item.
@@ -78,12 +82,12 @@ TEAM is the team argument."
         (&key data &allow-other-keys)
         (slack-request-handle-error
          (data "slack-pins-list")
-         (let* ((items (mapcar #'(lambda (item)
-
-                                   (slack-pinned-item-create item
-                                                             room
-                                                             team))
-                               (plist-get data :items)))
+         (let* ((items (delq nil
+                             (mapcar #'(lambda (item)
+                                         (slack-pinned-item-create item
+                                                                   room
+                                                                   team))
+                                     (plist-get data :items))))
                 (user-ids (slack-team-missing-user-ids
                            team (cl-loop for item in items
                                          nconc (slack-message-user-ids item)))))
