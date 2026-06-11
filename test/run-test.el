@@ -2681,6 +2681,19 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-worker-queue-keeps-distinct-requests ()
+  (slack-test-setup
+    (let ((worker (make-instance 'slack-request-worker))
+          (req1 (slack-request-create "https://slack.com/api/x" team
+                                      :type "GET" :success #'ignore))
+          (req2 (slack-request-create "https://slack.com/api/x" team
+                                      :type "GET" :success #'ignore)))
+      (slack-request-worker-push worker req1)
+      (slack-request-worker-push worker req2)
+      (should (eq 2 (length (oref worker queue))))
+      (slack-request-worker-push worker req1)
+      (should (eq 2 (length (oref worker queue)))))))
+
 (ert-deftest slack-test-rate-limit-retry-honors-no-retry ()
   (slack-test-setup
     (let ((req (slack-request-create "https://slack.com/api/x" team

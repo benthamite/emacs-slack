@@ -363,8 +363,11 @@ BODY is the body argument."
 (cl-defmethod slack-request-worker-push ((this slack-request-worker) req)
   "Enqueue the request worker on the shared request worker.
 THIS is the slack-request-worker instance.
-REQ is the req argument."
-  (cl-pushnew req (oref this queue) :test #'slack-equalp))
+REQ is the req argument.  Dedup by object identity only: two
+independent requests for the same URL and params carry different
+callbacks, and dropping one would leave its caller's update
+permanently pending."
+  (cl-pushnew req (oref this queue) :test #'eq))
 
 (defun slack-request-worker-on-timeout ()
   "Issue the `worker on timeout' request against the Slack API."

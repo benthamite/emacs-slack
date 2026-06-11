@@ -287,6 +287,9 @@ Some terminology in the `slack-` functions:
   - rate-limited (HTTP 429) requests honor no-retry and the retry cap
     instead of requeueing forever, and a malformed Retry-After header
     no longer causes immediate re-execution
+  - the retry queue no longer silently drops a second identical
+    request from a different feature (whose callbacks would never
+    have fired)
   - reconnection after a long disconnect (laptop sleep) falls back to
     a fresh authorization instead of retrying Slack's expired
     reconnect URL for hours
