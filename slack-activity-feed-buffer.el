@@ -338,11 +338,19 @@ every request completes, or immediately when all rooms are cached."
              (funcall callback))))))))
 
 (defun slack-activity-feed--watched-room (channel team)
-  "Return the watched room named or identified by CHANNEL in TEAM."
+  "Return the watched room named or identified by CHANNEL in TEAM.
+Private channels live in the team's groups table, so search it too;
+an unresolved entry is logged instead of being silently dropped."
   (or (slack-room-find channel team)
       (cl-loop for room being the hash-values of (oref team channels)
                when (string= channel (slack-room-name room team))
-               return room)))
+               return room)
+      (cl-loop for room being the hash-values of (oref team groups)
+               when (string= channel (slack-room-name room team))
+               return room)
+      (prog1 nil
+        (slack-log (format "Watched channel not found: %s" channel)
+                   team :level 'warn))))
 
 (defun slack-activity-feed--watched-rooms (team)
   "Return the configured Activity watch rooms for TEAM."
