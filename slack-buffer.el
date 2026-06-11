@@ -332,9 +332,8 @@ ERR is the API error payload or transport error, when available."
     (condition-case err
         (funcall slack-buffer-function (slack-buffer-buffer this))
       (error (progn
-               (slack-if-let* ((name (slack-buffer-name this))
-                               (buf (get-buffer name)))
-                   (kill-buffer buf))
+               (when (buffer-live-p (oref this buf))
+                 (kill-buffer (oref this buf)))
                (with-demoted-errors "slack-buffer-display swallowed error: %s"
                  (slack-log (format "Backtrace: %S" (with-output-to-string (backtrace)))
                             (slack-buffer-team this)

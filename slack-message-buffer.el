@@ -180,8 +180,7 @@ AFTER-SUCCESS is called after the API call returns successfully."
 
 (cl-defmethod slack-buffer-buffer ((this slack-message-buffer))
   "Return the Emacs buffer for THIS, positioning point on last-read on first open."
-  (let* ((name (slack-buffer-name this))
-         (buffer-already-exists-p (and name (get-buffer name)))
+  (let* ((buffer-already-exists-p (buffer-live-p (oref this buf)))
          (buffer (cl-call-next-method))
          (last-read (slack-buffer-last-read this)))
     (when buffer
@@ -422,8 +421,11 @@ CURSOR is the pagination cursor for fetching older messages."
     (delete-overlay (oref this marker-overlay))))
 
 (cl-defmethod slack-buffer-update-marker-overlay ((this slack-message-buffer))
-  "Move the new-message marker overlay in THIS buffer to the last-read boundary."
-  (let ((buf (get-buffer (slack-buffer-name this))))
+  "Move the new-message marker overlay in THIS buffer to the last-read boundary.
+Use THIS buffer's own buffer object: a name lookup would resolve to
+the first same-named buffer, which belongs to another team when two
+teams share a channel name."
+  (let ((buf (and (buffer-live-p (oref this buf)) (oref this buf))))
     (and buf (with-current-buffer buf
                (let* ((last-read (slack-buffer-last-read this))
                       (beg (slack-buffer-ts-eq (point-min) (point-max) last-read))

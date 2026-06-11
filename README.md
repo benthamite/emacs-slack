@@ -325,6 +325,9 @@ Some terminology in the `slack-` functions:
   - loading more threads in the All threads buffer restores point in
     that buffer instead of moving point in whatever buffer the
     response callback happened to land in
+  - with two teams sharing a channel name, the unread "New Message"
+    marker and first-open positioning operate on the right team's
+    buffer instead of whichever buffer claimed the name first
 
 ### Tip
 

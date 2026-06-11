@@ -2568,6 +2568,28 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (kill-buffer feed-buffer)
         (kill-buffer other-buffer)))))
 
+(ert-deftest slack-test-marker-overlay-uses-own-buffer ()
+  (slack-test-setup
+    (let* ((buf-obj (make-instance 'slack-message-buffer
+                                   :room-id channel-id
+                                   :team-id (oref team id)))
+           (own (generate-new-buffer " *slack-test-own*"))
+           (decoy nil))
+      (slack-buffer-cache-team buf-obj team)
+      (oset buf-obj buf own)
+      (oset channel last-read "100")
+      (unwind-protect
+          (progn
+            (setq decoy (generate-new-buffer (slack-buffer-name buf-obj)))
+            (dolist (b (list own decoy))
+              (with-current-buffer b
+                (insert (propertize "a\n" 'ts "100"))
+                (insert (propertize "b\n" 'ts "200"))))
+            (slack-buffer-update-marker-overlay buf-obj)
+            (should (eq own (overlay-buffer (oref buf-obj marker-overlay)))))
+        (kill-buffer own)
+        (when decoy (kill-buffer decoy))))))
+
 (ert-deftest slack-test-feed-goto-prev-lands-on-entry-starts ()
   (with-temp-buffer
     (insert (propertize "entry one\n" 'ts "1"))
