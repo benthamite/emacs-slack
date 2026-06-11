@@ -2350,6 +2350,27 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
   (should (equal "wss://example.com/socket"
                  (slack-ws--redact-url "wss://example.com/socket"))))
 
+(ert-deftest slack-test-reaction-add-works-for-uncached-message ()
+  (slack-test-setup
+    (let ((captured-params nil))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (req &rest _) (setq captured-params (oref req params)))))
+        (slack-message-reaction-add "smile" "1710000000.000000" channel team))
+      (should captured-params)
+      (should (equal "1710000000.000000"
+                     (cdr (assoc "timestamp" captured-params))))
+      (should (equal "smile" (cdr (assoc "name" captured-params)))))))
+
+(ert-deftest slack-test-reaction-remove-works-for-uncached-message ()
+  (slack-test-setup
+    (let ((captured-params nil))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (req &rest _) (setq captured-params (oref req params)))))
+        (slack-message-reaction-remove "smile" "1710000000.000000" channel team))
+      (should captured-params)
+      (should (equal "1710000000.000000"
+                     (cdr (assoc "timestamp" captured-params)))))))
+
 (ert-deftest slack-test-upload-files-failure-stops-timer ()
   (slack-test-setup
     (cl-letf (((symbol-function 'slack-upload-file)

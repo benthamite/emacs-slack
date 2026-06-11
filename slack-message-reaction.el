@@ -99,13 +99,16 @@
   "Add REACTION to the message at TS in ROOM for TEAM.
 On success, locally update the message and refresh all relevant
 buffers so the UI reflects the change immediately, without
-depending on a websocket event."
-  (slack-if-let* ((message (slack-room-find-message room ts)))
-      (let ((params (list (cons "channel" (oref room id))
-                          (slack-message-get-param-for-reaction message)
-                          (cons "name" reaction))))
-        (slack-message-reaction-add-request
-         params team message reaction)))
+depending on a websocket event.  The request is sent even when the
+message is not in the local room cache (the API only needs the
+channel id and timestamp); only the local update is skipped then."
+  (let* ((message (slack-room-find-message room ts))
+         (params (list (cons "channel" (oref room id))
+                       (if message
+                           (slack-message-get-param-for-reaction message)
+                         (cons "timestamp" ts))
+                       (cons "name" reaction))))
+    (slack-message-reaction-add-request params team message reaction))
   nil)
 
 (defun slack-message-reaction-add-request (params team message reaction-name)
@@ -142,12 +145,16 @@ MESSAGE and REACTION-NAME may be nil for file reactions."
     (slack-message-replace-buffer message team)))
 
 (defun slack-message-reaction-remove (reaction ts room team)
-  "Remove REACTION from the message at TS in ROOM for TEAM."
-  (slack-if-let* ((message (slack-room-find-message room ts)))
-      (let ((params (list (cons "channel" (oref room id))
-                          (slack-message-get-param-for-reaction message)
-                          (cons "name" reaction))))
-        (slack-message-reaction-remove-request params team))))
+  "Remove REACTION from the message at TS in ROOM for TEAM.
+The request is sent even when the message is not in the local room
+cache, since the API only needs the channel id and timestamp."
+  (let* ((message (slack-room-find-message room ts))
+         (params (list (cons "channel" (oref room id))
+                       (if message
+                           (slack-message-get-param-for-reaction message)
+                         (cons "timestamp" ts))
+                       (cons "name" reaction))))
+    (slack-message-reaction-remove-request params team)))
 
 (defun slack-message-reaction-remove-request (params team)
   "Send a reactions.remove request with PARAMS for TEAM."
