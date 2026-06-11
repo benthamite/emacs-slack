@@ -89,9 +89,13 @@ PAGES is the pages argument."
          (before-oldest-id (oref this oldest-id)))
     (slack-buffer-set-oldest this (car files))
     (cl-loop for file in files
-             do (when (or (< (oref file created) before-oldest)
-                          (and (= (oref file created) before-oldest)
-                               (not (string= (oref file id) before-oldest-id))))
+             do (when (and (or (< (oref file created) before-oldest)
+                               (and (= (oref file created) before-oldest)
+                                    (not (string= (oref file id) before-oldest-id))))
+                           ;; Files tying on created with a displayed
+                           ;; neighbor would be re-inserted every page.
+                           (not (slack-buffer-ts-eq (point-min) (point-max)
+                                                    (oref file id))))
                   (slack-buffer-insert this file t)))
 
     (slack-if-let* ((point (slack-buffer-ts-eq (point-min)
