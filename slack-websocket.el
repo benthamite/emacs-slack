@@ -480,6 +480,7 @@ WS is the ws argument."
       (slack-log (format "Scheduling reconnect in %s seconds" delay)
                  team :level 'info)
       (slack-ws-set-reconnect-timer ws
+                                    delay
                                     #'slack-ws--reconnect
                                     (slack-team-id team)))))
 
