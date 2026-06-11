@@ -354,6 +354,9 @@ Some terminology in the `slack-` functions:
   - thread replies no longer re-count the parent's @-mention or flag
     the channel unread on every reply, so the modeline mention badge
     stops climbing in active threads
+  - notification-eligible messages with empty text (block-only bot
+    messages) notify without erroring, so their unread bookkeeping is
+    no longer silently lost
 
 ### Tip
 

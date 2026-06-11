@@ -205,7 +205,10 @@ you can remove by clearing
             (room-name (slack-room-name room team))
             (text (with-temp-buffer
                     (goto-char (point-min))
-                    (insert (slack-message-to-alert message team))
+                    ;; Block-only messages can have no alert text at
+                    ;; all; an error here would abort the rest of the
+                    ;; event's UI bookkeeping.
+                    (insert (or (slack-message-to-alert message team) ""))
                     (slack-buffer-buttonize-link)
                     (buffer-substring-no-properties (point-min)
                                                     (point-max))))
@@ -214,6 +217,7 @@ you can remove by clearing
         ;; as formatting directives; escape them with a backslash.
         (if (and (eq alert-default-style 'notifier)
                  (slack-im-p room)
+                 (< 0 (length text))
                  (or (eq (aref text 0) ?\[)
                      (eq (aref text 0) ?\{)
                      (eq (aref text 0) ?\<)

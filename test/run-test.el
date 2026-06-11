@@ -2681,6 +2681,22 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-notify-alert-tolerates-empty-message ()
+  (slack-test-setup
+    (let ((m (make-instance 'slack-message
+                            :type "message"
+                            :channel channel-id
+                            :ts "1710000000.000100"
+                            :text ""))
+          (alerted nil))
+      (oset team name "TestTeam")
+      (cl-letf (((symbol-function 'slack-message-notify-p)
+                 (lambda (&rest _) t))
+                ((symbol-function 'alert)
+                 (lambda (&rest _) (setq alerted t))))
+        (slack-message-notify-alert m channel team))
+      (should alerted))))
+
 (ert-deftest slack-test-pins-list-skips-unknown-item-types ()
   (slack-test-setup
     (let ((captured-success nil)
