@@ -315,6 +315,9 @@ Some terminology in the `slack-` functions:
   - looking up a thread reply by timestamp fetches the requested
     reply rather than silently returning the thread parent, and
     tolerates rooms missing from the local cache
+  - <kbd>p</kbd> in the Activity feed and All threads buffers lands on
+    entry starts, so <kbd>RET</kbd> after moving backward opens the
+    entry instead of saying "No message at point"
 
 ### Tip
 

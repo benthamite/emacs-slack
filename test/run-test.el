@@ -2493,6 +2493,33 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (should-not (slack-message-get-or-fetch "1710000000.000200"
                                             "C-UNKNOWN" team))))
 
+(ert-deftest slack-test-feed-goto-prev-lands-on-entry-starts ()
+  (with-temp-buffer
+    (insert (propertize "entry one\n" 'ts "1"))
+    (insert "\n")
+    (insert (propertize "entry two\n" 'ts "2"))
+    (insert "\n")
+    (insert (propertize "entry three\n" 'ts "3"))
+    (goto-char (1- (point-max)))
+    (slack-feed-goto-prev)
+    (should (equal "2" (get-text-property (point) 'ts)))
+    (slack-feed-goto-prev)
+    (should (equal "1" (get-text-property (point) 'ts)))
+    (should (eq (point) (point-min)))
+    (slack-feed-goto-prev)
+    (should (eq (point) (point-min)))))
+
+(ert-deftest slack-test-feed-goto-prev-from-gap ()
+  (with-temp-buffer
+    (insert (propertize "entry one\n" 'ts "1"))
+    (insert "\n")
+    (insert (propertize "entry two\n" 'ts "2"))
+    (goto-char (+ 10 (point-min)))
+    (should-not (get-text-property (point) 'ts))
+    (slack-feed-goto-prev)
+    (should (equal "1" (get-text-property (point) 'ts)))
+    (should (eq (point) (point-min)))))
+
 (ert-deftest slack-test-reaction-add-works-for-uncached-message ()
   (slack-test-setup
     (let ((captured-params nil))

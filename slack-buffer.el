@@ -1272,17 +1272,22 @@ Note this requires you are signed in on Slack in your default browser."
     (message "You are on the last message.")))
 
 (defun slack-feed-goto-prev ()
-  "Move point to the previous feed entry (previous distinct `ts' region)."
+  "Move point to the start of the previous feed entry.
+An entry is a contiguous region with a non-nil `ts' text property;
+entries are separated by nil-`ts' gaps (separators, headers).  Walk
+back over the current entry and any gaps, then snap to the start of
+the previous entry, so RET always finds a `ts' at point."
   (interactive)
-  (if-let ((pos (previous-single-property-change (point) 'ts)))
-      (if (get-text-property pos 'ts)
-          ;; Find the start of this ts region
-          (goto-char (or (previous-single-property-change pos 'ts) (point-min)))
-        ;; Landed on a nil gap, skip back to previous ts
-        (if-let ((pos2 (previous-single-property-change pos 'ts)))
-            (goto-char (or (previous-single-property-change pos2 'ts) (point-min)))
-          (message "You are on the first message.")))
-    (message "You are on the first message.")))
+  (let ((pos (point)))
+    (when (get-text-property pos 'ts)
+      (setq pos (previous-single-property-change pos 'ts nil (point-min))))
+    (while (and (< (point-min) pos)
+                (null (get-text-property (1- pos) 'ts)))
+      (setq pos (previous-single-property-change pos 'ts nil (point-min))))
+    (if (and (< (point-min) pos)
+             (get-text-property (1- pos) 'ts))
+        (goto-char (previous-single-property-change pos 'ts nil (point-min)))
+      (message "You are on the first message."))))
 
 (defun slack-feed-open-at-point ()
   "Open the message or thread at point in a feed buffer.
