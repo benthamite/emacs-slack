@@ -2201,6 +2201,21 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (oset req retry-count slack-request-max-retry)
     (should-not (slack-request-retry-failed-request-p req '(end-of-file) 'error))))
 
+(ert-deftest slack-test-merge-and-equalp-on-strings ()
+  (should (equal "abc" (slack-merge "abc" "xyz")))
+  (should (slack-equalp "abc" "abc"))
+  (should-not (slack-equalp "abc" "xyz")))
+
+(ert-deftest slack-test-file-merge-with-channel-lists ()
+  (let ((old-file (slack-file-create
+                   (list :id "F11111" :channels (list "C11111"))))
+        (new-file (slack-file-create
+                   (list :id "F11111" :channels (list "C11111" "C22222")))))
+    (slack-merge old-file new-file)
+    (should (equal '("C11111" "C22222")
+                   (sort (copy-sequence (oref old-file channels))
+                         #'string<)))))
+
 (ert-deftest slack-test-room-compose-send-kills-buffer-only-on-success ()
   (slack-test-setup
     (let* ((buf-obj (slack-create-room-message-compose-buffer channel team))

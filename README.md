@@ -252,6 +252,10 @@ Some terminology in the `slack-` functions:
 - `slack-file-upload`
   - uploads a file
   - the command allows to choose many channels via select loop. In order to finish the loop input an empty string. For helm that's <kbd>C+RET</kbd> or <kbd>M+TET</kbd>. In case of Ivy it's <kbd>C+M+j</kbd>.
+- File info and file lists
+  - re-opening a file's info and loading file-list pages that contain
+    already-cached files merge correctly instead of erroring inside the
+    request callback
 
 ### Tip
 

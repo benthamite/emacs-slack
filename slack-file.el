@@ -273,9 +273,12 @@ When nil, save directly to `slack-file-dir' using the file's original name."
    (comment :initarg :comment :type string)))
 
 (cl-defmethod slack-merge ((old string) _new)
-  "Merge new data into the existing string in place." OLD)
+  "Merge new data into the existing string in place.
+OLD is returned unchanged."
+  old)
 (cl-defmethod slack-equalp ((old string) new)
-  "Return non-nil when the string equals the other argument." (string= OLD new))
+  "Return non-nil when OLD equals NEW."
+  (string= old new))
 
 (cl-defmethod slack-merge ((old slack-file) new)
   "Merge NEW data into the existing file in place.
