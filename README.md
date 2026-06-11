@@ -215,6 +215,9 @@ Some terminology in the `slack-` functions:
   - Activity unread-summary refreshes also merge unread Activity rows into
     existing cached feed data, so opening the feed is less likely to show stale
     cached results after new notifications arrive
+  - background unread-summary refreshes and event-driven cache refreshes store
+    their snapshots under the feed mode they fetched, so the all-mode feed no
+    longer loses read items (or its pagination cursor) every refresh cycle
   - the visible Activity feed is refreshed when the feed is shown or when
     <kbd>g</kbd> is pressed
   - `slack-activity-feed-watch-channel-limit` controls how many recent

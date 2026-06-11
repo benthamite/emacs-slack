@@ -2681,6 +2681,32 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-unread-count-fetch-uses-unread-cache-key ()
+  (slack-test-setup
+    (let ((slack-activity-feed--cache (make-hash-table :test 'equal))
+          (slack-activity-feed-mode-show-only-unread nil)
+          (captured-success nil))
+      (puthash (list (oref team id) nil)
+               (list :activities 'all-mode-snapshot :pagination nil)
+               slack-activity-feed--cache)
+      (cl-letf (((symbol-function 'slack-activity-feed-request)
+                 (lambda (_team &optional after-success _cursor)
+                   (setq captured-success after-success)))
+                ((symbol-function 'slack-activity-feed--with-watched-activities)
+                 (lambda (activities _team cb) (funcall cb activities)))
+                ((symbol-function 'slack-activity-feed--cache-merge-activities)
+                 #'ignore))
+        (slack-activity-feed--fetch-unread-count team #'ignore)
+        ;; The callback fires after the let-binding of the mode var
+        ;; has unwound, i.e. with the global (all) mode in effect.
+        (funcall captured-success (list :items nil :response_metadata nil)))
+      (should (eq 'all-mode-snapshot
+                  (plist-get (gethash (list (oref team id) nil)
+                                      slack-activity-feed--cache)
+                             :activities)))
+      (should (gethash (list (oref team id) t)
+                       slack-activity-feed--cache)))))
+
 (ert-deftest slack-test-activity-mark-read-never-regresses-cursor ()
   (slack-test-setup
     (let ((marked nil))

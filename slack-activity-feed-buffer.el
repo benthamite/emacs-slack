@@ -541,7 +541,13 @@ CALLBACK receives a list of `slack-activity' objects."
 Call AFTER-REFRESH with the old and new snapshots when done.  If
 QUIET is nil, notify when a visible Activity Feed has newer cached
 content."
-  (let ((old-snapshot (slack-activity-feed--cache-get team)))
+  ;; Capture the feed mode and cache key now: the request is async,
+  ;; and any let-binding of the mode variable has unwound by the time
+  ;; the callbacks run, which would store this snapshot under the
+  ;; wrong cache key.
+  (let* ((mode slack-activity-feed-mode-show-only-unread)
+         (key (slack-activity-feed--cache-key team))
+         (old-snapshot (gethash key slack-activity-feed--cache)))
     (slack-activity-feed-request
      team
      (lambda (data)
@@ -553,11 +559,12 @@ content."
           team
           (lambda (extra-activities)
             (let ((new-snapshot
-                   (slack-activity-feed--cache-put
-                    team
-                    (slack-activity-feed--filter-mode-activities
-                     (slack-activity-feed--merge-activities
-                      activities extra-activities))
+                   (slack-activity-feed--cache-put-key
+                    key
+                    (let ((slack-activity-feed-mode-show-only-unread mode))
+                      (slack-activity-feed--filter-mode-activities
+                       (slack-activity-feed--merge-activities
+                        activities extra-activities)))
                     pagination)))
               (when (and (not quiet)
                          (slack-activity-feed--visible-p team)
@@ -1487,8 +1494,12 @@ Works over HTTP and does not require an active WebSocket."
 
 (defun slack-activity-feed--fetch-unread-count (team callback)
   "Fetch unread Activity item count for TEAM.
-CALLBACK receives a single integer argument."
-  (let ((slack-activity-feed-mode-show-only-unread t))
+CALLBACK receives a single integer argument.  The cache key is
+captured while the unread mode binding is in effect: the request is
+async, so computing the key inside the callbacks would use the
+global mode and clobber the other mode's snapshot."
+  (let* ((slack-activity-feed-mode-show-only-unread t)
+         (key (slack-activity-feed--cache-key team)))
     (slack-activity-feed-request
      team
      (lambda (data)
@@ -1504,7 +1515,7 @@ CALLBACK receives a single integer argument."
                     (lambda (activity)
                       (oref activity is-unread))
                     activities)))
-              (slack-activity-feed--cache-put team unread-activities pagination)
+              (slack-activity-feed--cache-put-key key unread-activities pagination)
               (slack-activity-feed--cache-merge-activities
                team unread-activities)
               (funcall callback (length unread-activities))))))))))
