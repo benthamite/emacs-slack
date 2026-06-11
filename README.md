@@ -351,6 +351,9 @@ Some terminology in the `slack-` functions:
   - `slack-scheduled-messages-show` reuses one buffer per team instead
     of accumulating duplicate "Scheduled Msgs<2>", "<3>", … buffers on
     every show or refresh
+  - thread replies no longer re-count the parent's @-mention or flag
+    the channel unread on every reply, so the modeline mention badge
+    stops climbing in active threads
 
 ### Tip
 

@@ -221,6 +221,13 @@ TEAM is the team argument."
 (cl-defmethod slack-message-event-update-modeline ((_this slack-message-deleted-event) _message _team)
   "Refresh the modeline after a message deleted event event is processed."
   (slack-update-modeline))
+(cl-defmethod slack-message-event-update-modeline ((_this slack-message-replied-event) _message _team)
+  "Refresh the modeline after a message replied event is processed.
+The base method must not run here: `slack-event-find-message' returns
+the cached thread parent for message_replied, and the base
+bookkeeping would re-count the parent's mention and flag the channel
+unread once per reply."
+  (slack-update-modeline))
 
 (cl-defmethod slack-event-update-ui ((this slack-message-event) message team)
   "Refresh UI surfaces affected by the MESSAGE event event on TEAM."

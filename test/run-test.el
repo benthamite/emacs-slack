@@ -2661,6 +2661,26 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
       (should (eq buf-obj
                   (slack-buffer-find 'slack-scheduled-messages-buffer team))))))
 
+(ert-deftest slack-test-message-replied-does-not-recount-mentions ()
+  (slack-test-setup
+    (let ((event (make-instance 'slack-message-replied-event
+                                :payload nil))
+          (parent (make-instance 'slack-message
+                                 :type "message"
+                                 :channel channel-id
+                                 :ts "1710000000.000100"
+                                 :text "parent <@U38383838>"))
+          (mention-count-set nil))
+      (cl-letf (((symbol-function 'slack-room-set-mention-count)
+                 (lambda (&rest _) (setq mention-count-set t)))
+                ((symbol-function 'slack-message-mentioned-p)
+                 (lambda (&rest _) t))
+                ((symbol-function 'slack-message-visible-p)
+                 (lambda (&rest _) t))
+                ((symbol-function 'slack-update-modeline) #'ignore))
+        (slack-message-event-update-modeline event parent team))
+      (should-not mention-count-set))))
+
 (ert-deftest slack-test-pins-list-skips-unknown-item-types ()
   (slack-test-setup
     (let ((captured-success nil)
