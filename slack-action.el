@@ -48,12 +48,15 @@
       (let ((bot (match-string 1))
             (payload (match-string 2))
             (label (match-string 3)))
+        ;; LITERAL insertion: an app-controlled label containing a
+        ;; backslash would otherwise signal during message rendering.
         (replace-match (propertize label
                                    'face 'slack-message-action-face
                                    'bot bot
                                    'payload payload
                                    'org-text (match-string 0)
-                                   'keymap slack-action-keymap))))))
+                                   'keymap slack-action-keymap)
+                       t t)))))
 
 (defun slack-actions-run (ts room type action-id app-id team)
   "Invoke a bot action on the message at TS in ROOM for TEAM.

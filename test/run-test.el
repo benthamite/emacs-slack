@@ -2681,6 +2681,12 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-inline-action-label-with-backslash ()
+  (with-temp-buffer
+    (insert "<slack-action://B1/payload|run C:\\tool>")
+    (slack-display-inline-action)
+    (should (string= "run C:\\tool" (buffer-string)))))
+
 (ert-deftest slack-test-counts-tolerate-missing-fields ()
   (let ((counts (slack-create-counts
                  (list :threads nil

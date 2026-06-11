@@ -292,6 +292,8 @@ Some terminology in the `slack-` functions:
     have fired)
   - one malformed conversation entry in the unread-counts response no
     longer kills every unread/mention feature for the session
+  - app action labels containing backslashes render instead of
+    erroring during message display
   - reconnection after a long disconnect (laptop sleep) falls back to
     a fresh authorization instead of retrying Slack's expired
     reconnect URL for hours
