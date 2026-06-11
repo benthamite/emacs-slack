@@ -1389,15 +1389,23 @@ visual unread bullet on the header line get erased."
                         feed-buffer source-buffer pos feed-ts))))))))
      ((and channel ts)
       (when-let ((room (slack-room-find channel team)))
-        (slack-conversations-mark
-         room team ts
-         (lambda ()
-           (when (or (string= "0" (oref room last-read))
-                     (string< (oref room last-read) ts))
-             (oset room last-read ts))
-           (slack-activity-feed--on-marked-read
-            feed-buffer source-buffer pos feed-ts)
-           (slack-counts-update team))))))))
+        ;; Watched-channel rows include already-read messages; marking
+        ;; an older row would move the server-side read cursor
+        ;; backward and flag everything after it unread in all Slack
+        ;; clients. Only the local entry state needs clearing then.
+        (if (not (or (string= "0" (oref room last-read))
+                     (string< (oref room last-read) ts)))
+            (slack-activity-feed--on-marked-read
+             feed-buffer source-buffer pos feed-ts)
+          (slack-conversations-mark
+           room team ts
+           (lambda ()
+             (when (or (string= "0" (oref room last-read))
+                       (string< (oref room last-read) ts))
+               (oset room last-read ts))
+             (slack-activity-feed--on-marked-read
+              feed-buffer source-buffer pos feed-ts)
+             (slack-counts-update team)))))))))
 
 (defun slack-activity-feed--on-marked-read (feed-buffer source-buffer pos feed-ts)
   "Reflect the server-confirmed mark-read for FEED-TS in FEED-BUFFER.

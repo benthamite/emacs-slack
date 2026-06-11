@@ -2681,6 +2681,29 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-activity-mark-read-never-regresses-cursor ()
+  (slack-test-setup
+    (let ((marked nil))
+      (oset channel last-read "1710000000.000200")
+      (cl-letf (((symbol-function 'slack-conversations-mark)
+                 (lambda (_room _team ts &optional _cb) (setq marked ts)))
+                ((symbol-function 'slack-activity-feed--on-marked-read)
+                 #'ignore))
+        (with-temp-buffer
+          (insert (propertize "old entry"
+                              'ts "1710000000.000100"
+                              'room-id channel-id))
+          (goto-char (point-min))
+          (slack-activity-feed--mark-read team))
+        (should-not marked)
+        (with-temp-buffer
+          (insert (propertize "new entry"
+                              'ts "1710000000.000300"
+                              'room-id channel-id))
+          (goto-char (point-min))
+          (slack-activity-feed--mark-read team))
+        (should (equal "1710000000.000300" marked))))))
+
 (ert-deftest slack-test-custom-notification-predicates-lifecycle ()
   (slack-test-setup
     (let ((m (make-instance 'slack-message

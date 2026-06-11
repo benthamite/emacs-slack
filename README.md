@@ -200,6 +200,9 @@ Some terminology in the `slack-` functions:
   - opening a watched-channel Activity feed entry marks that channel read and
     clears the local Activity unread state for the entry after Slack confirms
     the mark
+  - opening an already-read watched-channel entry never moves the channel's
+    server-side read cursor backward (which would mark newer messages unread
+    in every Slack client)
   - press <kbd>t</kbd> on an Activity feed thread entry to open the associated
     thread
   - opening a thread entry whose parent message is already loaded in the
