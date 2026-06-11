@@ -122,23 +122,27 @@ seconds."
                     (let ((emojis it))
                       (lambda ()
                         (cl-loop for (name _) on emojis by #'cddr
-                                 do (let* ((url (handle-alias name))
-                                           (path (if (file-exists-p url) url
-                                                   (slack-image-path url)))
-                                           (emoji (cons (format "%s:" name)
-                                                        (list (cons "name" (substring (symbol-name name) 1))
-                                                              (cons "image" path)
-                                                              (cons "style" "github")))))
-                                      (if (file-exists-p path)
-                                          (push-new-emoji emoji)
-                                        (slack-url-copy-file
-                                         url
-                                         path
-                                         team
-                                         :success (lambda ()
-                                                    (push-new-emoji emoji)))
-                                        )
-                                      (add-to-list 'slack-emoji-paths path)))))
+                                 ;; A broken or circular alias chain
+                                 ;; yields a nil url; skip the entry
+                                 ;; instead of aborting the whole
+                                 ;; batch inside the job timer.
+                                 do (slack-if-let* ((url (handle-alias name)))
+                                        (let* ((path (if (file-exists-p url) url
+                                                       (slack-image-path url)))
+                                               (emoji (cons (format "%s:" name)
+                                                            (list (cons "name" (substring (symbol-name name) 1))
+                                                                  (cons "image" path)
+                                                                  (cons "style" "github")))))
+                                          (if (file-exists-p path)
+                                              (push-new-emoji emoji)
+                                            (slack-url-copy-file
+                                             url
+                                             path
+                                             team
+                                             :success (lambda ()
+                                                        (push-new-emoji emoji)))
+                                            )
+                                          (add-to-list 'slack-emoji-paths path))))))
                     it)
                    (append
                     it

@@ -373,6 +373,8 @@ Some terminology in the `slack-` functions:
     message
   - custom emoji aliases whose target name contains the substring
     "alias" resolve correctly on the emojify (Emacs < 29) path
+  - a broken or circular custom-emoji alias no longer aborts the rest
+    of its emoji download batch
   - Slack-app dialogs with grouped select options work: selecting an
     option no longer signals, and the first press of an " Edit "
     button shows the edit buffer instead of an unrelated buffer
