@@ -218,6 +218,8 @@ Some terminology in the `slack-` functions:
   - background unread-summary refreshes and event-driven cache refreshes store
     their snapshots under the feed mode they fetched, so the all-mode feed no
     longer loses read items (or its pagination cursor) every refresh cycle
+  - one failing or unconnected team no longer freezes the modeline Activity
+    unread summary for every team
   - the visible Activity feed is refreshed when the feed is shown or when
     <kbd>g</kbd> is pressed
   - `slack-activity-feed-watch-channel-limit` controls how many recent

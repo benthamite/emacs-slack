@@ -1949,7 +1949,7 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (let ((slack-activity-feed-watch-channels (list channel-name))
           (result nil))
       (cl-letf (((symbol-function 'slack-activity-feed-request)
-                 (lambda (_team after-success &optional _cursor)
+                 (lambda (_team after-success &optional _cursor _on-error)
                    (funcall after-success (list :items nil))))
                 ((symbol-function 'slack-conversations-info)
                  (lambda (_channel-id _team after-success &optional _on-error)
@@ -1996,7 +1996,7 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
       (let ((slack-activity-feed-mode-show-only-unread nil))
         (slack-activity-feed--cache-put team (list old-activity) nil))
       (cl-letf (((symbol-function 'slack-activity-feed-request)
-                 (lambda (_team after-success &optional _cursor)
+                 (lambda (_team after-success &optional _cursor _on-error)
                    (funcall after-success
                             (list :items (list new-item)
                                   :response_metadata
@@ -2762,6 +2762,16 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (slack-display-inline-action)
     (should (string= "run C:\\tool" (buffer-string)))))
 
+(ert-deftest slack-test-unread-count-fetch-reports-zero-on-error ()
+  (slack-test-setup
+    (let ((reported 'unset))
+      (cl-letf (((symbol-function 'slack-activity-feed-request)
+                 (lambda (_team _success &optional _cursor on-error)
+                   (funcall on-error "request failed"))))
+        (slack-activity-feed--fetch-unread-count
+         team (lambda (count) (setq reported count))))
+      (should (eq 0 reported)))))
+
 (ert-deftest slack-test-stars-load-more-resets-flag-on-error ()
   (slack-test-setup
     (let ((buf-obj (make-instance 'slack-stars-buffer
@@ -2984,7 +2994,7 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                (list :activities 'all-mode-snapshot :pagination nil)
                slack-activity-feed--cache)
       (cl-letf (((symbol-function 'slack-activity-feed-request)
-                 (lambda (_team &optional after-success _cursor)
+                 (lambda (_team &optional after-success _cursor _on-error)
                    (setq captured-success after-success)))
                 ((symbol-function 'slack-activity-feed--with-watched-activities)
                  (lambda (activities _team cb) (funcall cb activities)))

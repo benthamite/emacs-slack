@@ -619,14 +619,18 @@ This updates cache data only; it does not redraw visible Activity Feed buffers."
     (let ((slack-activity-feed-mode-show-only-unread (cadr key)))
       (slack-activity-feed--refresh-cache team))))
 
-(defun slack-activity-feed-request (team &optional after-success cursor)
+(defun slack-activity-feed-request (team &optional after-success cursor on-error)
   "Request activity feed for CHANNEL-ID of TEAM.
 Run an action on the data returned with AFTER-SUCCESS.
-CURSOR is the cursor argument."
+CURSOR is the cursor argument.  ON-ERROR is invoked on API or
+transport failure so callers can clear their pending state."
   (cl-labels
-      ((on-success (&key data &allow-other-keys)
+      ((fail (&rest args)
+         (when (functionp on-error)
+           (apply on-error args)))
+       (on-success (&key data &allow-other-keys)
          (slack-request-handle-error
-          (data "slack-activity-feed-request")
+          (data "slack-activity-feed-request" #'fail)
           (if after-success
               (funcall after-success data)))))
     (slack-request
@@ -635,6 +639,7 @@ CURSOR is the cursor argument."
       team
       :type "POST"
       :success #'on-success
+      :error (lambda (&rest args) (apply #'fail args))
       :data (lambda (token)
               (let ((mode (if slack-activity-feed-mode-show-only-unread "priority_unreads_v1" "chrono_reads_and_unreads")))
                 (slack-activity-feed--request-data token mode cursor)))
@@ -1470,17 +1475,18 @@ Works over HTTP and does not require an active WebSocket."
         (pending (list 0)))
     (maphash
      (lambda (_token team)
-       (cl-incf (car pending))
-       (slack-activity-feed--fetch-unread-count
-        team
-        (lambda (count)
-          (when (< 0 count)
-            (setq any-unreads t)
-            (cl-incf total-count count))
-          (when (= 0 (cl-decf (car pending)))
-            (setq slack-has-unreads any-unreads
-                  slack-unread-count total-count)
-            (force-mode-line-update)))))
+       (when (slack-team-connectedp team)
+         (cl-incf (car pending))
+         (slack-activity-feed--fetch-unread-count
+          team
+          (lambda (count)
+            (when (< 0 count)
+              (setq any-unreads t)
+              (cl-incf total-count count))
+            (when (= 0 (cl-decf (car pending)))
+              (setq slack-has-unreads any-unreads
+                    slack-unread-count total-count)
+              (force-mode-line-update))))))
      slack-teams-by-token)
     (when (= 0 (car pending))
       (setq slack-has-unreads nil
@@ -1518,7 +1524,13 @@ global mode and clobber the other mode's snapshot."
               (slack-activity-feed--cache-put-key key unread-activities pagination)
               (slack-activity-feed--cache-merge-activities
                team unread-activities)
-              (funcall callback (length unread-activities))))))))))
+              (funcall callback (length unread-activities)))))))
+     nil
+     ;; Treat a failed fetch as zero unreads so the pending counter
+     ;; in the unread-summary refresh still reaches zero; otherwise
+     ;; one failing team freezes the modeline summary forever.
+     (lambda (&rest _args)
+       (funcall callback 0)))))
 
 (provide 'slack-activity-feed-buffer)
 ;;; slack-activity-feed-buffer.el ends here
