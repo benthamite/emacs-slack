@@ -105,15 +105,19 @@ success.")
               (search-text (if (oref message attachments)
                                (concat body "\n" (slack-message--attachments-text message team))
                              body)))
-         (or (string-match (format "@%s" (plist-get (oref team self) :name))
+         ;; Names and handles are literal text; unquoted they act as
+         ;; regexps (\"@john.doe\" matches \"@johnXdoe\", \"[\" signals).
+         (or (string-match (regexp-quote
+                            (format "@%s" (plist-get (oref team self) :name)))
                            search-text)
              (cl-find-if #'(lambda (usergroup)
                              (and (slack-usergroup-include-user-p
                                    usergroup
                                    (plist-get (oref team self) :id))
-                                   (string-match
-                                    (format "!?subteam\\^%s" (oref usergroup id))
-                                    search-text)))
+                                  (string-match
+                                   (regexp-quote
+                                    (slack-format-usergroup usergroup))
+                                   search-text)))
                          (oref team usergroups))))))
 
 
@@ -260,10 +264,7 @@ you can remove by clearing
 
 (cl-defmethod slack-message-minep ((m slack-message) team)
   "Return non-nil when message M was sent by the current TEAM user."
-  (if team
-      (with-slots (self-id) team
-        (slack-message-sender-equalp m self-id))
-    (slack-message-sender-equalp m (oref team self-id))))
+  (slack-message-sender-equalp m (oref team self-id)))
 
 (provide 'slack-message-notification)
 ;;; slack-message-notification.el ends here
