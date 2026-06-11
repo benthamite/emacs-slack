@@ -324,6 +324,11 @@ Some terminology in the `slack-` functions:
     advances the read mark past the unfetched replies, which both
     marked them read on the server and made load-more skip them
     forever
+  - opening a permalink to a message far outside loaded history
+    paginates correctly: the forward "(load more)" advances through
+    the gap instead of refetching the same page and falsely reporting
+    "(no more messages)", and the two-direction fetch no longer races
+    against itself dropping one direction's messages
   - looking up a thread reply by timestamp fetches the requested
     reply rather than silently returning the thread parent, and
     tolerates rooms missing from the local cache

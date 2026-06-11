@@ -2681,6 +2681,42 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-paginate-after-anchors-at-page-newest ()
+  (let ((page (list (make-instance 'slack-message :type "message"
+                                   :channel "C11111"
+                                   :ts "1710000000.000300")
+                    (make-instance 'slack-message :type "message"
+                                   :channel "C11111"
+                                   :ts "1710000000.000100")
+                    (make-instance 'slack-message :type "message"
+                                   :channel "C11111"
+                                   :ts "1710000000.000200"))))
+    (should (equal "1710000000.000300"
+                   (slack-messages-paginate--anchor-ts
+                    'after page "1710000000.000050")))
+    (should (equal "1710000000.000100"
+                   (slack-messages-paginate--anchor-ts
+                    'before page "1710000000.000400")))
+    (should (equal "1710000000.000050"
+                   (slack-messages-paginate--anchor-ts
+                    'after nil "1710000000.000050")))))
+
+(ert-deftest slack-test-open-channel-serializes-before-and-after ()
+  (slack-test-setup
+    (let ((order nil)
+          (slack-test-out-load-older-messages-p t))
+      (cl-letf (((symbol-function 'slack-messages-before)
+                 (lambda (_ts _room _team &optional cb)
+                   (push 'before-requested order)
+                   (funcall cb)))
+                ((symbol-function 'slack-messages-after)
+                 (lambda (_ts _room _team &optional _cb)
+                   (push 'after-requested order))))
+        (slack-open-message--open-channel "1710000000.000100"
+                                          channel team #'ignore #'ignore))
+      (should (equal '(before-requested after-requested)
+                     (nreverse order))))))
+
 (ert-deftest slack-test-thread-update-keeps-last-read-while-has-more ()
   (slack-test-setup
     (let ((buf-obj (make-instance 'slack-thread-message-buffer

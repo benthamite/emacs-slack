@@ -1159,11 +1159,25 @@ function."
 (advice-add 'select-window :around 'slack-advice-select-window)
 (advice-add 'delete-window :before 'slack-advice-delete-window)
 
+(defun slack-messages-paginate--anchor-ts (direction page-messages message-ts)
+  "Return the ts to anchor the next DIRECTION fetch at.
+PAGE-MESSAGES are the messages of the page just fetched, in the order
+returned by the API; MESSAGE-TS is the ts pagination started from.
+For `before' the next fetch anchors at the oldest message shown; for
+`after' it must anchor at the newest message of the fetched page —
+re-using MESSAGE-TS would refetch the same first page forever and
+never close the gap."
+  (let ((page-ts (-sort #'string< (-map #'slack-ts page-messages))))
+    (if (eq direction 'before)
+        (or (nth 0 page-ts) message-ts)
+      (or (-last-item page-ts) message-ts))))
+
 (defun slack-messages-paginate (direction message-ts room team &optional after-success)
   "Fetch and display messages in DIRECTION from MESSAGE-TS.
 DIRECTION is `before' (older messages) or `after' (newer messages).
 ROOM and TEAM identify the channel.  AFTER-SUCCESS is called when
-done."
+done.  The \"(load more)\" markers are tagged with their DIRECTION so
+the before and after paginations never delete each other's marker."
   (let ((ts-key (if (eq direction 'before) :latest :oldest)))
     (cl-labels
         ((load-more-string (anchor-ts)
@@ -1179,36 +1193,44 @@ done."
                                                 :inclusive "true"
                                                 :after-success #'success)))
                                  map)
-                       'loading-message t))
-         (insert-load-more-or-end (messages load-more-p)
+                       'loading-message direction))
+         (insert-load-more-or-end (anchor-ts load-more-p)
            (if load-more-p
-               (let* ((anchor-ts (if (eq direction 'before)
-                                     (slack-ts (car messages))
-                                   message-ts))
-                      (str (load-more-string anchor-ts)))
+               (let ((str (load-more-string anchor-ts)))
                  (let ((lui-time-stamp-position nil))
                    (lui-insert str t)))
              (let ((lui-time-stamp-position nil))
                (lui-insert "(no more messages)" t))))
-         (update-buffer (messages load-more-p)
+         (own-loading-region-start ()
+           (let ((pos (point-min))
+                 (start nil))
+             (while (and pos (not start))
+               (let ((value (get-text-property pos 'loading-message)))
+                 (if (or (eq value direction) (eq value t))
+                     (setq start pos)
+                   (setq pos (next-single-property-change pos 'loading-message)))))
+             start))
+         (update-buffer (messages anchor-ts load-more-p)
            (if-let ((this (slack-buffer-find 'slack-message-buffer team room)))
                (with-current-buffer (slack-buffer-buffer this)
                  (slack-buffer-widen
                   (let ((inhibit-read-only t))
                     (goto-char (point-min))
-                    (slack-if-let* ((loading-message-end
-                                     (slack-buffer-loading-message-end-point this)))
+                    (slack-if-let* ((start (own-loading-region-start))
+                                    (end (or (next-single-property-change
+                                              start 'loading-message)
+                                             (point-max))))
                         (progn
                           (slack-buffer-delete-overlay this)
-                          (delete-region (point-min) loading-message-end))
-                      (message "loading-message-end not found, oldest: %s" "oldest"))
-                    (set-marker lui-output-marker (point-min))
+                          (delete-region start end)
+                          (set-marker lui-output-marker start))
+                      (set-marker lui-output-marker (point-min)))
                     (if (eq direction 'before)
                         (progn
-                          (insert-load-more-or-end messages load-more-p)
+                          (insert-load-more-or-end anchor-ts load-more-p)
                           (slack-buffer-insert-messages this messages t t))
                       (slack-buffer-insert-messages this messages t t)
-                      (insert-load-more-or-end messages load-more-p))
+                      (insert-load-more-or-end anchor-ts load-more-p))
                     (lui-recover-output-marker)
                     (slack-buffer-update-marker-overlay this))))))
          (success (messages _cursor)
@@ -1218,9 +1240,13 @@ done."
                   (boundary-ts (if (eq direction 'before)
                                    (nth 0 message-ts-ascending)
                                  (-last-item message-ts-ascending)))
-                  (do-we-need-load-more-p (not (-contains-p room-message-ts-list boundary-ts))))
+                  (do-we-need-load-more-p (not (-contains-p room-message-ts-list boundary-ts)))
+                  (anchor-ts (slack-messages-paginate--anchor-ts
+                              direction messages message-ts)))
              (slack-room-set-messages room messages team)
-             (update-buffer (slack-room-sorted-messages room) do-we-need-load-more-p)
+             (update-buffer (slack-room-sorted-messages room)
+                            anchor-ts
+                            do-we-need-load-more-p)
              (when (functionp after-success)
                (funcall after-success)))))
       (slack-conversations-history room team
@@ -1322,12 +1348,17 @@ be initialized fresh by `slack-buffer-init-buffer')."
 
 (defun slack-open-message--open-channel (ts room team callback after-success)
   "Open ROOM for TEAM at message TS.
-Use CALLBACK for direct display, AFTER-SUCCESS for fetch-then-display."
+Use CALLBACK for direct display, AFTER-SUCCESS for fetch-then-display.
+The before and after fetches run sequentially: concurrent responses
+raced on the shared buffer state, and whichever landed second could
+silently drop the other's page from the display."
   (if (or (not slack-test-out-load-older-messages-p)
           (-contains-p (oref room message-ids) ts))
       (slack-room-display room team callback)
-    (slack-messages-before ts room team)
-    (slack-messages-after ts room team after-success)))
+    (slack-messages-before
+     ts room team
+     (lambda ()
+       (slack-messages-after ts room team after-success)))))
 
 ;;;###autoload
 (defun slack-quote-and-reply (quote)
