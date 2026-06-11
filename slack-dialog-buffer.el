@@ -326,14 +326,16 @@ DIALOG-BUFFER is the dialog-buffer argument."
         (slack-dialog-buffer-kill-buffer buffer))))
 
 (cl-defmethod slack-dialog-buffer-kill-buffer ((this slack-dialog-buffer))
-  "Kill dialog buffer THIS and delete its window if appropriate."
-  (slack-if-let* ((buffer-name (slack-buffer-name this))
-                  (buf (get-buffer buffer-name))
-                  (win (get-buffer-window buf)))
-      (progn
-        (kill-buffer buf)
-        (when (< 1 (count-windows))
-          (delete-window win)))))
+  "Kill dialog buffer THIS and delete its window if appropriate.
+The kill must not depend on the buffer being displayed: the submit
+response is asynchronous, and a buried dialog buffer surviving with a
+consumed dialog-id yields confusing server errors on re-submission."
+  (when (buffer-live-p (oref this buf))
+    (let* ((buf (oref this buf))
+           (win (get-buffer-window buf)))
+      (kill-buffer buf)
+      (when (and (window-live-p win) (< 1 (count-windows)))
+        (delete-window win)))))
 
 (cl-defmethod slack-buffer-insert ((this slack-dialog-buffer))
   "Insert a rendered representation of THIS dialog buffer into the current buffer."
