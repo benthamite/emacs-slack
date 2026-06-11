@@ -357,6 +357,8 @@ Some terminology in the `slack-` functions:
   - notification-eligible messages with empty text (block-only bot
     messages) notify without erroring, so their unread bookkeeping is
     no longer silently lost
+  - a reaction on a thread reply that is not in the local cache no
+    longer shows up on an unrelated older channel message
 
 ### Tip
 

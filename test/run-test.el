@@ -2681,6 +2681,24 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (slack-message-event-update-modeline event parent team))
       (should-not mention-count-set))))
 
+(ert-deftest slack-test-reaction-fetch-rejects-ts-mismatch ()
+  (slack-test-setup
+    (let ((req (slack-request-create "https://example.com" team
+                                     :success #'ignore)))
+      (oset req response
+            (make-request-response
+             :data (list :messages
+                         (list (list :type "message"
+                                     :user "U11111"
+                                     :channel "C11111"
+                                     :ts "1710000000.000050"
+                                     :text "older channel message")))))
+      (cl-letf (((symbol-function 'slack-conversations-history)
+                 (cl-function (lambda (&rest _args &key &allow-other-keys) req))))
+        (should-not (slack-reaction-event--fetch-and-cache-message
+                     channel "1710000000.000200" team))
+        (should-not (slack-room-find-message channel "1710000000.000050"))))))
+
 (ert-deftest slack-test-notify-alert-tolerates-empty-message ()
   (slack-test-setup
     (let ((m (make-instance 'slack-message

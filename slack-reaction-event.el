@@ -105,8 +105,11 @@
 
 (defun slack-reaction-event--fetch-and-cache-message (room ts team)
   "Fetch message at TS from ROOM via API and cache it.
-Returns the fetched message, or nil on failure.  Used when a
-reaction WebSocket event targets a message not yet in cache."
+Returns the fetched message, or nil on failure or when the fetched
+message's ts differs from TS: conversations.history never returns
+thread replies, so a reaction on an uncached reply would otherwise be
+attached to the nearest older channel message.  Used when a reaction
+WebSocket event targets a message not yet in cache."
   (condition-case err
       (-some--> (slack-conversations-history room team
                                               :latest ts
@@ -117,6 +120,7 @@ reaction WebSocket event targets a message not yet in cache."
         (request-response-data it)
         (plist-get it :messages)
         (nth 0 it)
+        (and (string= ts (plist-get it :ts)) it)
         (slack-message-create it team room)
         (progn
           (slack-room-push-message room it team)
