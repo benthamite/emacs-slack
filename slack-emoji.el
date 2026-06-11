@@ -84,7 +84,10 @@ seconds."
                (or
                 (and (not raw-url) (handle-alias (intern ":slack") (1+ depth)))
                 (and raw-url (string-prefix-p "alias:" raw-url)
-                     (handle-alias (intern (replace-regexp-in-string "alias" "" raw-url)) (1+ depth)))
+                     ;; Strip only the "alias:" prefix; a global replace
+                     ;; would corrupt target names containing "alias".
+                     (handle-alias (intern (concat ":" (substring raw-url (length "alias:"))))
+                                   (1+ depth)))
                 (and alias (or (plist-get slack-emoji-all alias)
                                (let ((emoji (emojify-get-emoji (format "%s:" alias))))
                                  (if emoji

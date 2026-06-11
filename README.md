@@ -331,6 +331,8 @@ Some terminology in the `slack-` functions:
   - messages containing Block Kit image blocks without size metadata
     (common for bot/app posts) render instead of aborting the whole
     message
+  - custom emoji aliases whose target name contains the substring
+    "alias" resolve correctly on the emojify (Emacs < 29) path
 
 ### Tip
 
