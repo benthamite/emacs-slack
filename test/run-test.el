@@ -2350,6 +2350,18 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
   (should (equal "wss://example.com/socket"
                  (slack-ws--redact-url "wss://example.com/socket"))))
 
+(ert-deftest slack-test-authorize-with-dangling-request-proceeds ()
+  (slack-test-setup
+    (let ((requested nil))
+      (oset team authorize-request
+            (slack-request-create "https://slack.com/api/rtm.connect" team
+                                  :success #'ignore))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (&rest _) (setq requested t) nil))
+                ((symbol-function 'slack-log) #'ignore))
+        (slack-authorize team))
+      (should requested))))
+
 (ert-deftest slack-test-reaction-add-works-for-uncached-message ()
   (slack-test-setup
     (let ((captured-params nil))

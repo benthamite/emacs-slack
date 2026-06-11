@@ -1145,9 +1145,16 @@ represent activity."
     (puthash (oref team id) (run-with-timer 7 t 'slack-request-set-presence team "auto") slack-presence-timers)))
 
 (defun slack-authorize (team &optional error-callback success-callback)
-  "Authorize TEAM with Slack, invoking ERROR-CALLBACK or SUCCESS-CALLBACK."
-  (let ((authorize-request (oref team authorize-request)))
-    (if (and authorize-request (not (request-response-done-p authorize-request)))
+  "Authorize TEAM with Slack, invoking ERROR-CALLBACK or SUCCESS-CALLBACK.
+A new authorization is suppressed only while a previous one is
+genuinely in flight: the team's `authorize-request' slot holds a
+`slack-request-request' object, and only its `response' slot (when
+set) is a `request-response' struct that `request-response-done-p'
+accepts."
+  (let* ((authorize-request (oref team authorize-request))
+         (response (and authorize-request
+                        (oref authorize-request response))))
+    (if (and response (not (request-response-done-p response)))
         (slack-log "Authorize Already Requested" team)
       (cl-labels
           ((on-error (&key error-thrown symbol-status response data)

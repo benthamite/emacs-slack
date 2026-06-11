@@ -290,6 +290,9 @@ Some terminology in the `slack-` functions:
   - adding or removing a reaction works even when the target message
     has dropped out of the local message cache (previously the emoji
     prompt appeared and then nothing happened)
+  - running `slack-start` while a previous authorization is pending
+    reports "Authorize Already Requested" instead of signaling a type
+    error
 
 ### Tip
 
