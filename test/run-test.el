@@ -2649,6 +2649,18 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
           (slack-file-update)))
       (should (equal "F11111" captured-id)))))
 
+(ert-deftest slack-test-scheduled-messages-buffer-is-findable ()
+  (slack-test-setup
+    (should (equal "scheduled-messages"
+                   (slack-buffer-key 'slack-scheduled-messages-buffer)))
+    (let ((buf-obj (make-instance 'slack-scheduled-messages-buffer
+                                  :team-id (oref team id)
+                                  :messages nil)))
+      (slack-buffer-cache-team buf-obj team)
+      (slack-team-set-buffer buf-obj)
+      (should (eq buf-obj
+                  (slack-buffer-find 'slack-scheduled-messages-buffer team))))))
+
 (ert-deftest slack-test-pins-list-skips-unknown-item-types ()
   (slack-test-setup
     (let ((captured-success nil)

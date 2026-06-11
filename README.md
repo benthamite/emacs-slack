@@ -346,6 +346,9 @@ Some terminology in the `slack-` functions:
   - `slack-file-update` refreshes the file-info buffer it was invoked
     from (it previously sent a malformed request and updated only the
     file-list buffer)
+  - `slack-scheduled-messages-show` reuses one buffer per team instead
+    of accumulating duplicate "Scheduled Msgs<2>", "<3>", … buffers on
+    every show or refresh
 
 ### Tip
 

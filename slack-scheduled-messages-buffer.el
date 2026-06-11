@@ -148,24 +148,19 @@ AFTER-SUCCESS is the after-success argument."
 
 ;;; Class Methods
 
-(cl-defmethod slack-buffer-name ((_class slack-scheduled-messages-buffer) team)
-  "Return the display buffer name for the scheduled messages buffer.
-TEAM is the team argument."
-  (format "*slack %s Scheduled Msgs*" (oref team name)))
-
 (cl-defmethod slack-buffer-name ((this slack-scheduled-messages-buffer))
   "Return the display buffer name for THIS buffer."
   (format "*slack %s Scheduled Msgs*" (slack-team-name (slack-buffer-team this))))
 
-(cl-defmethod slack-buffer-key ((_class slack-scheduled-messages-buffer))
+(cl-defmethod slack-buffer-key ((_class (subclass slack-scheduled-messages-buffer)) &rest _args)
   "Return the class-level buffer key for the scheduled-messages buffer."
   "scheduled-messages")
 
-(cl-defmethod slack-buffer-key ((_class slack-scheduled-messages-buffer) &rest _x)
-  "Return the class-level buffer key for the scheduled-messages buffer."
+(cl-defmethod slack-buffer-key ((_this slack-scheduled-messages-buffer))
+  "Return the lookup key identifying the buffer for THIS buffer."
   "scheduled-messages")
 
-(cl-defmethod slack-team-buffer-key ((_class slack-scheduled-messages-buffer))
+(cl-defmethod slack-team-buffer-key ((_class (subclass slack-scheduled-messages-buffer)))
   "Return the team-scoped buffer key for the scheduled messages buffer."
   'slack-scheduled-messages-buffer)
 
@@ -262,8 +257,9 @@ buffer.")
               (buffer-obj (make-instance 'slack-scheduled-messages-buffer
                                          :team-id (oref team id)
                                          :messages (sort messages (lambda (a b) (< (oref a post-at) (oref b post-at)))))))
-         ;; (when-let ((old-buf (slack-buffer-find 'slack-scheduled-messages-buffer team))) ;; TODO fix this
-         ;;   (kill-buffer (oref old-buf buf)))
+         (slack-if-let* ((old-buf (slack-buffer-find 'slack-scheduled-messages-buffer team)))
+             (when (buffer-live-p (oref old-buf buf))
+               (kill-buffer (oref old-buf buf))))
          (slack-buffer-display buffer-obj))))))
 
 
