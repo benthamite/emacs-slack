@@ -4,3 +4,8 @@ test/dot_emacs_25
 test/dot_emacs_26
 test/dot_emacs_master
 test/dot_emacs_master_package
+/logs/
+/session-logs/
+/docs/logs/
+/CLAUDE.md
+/AGENTS.md
