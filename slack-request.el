@@ -278,7 +278,9 @@ request's own success and error handlers run."
                    (slack-request req :on-success on-success :on-error on-error))
                (unwind-protect
                    (progn
-                     (funcall (oref req success) :data data)
+                     (when (and (slot-boundp req 'success)
+                                (functionp (oref req success)))
+                       (funcall (oref req success) :data data))
                      (slack-request-log-success req data))
                  (cleanup-temp-cookie)
                  (when (functionp on-success)

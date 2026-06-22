@@ -335,6 +335,9 @@ Some terminology in the `slack-` functions:
   - synchronous API requests run their success/error handlers, so the
     standard-emoji picker data, attachment action suggestions, and
     dialog external-select suggestions load correctly
+  - opening saved items no longer aborts with an unbound-slot error when
+    a saved thread reply needs a synchronous permalink lookup (the
+    success path now tolerates a request created without a handler)
   - rate-limited (HTTP 429) requests honor no-retry and the retry cap
     instead of requeueing forever, and a malformed Retry-After header
     no longer causes immediate re-execution
