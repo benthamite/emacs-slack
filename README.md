@@ -264,6 +264,8 @@ Some terminology in the `slack-` functions:
 - `slack-saved-items`
   - show saved messages and cache message data returned by Slack so the buffer
     can render newly fetched saved items immediately
+  - selecting a team that has not connected yet starts it before saved items
+    are fetched, instead of opening an empty buffer
   - saved files render as entries (previously every file-type saved item was
     silently invisible)
   - press <kbd>RET</kbd> on a saved item's thread-status link ("N replies, Last

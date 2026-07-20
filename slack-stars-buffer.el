@@ -369,6 +369,7 @@ lines inserted by `slack-buffer-insert'."
   "Show the saved items buffer."
   (interactive)
   (let* ((team (slack-team-select))
+         (_ (slack-team-ensure-conversations-loaded team))
          (buf (slack-buffer-find 'slack-stars-buffer team)))
     (if buf (slack-buffer-display buf)
       (slack-stars-list-request

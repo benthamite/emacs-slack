@@ -3257,6 +3257,29 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                      :response_metadata (list :next_cursor "cur")))))
     (should (slack-star-has-next-page-p star))))
 
+(ert-deftest slack-test-saved-items-starts-uninitialized-team-before-request ()
+  (let ((team (make-instance 'slack-team
+                             :name "Uninitialized"
+                             :token "token"))
+        (slack-team--conversations-loaded (make-hash-table :test 'equal))
+        (started nil)
+        (buffer-lookup nil)
+        (requested nil))
+    (cl-letf (((symbol-function 'slack-team-select)
+               (lambda (&optional _) team))
+              ((symbol-function 'slack-start)
+               (lambda (&optional selected-team)
+                 (setq started selected-team)))
+              ((symbol-function 'slack-buffer-find)
+               (lambda (&rest _)
+                 (setq buffer-lookup t)))
+              ((symbol-function 'slack-stars-list-request)
+               (lambda (&rest _) (setq requested t))))
+      (should-error (slack-saved-items) :type 'user-error)
+      (should (eq team started))
+      (should-not buffer-lookup)
+      (should-not requested))))
+
 (ert-deftest slack-test-feed-goto-prev-lands-on-entry-starts ()
   (with-temp-buffer
     (insert (propertize "entry one\n" 'ts "1"))
