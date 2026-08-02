@@ -1297,7 +1297,8 @@ the failed state and error when loading fails."
         :on-error
         (lambda (&rest errors)
           (apply error errors))))
-     #'slack-thread-message-buffer-render-page-state)
+     #'slack-thread-message-buffer-render-page-state
+     t)
     ;; Presenter callbacks intentionally belong only to the most recent visual
     ;; presentation.  These compatibility callbacks belong to every caller, so
     ;; register them separately while still tying each one to its exact buffer.
@@ -1663,9 +1664,9 @@ sequentially.  ON-ERROR receives explicit room or range failures."
                   ts room team #'after-before #'fail))))))
       (condition-case display-error
           (progn
-            (slack-room-display room team #'ready)
-            ;; Register independently of the presentation token: two deep-link
-            ;; callers coalesced onto one room request must both finish.
+            (slack-room-display room team)
+            ;; Register independently of the presentation token so two deep-link
+            ;; callers coalesced onto one room request both finish exactly once.
             (slack-page-state-on-ready state #'ready)
             (slack-page-state-on-error state #'fail))
         (error (funcall #'fail state display-error))))))

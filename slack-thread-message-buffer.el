@@ -130,10 +130,10 @@ so keying on TS alone could return another room's thread buffer."
 
 (defun slack-thread-message-buffer-render-page-state (object state)
   "Render OBJECT's cached thread and shared page status from STATE."
-  (let* ((room (slack-buffer-room object))
-         (thread-ts (oref object thread-ts))
-         (parent (slack-room-find-message room thread-ts))
-         (replies (and parent (slack-message-replies parent room)))
+  (let* ((thread-ts (oref object thread-ts))
+         (thread (slack-thread-message-buffer-page-messages object state))
+         (parent (car thread))
+         (replies (cdr thread))
          (latest-reply (car (last replies)))
          (page-replies
           (and (slack-page-state-loaded-p state)
@@ -185,6 +185,29 @@ so keying on TS alone could return another room's thread buffer."
      (t
       (goto-char (min (+ (point-min) output-offset)
                       (marker-position lui-output-marker)))))))
+
+(defun slack-thread-message-buffer-page-messages (object state)
+  "Return OBJECT's thread messages from durable STATE and the live room cache."
+  (let ((room (slack-buffer-room object))
+        (thread-ts (oref object thread-ts))
+        (by-ts (make-hash-table :test 'equal))
+        messages)
+    (dolist (message (slack-page-state-value state))
+      (when (slack-thread-message-buffer-thread-message-p message thread-ts)
+        (puthash (slack-ts message) message by-ts)))
+    (dolist (message (slack-room-sorted-messages room))
+      (when (slack-thread-message-buffer-thread-message-p message thread-ts)
+        (puthash (slack-ts message) message by-ts)))
+    (maphash (lambda (_ts message) (push message messages)) by-ts)
+    (setq messages (slack-room-sort-messages messages))
+    (cons (cl-find thread-ts messages :key #'slack-ts :test #'string=)
+          (cl-remove thread-ts messages :key #'slack-ts :test #'string=))))
+
+(defun slack-thread-message-buffer-thread-message-p (message thread-ts)
+  "Return non-nil when MESSAGE belongs to THREAD-TS."
+  (and message
+       (or (equal thread-ts (slack-ts message))
+           (equal thread-ts (slack-thread-ts message)))))
 
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-thread-message-buffer))
   "Return non-nil when THIS buffer has more history to load."

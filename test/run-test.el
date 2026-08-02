@@ -1460,7 +1460,8 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                                  :type "message"
                                  :channel channel-id
                                  :ts reply-ts
-                                 :thread_ts thread-ts))
+                                 :thread_ts thread-ts
+                                 :reactions nil))
            (activity
             (make-instance
              'slack-activity
@@ -3435,6 +3436,70 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                         (search-forward "new reply" nil t)))))
         (when (buffer-live-p second-buffer) (kill-buffer second-buffer))))))
 
+(ert-deftest slack-test-thread-reopen-renders-durable-page-and-refreshes ()
+  (slack-test-setup
+    (let* ((thread-ts "1710000000.000100")
+           (reply-ts "1710000000.000200")
+           (parent (make-instance 'slack-message
+                                  :type "message"
+                                  :channel channel-id
+                                  :ts thread-ts
+                                  :thread_ts thread-ts
+                                  :text "cached parent"
+                                  :reactions nil))
+           (reply (make-instance 'slack-message
+                                 :type "message"
+                                 :channel channel-id
+                                 :ts reply-ts
+                                 :thread_ts thread-ts
+                                 :text "cached reply"
+                                 :reactions nil))
+           (live-reply (make-instance 'slack-message
+                                      :type "message"
+                                      :channel channel-id
+                                      :ts "1710000000.000300"
+                                      :thread_ts thread-ts
+                                      :text "live reply"
+                                      :reactions nil))
+           (state (slack-thread-page-state channel team thread-ts))
+           (old-object (slack-create-thread-message-buffer
+                        channel team thread-ts))
+           (old-buffer (slack-buffer-buffer old-object))
+           (requests 0)
+           first-object
+           second-object
+           buffer)
+      (slack-page-state-store state (list parent reply) "" nil)
+      (kill-buffer old-buffer)
+      (slack-room-clear-messages channel)
+      (slack-room-set-messages channel (list live-reply) team)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display)
+                     (lambda (shown)
+                       (if first-object
+                           (setq second-object shown)
+                         (setq first-object shown
+                               buffer (oref shown buf)))))
+                    ((symbol-function 'slack-thread-replies)
+                     (lambda (&rest _) (cl-incf requests))))
+            (slack-thread-show-messages parent channel team)
+            (should (= 1 requests))
+            (should (eq 'refreshing (slack-page-state-status state)))
+            (should (with-current-buffer buffer
+                      (and (save-excursion
+                             (goto-char (point-min))
+                             (search-forward "cached parent" nil t))
+                           (save-excursion
+                             (goto-char (point-min))
+                             (search-forward "cached reply" nil t))
+                           (save-excursion
+                             (goto-char (point-min))
+                             (search-forward "live reply" nil t)))))
+            (slack-thread-show-messages parent channel team)
+            (should (eq first-object second-object))
+            (should (= 1 requests)))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
 (ert-deftest slack-test-thread-primary-preserves-concurrent-message-edit ()
   (slack-test-setup
     (let* ((thread-ts "1710000000.000100")
@@ -3519,9 +3584,14 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
           navigated-ts
           events)
       (cl-letf (((symbol-function 'slack-room-display)
-                 (lambda (_room _team &optional callback)
+                 (lambda (room _team &optional _callback)
                    (push 'display events)
-                   (setq ready callback)))
+                   (let* ((state (oref room history-state))
+                          (generation (slack-page-state-begin state t)))
+                     (setq ready
+                           (lambda ()
+                             (slack-page-state-commit
+                              state generation nil "" nil))))))
                 ((symbol-function 'slack-messages-before)
                  (lambda (_ts _room _team &optional callback _error)
                    (push 'before events)
@@ -3544,6 +3614,77 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (should (equal target-ts navigated-ts))
         (should (= 1 (cl-count 'display events)))))))
 
+(ert-deftest slack-test-open-channel-ready-starts-one-before-request ()
+  (slack-test-setup
+    (let* ((target-ts "1710000000.000500")
+           (state (oref channel history-state))
+           (slack-test-out-load-older-messages-p t)
+           history-success
+           before-success
+           object
+           (before-requests 0))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display)
+                     (lambda (shown) (setq object shown)))
+                    ((symbol-function 'slack-room-history-load)
+                     (lambda (_room _team _generation success _error)
+                       (setq history-success success)))
+                    ((symbol-function 'slack-messages-before)
+                     (lambda (_ts _room _team &optional success _error)
+                       (cl-incf before-requests)
+                       (setq before-success success)))
+                    ((symbol-function 'slack-messages-after)
+                     (lambda (&rest _) nil)))
+            (slack-open-message--open-channel
+             target-ts channel team #'ignore #'ignore)
+            (should (eq 'loading (slack-page-state-status state)))
+            (funcall history-success nil "" nil)
+            (should (= 1 before-requests))
+            (should (functionp before-success)))
+        (when (and object (slot-boundp object 'buf)
+                   (buffer-live-p (oref object buf)))
+          (kill-buffer (oref object buf)))))))
+
+(ert-deftest slack-test-open-channel-coalesced-callers-each-finish-once ()
+  (slack-test-setup
+    (let* ((target-ts "1710000000.000500")
+           (slack-test-out-load-older-messages-p t)
+           history-success
+           before-successes
+           after-successes
+           object
+           finished
+           (history-requests 0)
+           (before-requests 0))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display)
+                     (lambda (shown) (setq object shown)))
+                    ((symbol-function 'slack-room-history-load)
+                     (lambda (_room _team _generation success _error)
+                       (cl-incf history-requests)
+                       (setq history-success success)))
+                    ((symbol-function 'slack-messages-before)
+                     (lambda (_ts _room _team &optional success _error)
+                       (cl-incf before-requests)
+                       (push success before-successes)))
+                    ((symbol-function 'slack-messages-after)
+                     (lambda (_ts _room _team &optional success _error)
+                       (push success after-successes))))
+            (slack-open-message--open-channel
+             target-ts channel team (lambda () (push 'first finished)))
+            (slack-open-message--open-channel
+             target-ts channel team (lambda () (push 'second finished)))
+            (should (= 1 history-requests))
+            (funcall history-success nil "" nil)
+            (should (= 2 before-requests))
+            (mapc #'funcall before-successes)
+            (should (= 2 (length after-successes)))
+            (mapc #'funcall after-successes)
+            (should (equal '(first second) finished)))
+        (when (and object (slot-boundp object 'buf)
+                   (buffer-live-p (oref object buf)))
+          (kill-buffer (oref object buf)))))))
+
 (ert-deftest slack-test-open-channel-range-error-reaches-fallback ()
   (slack-test-setup
     (let ((target-ts "1710000000.000500")
@@ -3551,8 +3692,13 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
           range-error
           (fallbacks 0))
       (cl-letf (((symbol-function 'slack-room-display)
-                 (lambda (_room _team &optional callback)
-                   (setq ready callback)))
+                 (lambda (room _team &optional _callback)
+                   (let* ((state (oref room history-state))
+                          (generation (slack-page-state-begin state t)))
+                     (setq ready
+                           (lambda ()
+                             (slack-page-state-commit
+                              state generation nil "" nil))))))
                 ((symbol-function 'slack-messages-before)
                  (lambda (_ts _room _team &optional _callback error)
                    (setq range-error error)))
@@ -3578,8 +3724,13 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
            (ranges 0))
       (slack-room-set-messages channel (list target) team)
       (cl-letf (((symbol-function 'slack-room-display)
-                 (lambda (_room _team &optional callback)
-                   (setq ready callback)))
+                 (lambda (room _team &optional _callback)
+                   (let* ((state (oref room history-state))
+                          (generation (slack-page-state-begin state t)))
+                     (setq ready
+                           (lambda ()
+                             (slack-page-state-commit
+                              state generation nil "" nil))))))
                 ((symbol-function 'slack-messages-before)
                  (lambda (&rest _) (cl-incf ranges)))
                 ((symbol-function 'slack-messages-after)
@@ -3757,8 +3908,9 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                  (lambda (_ts _room _team &optional _cb _on-error)
                    (push 'after-requested order)))
                 ((symbol-function 'slack-room-display)
-                 (lambda (_room _team &optional callback)
-                   (funcall callback))))
+                 (lambda (room _team &optional _callback)
+                   (slack-page-state-store
+                    (oref room history-state) nil "" nil))))
         (slack-open-message--open-channel "1710000000.000100"
                                           channel team #'ignore #'ignore))
       (should (equal '(before-requested after-requested)
