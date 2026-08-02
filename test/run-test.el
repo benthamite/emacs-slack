@@ -1815,6 +1815,96 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (when (buffer-live-p emacs-buffer)
           (kill-buffer emacs-buffer))))))
 
+(ert-deftest slack-test-search-load-more-preserves-point-through-hydration ()
+  (slack-test-setup
+    (let* ((key '(search file "needle" "timestamp" "desc"))
+           (state (slack-team-page-state team key))
+           (initial
+            (slack-test-file-search-result
+             "needle"
+             (list (slack-test-search-file "F1" "first" user-id 1))
+             1 2 1 1))
+           (object (slack-create-search-result-buffer initial team))
+           (emacs-buffer (slack-buffer-buffer object))
+           callbacks
+           original-point)
+      (slack-page-state-store state initial 2 t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-search-request)
+                     (lambda (_result after-success _team &optional _page
+                              on-error on-primary-page)
+                       (setq callbacks
+                             (list after-success on-error on-primary-page)))))
+            (with-current-buffer emacs-buffer
+              (slack-search-result-buffer-render-page-state object state)
+              (goto-char (point-min))
+              (should (search-forward "first" nil t))
+              (setq original-point (point))
+              (slack-buffer-load-more object))
+            (funcall
+             (nth 2 callbacks)
+             (slack-test-file-search-result
+              "needle"
+              (list (slack-test-search-file "F2" "second" user-id 2))
+              2 2 2 2))
+            (with-current-buffer emacs-buffer
+              (should (= original-point (point))))
+            (funcall (car callbacks))
+            (with-current-buffer emacs-buffer
+              (should (= original-point (point)))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-search-load-more-rejects-replaced-live-owner ()
+  (slack-test-setup
+    (let* ((key '(search file "needle" "timestamp" "desc"))
+           (state (slack-team-page-state team key))
+           (initial
+            (slack-test-file-search-result
+             "needle"
+             (list (slack-test-search-file "F1" "first" user-id 1))
+             1 2 1 1))
+           (object (slack-create-search-result-buffer initial team))
+           (old-buffer (slack-buffer-buffer object))
+           callbacks
+           replacement
+           replacement-buffer)
+      (slack-page-state-store state initial 2 t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-search-request)
+                     (lambda (_result after-success _team &optional _page
+                              on-error on-primary-page)
+                       (setq callbacks
+                             (list after-success on-error on-primary-page)))))
+            (with-current-buffer old-buffer
+              (slack-search-result-buffer-render-page-state object state)
+              (slack-buffer-load-more object))
+            (setq replacement
+                  (make-instance 'slack-search-result-buffer
+                                 :team-id (oref team id)
+                                 :search-result initial))
+            (slack-buffer-cache-team replacement team)
+            (setq replacement-buffer (slack-buffer-buffer replacement))
+            (should
+             (eq replacement
+                 (slack-buffer-find
+                  'slack-search-result-buffer team initial)))
+            (funcall
+             (nth 2 callbacks)
+             (slack-test-file-search-result
+              "needle"
+              (list (slack-test-search-file "F2" "late" user-id 2))
+              2 2 2 2))
+            (should (eq initial (slack-page-state-value state)))
+            (with-current-buffer old-buffer
+              (goto-char (point-min))
+              (should-not (search-forward "late" nil t))
+              (should-not slack-buffer--loading-more-p)))
+        (when (buffer-live-p replacement-buffer)
+          (kill-buffer replacement-buffer))
+        (when (buffer-live-p old-buffer)
+          (kill-buffer old-buffer))))))
+
 (ert-deftest slack-test-activity-feed-open-loaded-parent-keeps-thread-ts ()
   (slack-test-setup
     (let* ((reply-ts "1710000001.000100")

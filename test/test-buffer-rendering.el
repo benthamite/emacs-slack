@@ -1595,6 +1595,45 @@ produces a newline with `not-tracked-p'."
         (when (buffer-live-p emacs-buffer)
           (kill-buffer emacs-buffer))))))
 
+(ert-deftest slack-test-file-search-page-renders-missing-author-as-empty ()
+  (slack-test-setup
+    (let* ((file (make-instance 'slack-file
+                                :id "F-missing-user"
+                                :created 1
+                                :title "uncached author result"
+                                :mimetype "text/plain"
+                                :user "U-missing"
+                                :mode "hosted"))
+           (result (make-instance 'slack-file-search-result
+                                  :query "needle"
+                                  :sort "timestamp"
+                                  :sort-dir "desc"
+                                  :total 1
+                                  :matches (list file)
+                                  :pagination
+                                  (slack-search-empty-pagination)))
+           (state (slack-team-page-state
+                   team '(search file "needle" "timestamp" "desc")))
+           (object (slack-create-search-result-buffer result team))
+           emacs-buffer)
+      (slack-page-state-store state result nil nil)
+      (unwind-protect
+          (progn
+            (setq emacs-buffer (slack-buffer-buffer object))
+            (with-current-buffer emacs-buffer
+              (should
+               (string-match-p
+                "\n text/plain\\'"
+                (substring-no-properties
+                 (slack-buffer-file-search-result-to-string object file))))
+              (slack-search-result-buffer-render-page-state object state)
+              (goto-char (point-min))
+              (should (search-forward "uncached author result" nil t))
+              (goto-char (point-min))
+              (should-not (search-forward "nil text/plain" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
 ;;; ---- Runner ----
 
 (provide 'test-buffer-rendering)
