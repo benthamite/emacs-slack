@@ -31,7 +31,12 @@
 (require 'slack-file-info-buffer)
 (require 'slack-star)
 (declare-function slack-team-remove-file "slack-file")
-(declare-function slack-team-replace-files "slack-file")
+
+(cl-defstruct (slack-file-list-mutation
+               (:constructor slack-file-list-mutation-create))
+  revision
+  kind
+  file)
 
 (defvar slack-file-download-button-keymap
   (let ((map (make-sparse-keymap)))
@@ -152,6 +157,7 @@
       (setq slack-buffer--loading-more-p t)
       (let ((buffer (current-buffer))
             (generation (slack-page-state-generation state))
+            (snapshot (slack-file-list--start-mutation-snapshot team))
             (active-page requested-page)
             (primary-committed-p nil)
             (finished-p nil))
@@ -173,6 +179,7 @@
              (finish ()
                (unless finished-p
                  (setq finished-p t)
+                 (slack-file-list--release-mutation-snapshot team snapshot)
                  (when (buffer-live-p buffer)
                    (with-current-buffer buffer
                      (setq slack-buffer--loading-more-p nil)))))
@@ -197,17 +204,24 @@
                                 (current-files
                                  (plist-get (slack-page-state-value state)
                                             :files))
+                                (page-files
+                                 (slack-file-list--reconcile-files
+                                  team snapshot page-files))
                                 (files
                                  (slack-file-list--merge-files
-                                  current-files page-files)))
+                                  current-files page-files))
+                                (durable-files
+                                 (slack-file-list--canonical-files
+                                  team files)))
                            (if (slack-page-state-commit-extension
                                 state generation requested-page
-                                (list :files files :page page :pages pages)
+                                (list :files durable-files
+                                      :page page :pages pages)
                                 next-page (and next-page t))
                                (progn
                                  (setq primary-committed-p t
                                        active-page next-page)
-                                 (slack-team-replace-files team files)
+                                 (slack-team-set-files team page-files)
                                  (oset this page page)
                                  (oset this pages pages)
                                  (render-current))
@@ -230,24 +244,76 @@
                :on-error #'fail)
             (error (funcall #'fail request-error))))))))
 
-(defun slack-file-list--sync-state-files (team state)
-  "Replace STATE's durable file list with the current files from TEAM."
+(defun slack-file-list--upsert-state-file (state file &optional insert)
+  "Update FILE in loaded STATE, adding it only when INSERT is non-nil."
   (when (slack-page-state-loaded-p state)
-    (setf (slack-page-state-value state)
-          (plist-put (copy-sequence (slack-page-state-value state))
-                     :files (slack-team-files team))
-          (slack-page-state-updated-at state) (current-time))))
+    (let* ((value (copy-sequence (slack-page-state-value state)))
+           (files (plist-get value :files))
+           (file-id (slack-file-id file)))
+      (when (or insert
+                (cl-find file-id files :key #'slack-file-id :test #'equal))
+        (setq files
+              (slack-file-list--merge-files
+               (cl-remove file-id files :key #'slack-file-id :test #'equal)
+               (list file)))
+        (setf (slack-page-state-value state)
+              (plist-put value :files files)
+              (slack-page-state-updated-at state) (current-time))))))
+
+(defun slack-file-list-handle-created (team file-id)
+  "Fetch and publish FILE-ID created by a live event on TEAM."
+  (when-let ((buffer (slack-buffer-find 'slack-file-list-buffer team)))
+    (let* ((snapshot (slack-file-list--start-mutation-snapshot team))
+           (revision
+            (slack-file-list--record-mutation team file-id 'upsert nil))
+           released-p)
+      (cl-labels
+          ((release ()
+             (unless released-p
+               (setq released-p t)
+               (slack-file-list--release-mutation-snapshot team snapshot)))
+           (current-p ()
+             (slack-file-list--mutation-current-p
+              team file-id revision 'upsert))
+           (accepted (_file &rest _ignored)
+             (let ((accepted-p (current-p)))
+               (unless accepted-p (release))
+               accepted-p))
+           (succeeded (file &rest _ignored)
+             (unwind-protect
+                 (when (current-p)
+                   (slack-file-list--complete-upsert-mutation
+                    team file-id revision file)
+                   (slack-buffer-update buffer file))
+               (release)))
+           (failed (&rest errors)
+             (unwind-protect
+                 (message "Slack: failed to load created file %s: %s"
+                          file-id
+                          (slack-buffer--normalize-page-error errors))
+               (release))))
+        (condition-case request-error
+            (slack-file-request-info
+             file-id 1 team #'succeeded #'failed #'accepted)
+          (error (funcall #'failed request-error)))))))
 
 (defun slack-file-list-handle-deleted (team file-id)
   "Remove FILE-ID from TEAM's durable file-list state and current view."
   (let ((state (slack-team-page-state team 'file-list)))
+    (slack-file-list--record-mutation team file-id 'delete nil)
     (slack-team-remove-file team file-id)
-    (slack-file-list--sync-state-files team state)
+    (when (slack-page-state-loaded-p state)
+      (let* ((value (copy-sequence (slack-page-state-value state)))
+             (files (cl-remove file-id (plist-get value :files)
+                               :key #'slack-file-id :test #'equal)))
+        (setf (slack-page-state-value state) (plist-put value :files files)
+              (slack-page-state-updated-at state) (current-time))))
     (when-let* ((object (slack-buffer-find 'slack-file-list-buffer team))
                 (buffer (and (slot-boundp object 'buf) (oref object buf)))
                 ((buffer-live-p buffer)))
       (with-current-buffer buffer
-        (slack-file-list-buffer-render-page-state object state)))))
+        (slack-file-list-buffer-render-page-state object state)))
+    (slack-file-list--prune-mutations team)))
 
 (cl-defmethod slack-buffer-update ((this slack-file-list-buffer) message &key replace)
   "Update THIS buffer after new data arrives.
@@ -259,7 +325,7 @@ MESSAGE is the message argument.  With REPLACE non-nil, replace it in place."
          (target (or current this))
          (buffer (and (slot-boundp target 'buf) (oref target buf))))
     (when state
-      (slack-file-list--sync-state-files team state))
+      (slack-file-list--upsert-state-file state message (not replace)))
     (when (buffer-live-p buffer)
       (with-current-buffer buffer
         (if (and state (slack-page-state-loaded-p state))
@@ -371,34 +437,134 @@ FILE-ID is the file-id argument."
       (slack-buffer-present-page
        buffer state
        (lambda (generation success error)
-         (cl-labels
-             ((current-p ()
-                (and (= generation (slack-page-state-generation state))
-                     (slack-page-state-in-flight-p state)))
-              (primary (page pages files)
-                (when (current-p)
-                  (let* ((next-page
-                          (slack-file-list--next-page page pages))
-                         (accepted-files
-                          (slack-file-list--merge-files nil files)))
-                    (when (funcall success
-                                   (list :files accepted-files
-                                         :page page
-                                         :pages pages)
-                                   next-page
-                                   (and next-page t)
-                                   t)
-                      (slack-team-replace-files team accepted-files)))))
-              (hydrated (&rest _ignored)
-                (when (current-p)
-                  (slack-page-state-ready state generation))))
-           (slack-file-list-request
-            team
-            :on-primary-page #'primary
-            :after-success #'hydrated
-            :on-error error)))
+         (let ((snapshot (slack-file-list--start-mutation-snapshot team))
+               released-p)
+           (cl-labels
+               ((release ()
+                  (unless released-p
+                    (setq released-p t)
+                    (slack-file-list--release-mutation-snapshot
+                     team snapshot)))
+                (current-p ()
+                  (and (= generation (slack-page-state-generation state))
+                       (slack-page-state-in-flight-p state)))
+                (primary (page pages files)
+                  (when (current-p)
+                    (let* ((next-page
+                            (slack-file-list--next-page page pages))
+                           (accepted-files
+                            (slack-file-list--merge-files
+                             nil
+                             (slack-file-list--reconcile-files
+                              team snapshot files)))
+                           (durable-files
+                            (slack-file-list--canonical-files
+                             team accepted-files)))
+                      (when (funcall success
+                                     (list :files durable-files
+                                           :page page
+                                           :pages pages)
+                                     next-page
+                                     (and next-page t)
+                                     t)
+                        (slack-team-set-files team accepted-files)))))
+                (hydrated (&rest _ignored)
+                  (unwind-protect
+                      (when (current-p)
+                        (slack-page-state-ready state generation))
+                    (release)))
+                (failed (&rest errors)
+                  (unwind-protect
+                      (apply error errors)
+                    (release))))
+             (condition-case request-error
+                 (slack-file-list-request
+                  team
+                  :on-primary-page #'primary
+                  :after-success #'hydrated
+                  :on-error #'failed)
+               (error (funcall #'failed request-error))))))
        #'slack-file-list-buffer-render-page-state
        t))))
+
+(defun slack-file-list--start-mutation-snapshot (team)
+  "Return and register TEAM's current file-list mutation snapshot."
+  (let ((snapshot (list (oref team file-list-mutation-revision))))
+    (push snapshot (oref team file-list-mutation-snapshots))
+    snapshot))
+
+(defun slack-file-list--release-mutation-snapshot (team snapshot)
+  "Release TEAM's active file-list mutation SNAPSHOT."
+  (when (memq snapshot (oref team file-list-mutation-snapshots))
+    (oset team file-list-mutation-snapshots
+          (delq snapshot (oref team file-list-mutation-snapshots)))
+    (slack-file-list--prune-mutations team)
+    t))
+
+(defun slack-file-list--record-mutation (team file-id kind file)
+  "Record a live KIND mutation of FILE-ID and optional FILE on TEAM."
+  (cl-incf (oref team file-list-mutation-revision))
+  (let ((revision (oref team file-list-mutation-revision)))
+    (puthash file-id
+             (slack-file-list-mutation-create
+              :revision revision :kind kind :file file)
+             (oref team file-list-mutations))
+    revision))
+
+(defun slack-file-list--mutation-current-p
+    (team file-id revision kind)
+  "Return non-nil when TEAM still records REVISION and KIND for FILE-ID."
+  (when-let ((mutation (gethash file-id (oref team file-list-mutations))))
+    (and (= revision (slack-file-list-mutation-revision mutation))
+         (eq kind (slack-file-list-mutation-kind mutation)))))
+
+(defun slack-file-list--complete-upsert-mutation
+    (team file-id revision file)
+  "Attach FILE to TEAM's current FILE-ID upsert at REVISION."
+  (when (slack-file-list--mutation-current-p
+         team file-id revision 'upsert)
+    (setf (slack-file-list-mutation-file
+           (gethash file-id (oref team file-list-mutations)))
+          file)
+    t))
+
+(defun slack-file-list--reconcile-files (team snapshot files)
+  "Reconcile FILES with TEAM mutations newer than SNAPSHOT."
+  (let ((table (make-hash-table :test 'equal))
+        (revision (car snapshot)))
+    (dolist (file files)
+      (puthash (slack-file-id file) file table))
+    (maphash
+     (lambda (file-id mutation)
+       (when (< revision (slack-file-list-mutation-revision mutation))
+         (let ((file (slack-file-list-mutation-file mutation)))
+           (if (and (eq 'upsert (slack-file-list-mutation-kind mutation))
+                    file)
+               (puthash file-id file table)
+             (remhash file-id table)))))
+     (oref team file-list-mutations))
+    (cl-sort (hash-table-values table) #'< :key #'slack-file-sort-key)))
+
+(defun slack-file-list--canonical-files (team files)
+  "Return FILES using richer canonical objects already cached on TEAM."
+  (mapcar (lambda (file)
+            (or (slack-file-find (slack-file-id file) team) file))
+          files))
+
+(defun slack-file-list--prune-mutations (team)
+  "Discard TEAM mutations that no active file-list snapshot needs."
+  (let ((snapshots (oref team file-list-mutation-snapshots))
+        obsolete)
+    (if snapshots
+        (let ((oldest (apply #'min (mapcar #'car snapshots))))
+          (maphash
+           (lambda (file-id mutation)
+             (when (<= (slack-file-list-mutation-revision mutation) oldest)
+               (push file-id obsolete)))
+           (oref team file-list-mutations))
+          (dolist (file-id obsolete)
+            (remhash file-id (oref team file-list-mutations))))
+      (clrhash (oref team file-list-mutations)))))
 
 (defun slack-file-list--merge-files (files new-files)
   "Return FILES and NEW-FILES deduplicated and sorted oldest first."

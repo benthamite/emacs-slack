@@ -10261,6 +10261,157 @@ USER defaults to the fixture user's id."
             (should-not (slack-file-find "F2" team)))
         (slack-test-kill-file-list-buffer team)))))
 
+(ert-deftest slack-test-file-list-page-preserves-shared-cache-objects ()
+  "An accepted list page preserves unrelated and richer cached files."
+  (slack-test-setup
+    (let* ((rich (slack-test-file-list-file "F1" 200))
+           (unrelated (slack-test-file-list-file "F-UNRELATED" 100))
+           (content (make-instance 'slack-file-content :content "complete"))
+           (state (slack-team-page-state team 'file-list))
+           request)
+      (oset rich content content)
+      (slack-team-set-files team (list rich unrelated))
+      (slack-page-state-store
+       state (list :files (list rich) :page 1 :pages 1) nil nil)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select)
+                     (lambda (&optional _no-default) team))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-request)
+                     (lambda (value &rest _args) (setq request value))))
+            (slack-file-list)
+            (funcall
+             (oref request success)
+             :data
+             (list :ok t
+                   :files (list (slack-test-file-list-payload "F1" 200))
+                   :paging (list :page 1 :pages 1)))
+            (should (eq rich (slack-file-find "F1" team)))
+            (should (eq content (oref rich content)))
+            (should (eq unrelated (slack-file-find "F-UNRELATED" team)))
+            (should (eq rich
+                        (car (plist-get (slack-page-state-value state)
+                                        :files)))))
+        (slack-test-kill-file-list-buffer team)))))
+
+(ert-deftest slack-test-file-list-refresh-reconciles-live-deletion ()
+  "A stale refresh cannot resurrect a file deleted after it started."
+  (slack-test-setup
+    (let* ((file (slack-test-file-list-file "F1" 200))
+           (state (slack-team-page-state team 'file-list))
+           request)
+      (slack-team-set-files team (list file))
+      (slack-page-state-store
+       state (list :files (list file) :page 1 :pages 1) nil nil)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select)
+                     (lambda (&optional _no-default) team))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-request)
+                     (lambda (value &rest _args) (setq request value))))
+            (slack-file-list)
+            (slack-ws-handle-file-deleted '(:file_id "F1") team)
+            (funcall
+             (oref request success)
+             :data
+             (list :ok t
+                   :files (list (slack-test-file-list-payload "F1" 200))
+                   :paging (list :page 1 :pages 1)))
+            (should-not (slack-file-find "F1" team))
+            (should-not (plist-get (slack-page-state-value state) :files)))
+        (slack-test-kill-file-list-buffer team)))))
+
+(ert-deftest slack-test-file-list-refresh-reconciles-live-creation ()
+  "A stale refresh cannot erase a file created after it started."
+  (slack-test-setup
+    (let* ((old (slack-test-file-list-file "F-OLD" 100))
+           (state (slack-team-page-state team 'file-list))
+           list-request info-request)
+      (slack-team-set-files team (list old))
+      (slack-page-state-store
+       state (list :files (list old) :page 1 :pages 1) nil nil)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select)
+                     (lambda (&optional _no-default) team))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-request)
+                     (lambda (value &rest _args)
+                       (if (string= (oref value url) slack-file-list-url)
+                           (setq list-request value)
+                         (setq info-request value)))))
+            (slack-file-list)
+            (slack-ws-handle-file-created '(:file (:id "F-NEW")) team)
+            (funcall
+             (oref info-request success)
+             :data
+             (list :ok t
+                   :file (slack-test-file-list-payload "F-NEW" 300)
+                   :comments nil))
+            (funcall
+             (oref list-request success)
+             :data
+             (list :ok t
+                   :files (list (slack-test-file-list-payload "F-OLD" 100))
+                   :paging (list :page 1 :pages 1)))
+            (should (slack-file-find "F-NEW" team))
+            (should (member "F-NEW"
+                            (mapcar #'slack-file-id
+                                    (plist-get
+                                     (slack-page-state-value state) :files)))))
+        (slack-test-kill-file-list-buffer team)))))
+
+(ert-deftest slack-test-file-created-request-rejects-later-deletion ()
+  "Late files.info from a create event cannot undo a later deletion."
+  (slack-test-setup
+    (let* ((object (slack-create-file-list-buffer 1 1 team))
+           (buffer (slack-buffer-buffer object))
+           request)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-request)
+                     (lambda (value &rest _args) (setq request value))))
+            (slack-ws-handle-file-created '(:file (:id "F1")) team)
+            (slack-ws-handle-file-deleted '(:file_id "F1") team)
+            (funcall
+             (oref request success)
+             :data
+             (list :ok t
+                   :file (slack-test-file-list-payload "F1" 200)
+                   :comments nil))
+            (should-not (slack-file-find "F1" team)))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(ert-deftest slack-test-file-created-failure-releases-mutation-snapshot ()
+  "A failed files.info request releases its mutation journal snapshot."
+  (slack-test-setup
+    (let* ((object (slack-create-file-list-buffer 1 1 team))
+           (buffer (slack-buffer-buffer object))
+           request)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-request)
+                     (lambda (value &rest _args) (setq request value))))
+            (slack-ws-handle-file-created '(:file (:id "F1")) team)
+            (should (= 1 (length (oref team file-list-mutation-snapshots))))
+            (should (= 1 (hash-table-count (oref team file-list-mutations))))
+            (funcall (oref request error) "offline")
+            (should-not (oref team file-list-mutation-snapshots))
+            (should (= 0 (hash-table-count (oref team file-list-mutations)))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(ert-deftest slack-test-file-list-mutation-journal-prunes-by-oldest-snapshot ()
+  "Mutation entries live exactly as long as an active request needs them."
+  (slack-test-setup
+    (let ((oldest (slack-file-list--start-mutation-snapshot team)))
+      (slack-file-list--record-mutation team "F1" 'delete nil)
+      (let ((newest (slack-file-list--start-mutation-snapshot team)))
+        (slack-file-list--record-mutation team "F2" 'delete nil)
+        (should (= 2 (hash-table-count (oref team file-list-mutations))))
+        (slack-file-list--release-mutation-snapshot team oldest)
+        (should-not (gethash "F1" (oref team file-list-mutations)))
+        (should (gethash "F2" (oref team file-list-mutations)))
+        (slack-file-list--release-mutation-snapshot team newest)
+        (should-not (oref team file-list-mutation-snapshots))
+        (should (= 0 (hash-table-count (oref team file-list-mutations))))))))
+
 (ert-deftest slack-test-file-list-malformed-success-fails-without-cache-mutation ()
   "Malformed success data preserves cache and exposes an in-buffer retry."
   (slack-test-setup
@@ -10358,6 +10509,28 @@ USER defaults to the fixture user's id."
                                         :files))))
       (kill-buffer replacement-buffer))))
 
+(ert-deftest slack-test-file-list-replace-does-not-insert-unlisted-cache-file ()
+  "A detail update cannot leak an unrelated cached file into list state."
+  (slack-test-setup
+    (let* ((listed (slack-test-file-list-file "F1" 200))
+           (unlisted (slack-test-file-list-file "F2" 100))
+           (state (slack-team-page-state team 'file-list))
+           (object (slack-create-file-list-buffer 1 1 team))
+           (buffer (slack-buffer-buffer object)))
+      (slack-team-set-files team (list listed unlisted))
+      (slack-page-state-store
+       state (list :files (list listed) :page 1 :pages 1) nil nil)
+      (unwind-protect
+          (progn
+            (with-current-buffer buffer
+              (slack-file-list-buffer-render-page-state object state))
+            (slack-buffer-update object unlisted :replace t)
+            (should (equal '("F1")
+                           (mapcar #'slack-file-id
+                                   (plist-get
+                                    (slack-page-state-value state) :files)))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
 (ert-deftest slack-test-file-deleted-updates-cache-state-and-live-buffer ()
   "A file deletion removes every cached and rendered reference to its id."
   (slack-test-setup
@@ -10418,6 +10591,26 @@ USER defaults to the fixture user's id."
                          (slack-team-page-state team 'file-list)))))
         (slack-test-kill-file-list-buffer team)))))
 
+(ert-deftest slack-test-file-list-failure-releases-mutation-snapshot ()
+  "A failed list request releases its mutation journal snapshot."
+  (slack-test-setup
+    (let (error-callback)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select)
+                     (lambda (&optional _no-default) team))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-file-list-request)
+                     (cl-function
+                      (lambda (_team &key on-error &allow-other-keys)
+                        (setq error-callback on-error)))))
+            (slack-file-list)
+            (should (= 1 (length (oref team file-list-mutation-snapshots))))
+            (slack-file-list--record-mutation team "F1" 'delete nil)
+            (funcall error-callback "offline")
+            (should-not (oref team file-list-mutation-snapshots))
+            (should (= 0 (hash-table-count (oref team file-list-mutations)))))
+        (slack-test-kill-file-list-buffer team)))))
+
 (ert-deftest slack-test-file-list-load-more-updates-same-state ()
   "File-list load-more appends its primary page to the durable state."
   (slack-test-setup
@@ -10462,6 +10655,40 @@ USER defaults to the fixture user's id."
               (should-not slack-buffer--loading-more-p)
               (goto-char (point-min))
               (should (search-forward "File F2" nil t))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(ert-deftest slack-test-file-list-load-more-reconciles-cache-and-deletion ()
+  "Load-more preserves shared cache data and rejects a later deletion."
+  (slack-test-setup
+    (let* ((first (slack-test-file-list-file "F1" 300))
+           (deleted (slack-test-file-list-file "F2" 200))
+           (unrelated (slack-test-file-list-file "F-UNRELATED" 100))
+           (state (slack-team-page-state team 'file-list))
+           (object (slack-create-file-list-buffer 1 2 team))
+           (buffer (slack-buffer-buffer object))
+           request)
+      (slack-team-set-files team (list first deleted unrelated))
+      (slack-page-state-store
+       state (list :files (list first) :page 1 :pages 2) 2 t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-request)
+                     (lambda (value &rest _args) (setq request value))))
+            (with-current-buffer buffer
+              (slack-file-list-buffer-render-page-state object state)
+              (slack-buffer-load-more object))
+            (slack-ws-handle-file-deleted '(:file_id "F2") team)
+            (funcall
+             (oref request success)
+             :data
+             (list :ok t
+                   :files (list (slack-test-file-list-payload "F2" 200))
+                   :paging (list :page 2 :pages 2)))
+            (should-not (slack-file-find "F2" team))
+            (should (eq unrelated (slack-file-find "F-UNRELATED" team)))
+            (should (equal '("F1")
+                           (mapcar #'slack-file-id
+                                   (plist-get
+                                    (slack-page-state-value state) :files)))))
         (when (buffer-live-p buffer) (kill-buffer buffer))))))
 
 (ert-deftest slack-test-file-list-load-more-rejects-stale-state ()

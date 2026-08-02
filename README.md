@@ -357,8 +357,11 @@ Some terminology in the `slack-` functions:
   - stale or malformed file-list responses cannot replace the durable page or
     team file cache, and request failures leave the previous page visible with
     an in-buffer retry action
-  - file-deletion events remove the file from the cache, durable page, and
-    current file-list buffer together
+  - accepted file-list pages merge into the shared cache without evicting
+    unrelated files or replacing richer cached objects with list summaries
+  - live file-create, deletion, and unshare events are reconciled with refresh
+    and pagination responses, so an older response cannot erase a new file or
+    resurrect a removed one
   - opening file info creates and displays its stable buffer immediately;
     cached metadata remains visible while complete details load in the
     background

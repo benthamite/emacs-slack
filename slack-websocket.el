@@ -43,6 +43,7 @@
 (declare-function slack-fetch-team-emojis "slack-emoji")
 (declare-function slack-emoji-fetch-master-data-async "slack-emoji")
 (declare-function slack-buffer--normalize-page-error "slack-buffer")
+(declare-function slack-file-list-handle-created "slack-file-list-buffer")
 (declare-function slack-file-list-handle-deleted "slack-file-list-buffer")
 (require 'slack-star)
 (require 'slack-message-notification)
@@ -917,11 +918,8 @@ TEAM is the team argument."
 
 (defun slack-ws-handle-file-created (payload team)
   "Handle the Slack websocket `file created' event with PAYLOAD for TEAM."
-  (slack-if-let* ((file-id (plist-get (plist-get payload :file) :id))
-                  (buffer (slack-buffer-find 'slack-file-list-buffer team)))
-      (slack-file-request-info file-id 1 team
-                               #'(lambda (file &rest _args)
-                                   (slack-buffer-update buffer file)))))
+  (when-let ((file-id (plist-get (plist-get payload :file) :id)))
+    (slack-file-list-handle-created team file-id)))
 
 (defun slack-ws-handle-file-deleted (payload team)
   "Handle the Slack websocket `file deleted' event with PAYLOAD for TEAM."

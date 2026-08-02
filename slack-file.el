@@ -787,23 +787,6 @@ dired at the destination when `slack-file-download-open-dired' is non-nil."
                  :key #'(lambda (id)
                           (slack-file-sort-key (gethash id (oref this files)))))))
 
-(cl-defmethod slack-team-replace-files ((this slack-team) files)
-  "Atomically replace THIS team's file cache with FILES."
-  (let ((table (make-hash-table :test 'equal))
-        ids)
-    (dolist (file files)
-      (let ((id (slack-file-id file)))
-        (unless (gethash id table)
-          (push id ids))
-        (puthash id file table)))
-    (setq ids
-          (cl-sort ids #'>
-                   :key (lambda (id)
-                          (slack-file-sort-key (gethash id table)))))
-    (oset this files table)
-    (oset this file-ids ids))
-  files)
-
 (cl-defmethod slack-team-remove-file ((this slack-team) file-id)
   "Remove FILE-ID from both parts of THIS team's file cache."
   (remhash file-id (oref this files))
