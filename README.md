@@ -369,8 +369,9 @@ Some terminology in the `slack-` functions:
     pagination responses, so an older response cannot erase a new file or
     resurrect a removed one
   - live file-unshare events refresh the file through `files.info`; accessible
-    files retain their cache and list identity, while explicit not-found or
-    inaccessible responses remove them
+    files retain their cache and list identity while that request is pending
+    and after it succeeds, while explicit not-found or inaccessible responses
+    remove them
   - opening file info creates and displays its stable buffer immediately;
     cached metadata remains visible while complete details load in the
     background

@@ -10680,6 +10680,88 @@ USER defaults to the fixture user's id."
                           (oref team file-list-mutations)))))
         (slack-test-kill-file-list-buffer team)))))
 
+(ert-deftest slack-test-file-unshared-pending-refresh-preserves-list-membership ()
+  "A stale list response cannot hide a file while unshare info is pending."
+  (slack-test-setup
+    (let* ((old-payload (slack-test-file-list-payload "F1" 200))
+           (_ (plist-put old-payload :channels '("C1")))
+           (file (slack-file-create old-payload))
+           (state (slack-team-page-state team 'file-list))
+           list-request info-request)
+      (slack-team-set-files team (list file))
+      (slack-page-state-store
+       state (list :files (list file) :page 1 :pages 1) nil nil)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select)
+                     (lambda (&optional _no-default) team))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-request)
+                     (lambda (request &rest _)
+                       (if (string= (oref request url) slack-file-list-url)
+                           (setq list-request request)
+                         (setq info-request request)))))
+            (slack-file-list)
+            (slack-ws-handle-file-unshared '(:file_id "F1") team)
+            (funcall
+             (oref list-request success)
+             :data
+             (list :ok t
+                   :files (list old-payload)
+                   :paging (list :page 1 :pages 1)))
+            (should (equal (list file)
+                           (plist-get (slack-page-state-value state) :files)))
+            (let ((fresh-payload (slack-test-file-list-payload "F1" 200)))
+              (plist-put fresh-payload :channels nil)
+              (plist-put fresh-payload :title "Unshared F1")
+              (funcall (oref info-request success)
+                       :data (list :ok t :file fresh-payload :comments nil)))
+            (should (eq file
+                        (car (plist-get (slack-page-state-value state)
+                                        :files))))
+            (should-not (oref file channels))
+            (should (equal "Unshared F1" (oref file title)))
+            (should-not (oref team file-list-mutation-snapshots))
+            (should (= 0 (hash-table-count
+                          (oref team file-list-mutations)))))
+        (slack-test-kill-file-list-buffer team)))))
+
+(ert-deftest slack-test-file-unshared-transient-failure-preserves-stale-list ()
+  "A transient unshare refresh failure cannot remove stale list membership."
+  (slack-test-setup
+    (let* ((old-payload (slack-test-file-list-payload "F1" 200))
+           (file (slack-file-create old-payload))
+           (state (slack-team-page-state team 'file-list))
+           list-request info-request)
+      (slack-team-set-files team (list file))
+      (slack-page-state-store
+       state (list :files (list file) :page 1 :pages 1) nil nil)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select)
+                     (lambda (&optional _no-default) team))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-request)
+                     (lambda (request &rest _)
+                       (if (string= (oref request url) slack-file-list-url)
+                           (setq list-request request)
+                         (setq info-request request)))))
+            (slack-file-list)
+            (slack-ws-handle-file-unshared '(:file_id "F1") team)
+            (funcall (oref info-request success)
+                     :data '(:ok :json-false :error "invalid_auth"))
+            (funcall
+             (oref list-request success)
+             :data
+             (list :ok t
+                   :files (list old-payload)
+                   :paging (list :page 1 :pages 1)))
+            (should (eq file (slack-file-find "F1" team)))
+            (should (equal (list file)
+                           (plist-get (slack-page-state-value state) :files)))
+            (should-not (oref team file-list-mutation-snapshots))
+            (should (= 0 (hash-table-count
+                          (oref team file-list-mutations)))))
+        (slack-test-kill-file-list-buffer team)))))
+
 (ert-deftest slack-test-file-unshared-terminal-errors-remove-file ()
   "Explicit files.info inaccessibility removes an unshared file."
   (dolist (terminal-error

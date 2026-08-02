@@ -267,17 +267,21 @@
 
 (defun slack-file-list-handle-unshared (team file-id)
   "Refresh FILE-ID after a live unshare event on TEAM."
-  (slack-file-list--refresh-event-file team file-id nil "unshared" t))
+  (slack-file-list--refresh-event-file
+   team file-id nil "unshared" t (slack-file-find file-id team)))
 
 (defun slack-file-list--refresh-event-file
-    (team file-id insert event-label &optional remove-if-inaccessible)
+    (team file-id insert event-label
+          &optional remove-if-inaccessible pending-file)
   "Refresh FILE-ID from a live file event on TEAM.
 INSERT means add a file absent from loaded list state.  EVENT-LABEL names the
 event in request failures.  With REMOVE-IF-INACCESSIBLE, remove the file only
-when `files.info' explicitly reports that it cannot be accessed."
+when `files.info' explicitly reports that it cannot be accessed.  PENDING-FILE
+protects its confirmed list membership until the refresh settles."
   (let* ((snapshot (slack-file-list--start-mutation-snapshot team))
          (revision
-          (slack-file-list--record-mutation team file-id 'upsert nil))
+          (slack-file-list--record-mutation
+           team file-id 'upsert pending-file))
          released-p)
     (cl-labels
         ((release ()
