@@ -409,6 +409,15 @@ when the first line exceeds the target column."
       (let ((header (slack-message-header msg team)))
         (should (= (length header) (length "Display name")))))))
 
+(ert-deftest slack-test-header-falls-back-to-uncached-sender-id ()
+  "An uncached sender remains renderable under their stable Slack ID."
+  (slack-test-setup
+    (let ((msg (slack-test--make-message
+                "1710000000.000100" "hello" "U-missing"))
+          (slack-render-image-p nil))
+      (should (string-match-p "U-missing"
+                              (slack-message-header msg team))))))
+
 ;;; ---- 4. Stars buffer insert/replace ----
 
 (ert-deftest slack-test-stars-buffer-insert-message-text ()

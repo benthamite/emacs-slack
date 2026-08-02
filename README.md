@@ -441,6 +441,12 @@ Some terminology in the `slack-` functions:
   - loading more threads in the All threads buffer restores point in
     that buffer instead of moving point in whatever buffer the
     response callback happened to land in
+  - opening or refreshing All threads displays its stable buffer and primary
+    page before missing users finish loading; uncached senders temporarily use
+    their stable Slack IDs, and unread state is cleared only after that page
+    renders successfully
+  - a malformed All threads refresh preserves the visible stale page and
+    offers an in-buffer retry instead of remaining stuck in a loading state
   - with two teams sharing a channel name, the unread "New Message"
     marker and first-open positioning operate on the right team's
     buffer instead of whichever buffer claimed the name first

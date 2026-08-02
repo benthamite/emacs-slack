@@ -4336,6 +4336,139 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (funcall request-error "transport failure")
         (should (equal '(error hydrated users primary) events))))))
 
+(ert-deftest slack-test-all-threads-primary-renders-uncached-author ()
+  "The primary page renders a stable author ID before user hydration."
+  (slack-test-setup
+    (let (emacs-buffer request-success users-success
+          (clear-count 0))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select) (lambda () team))
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (object) (setq emacs-buffer (oref object buf))))
+                    ((symbol-function 'slack-request)
+                     (lambda (request)
+                       (setq request-success (oref request success))))
+                    ((symbol-function 'slack-users-info-request)
+                     (lambda (_ids _team &rest args)
+                       (setq users-success (plist-get args :after-success))))
+                    ((symbol-function 'slack-subscriptions-thread-clear-all)
+                     (lambda (_team) (cl-incf clear-count))))
+            (slack-all-threads)
+            (funcall
+             request-success
+             :data
+             (list
+              :ok t
+              :total_unread_replies 1
+              :new_threads_count 1
+              :threads
+              (list
+               (list
+                :root_msg
+                (list :type "message"
+                      :ts "2.000"
+                      :last_read "1.500"
+                      :text "uncached author message"
+                      :user "U-missing"
+                      :channel channel-id)
+                :latest_replies nil
+                :unread_replies nil))
+              :has_more :json-false))
+            (should (functionp users-success))
+            (should (= 1 clear-count))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "U-missing" nil t))
+              (should (search-forward "uncached author message" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-all-threads-clear-follows-successful-primary-render ()
+  "Unread state is not cleared when the accepted primary page cannot render."
+  (slack-test-setup
+    (let ((original-render
+           (symbol-function
+            'slack-all-threads-buffer--replace-live-contents))
+          emacs-buffer request-primary
+          (clear-count 0))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select) (lambda () team))
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (object) (setq emacs-buffer (oref object buf))))
+                    ((symbol-function 'slack-subscriptions-thread-get-view)
+                     (lambda (_team _current-ts _after-success
+                              &optional on-primary-page _on-error)
+                       (setq request-primary on-primary-page)))
+                    ((symbol-function
+                      'slack-all-threads-buffer--replace-live-contents)
+                     (lambda (object state)
+                       (if (= (slack-page-state-generation state)
+                              (slack-page-state-committed-generation state))
+                           (error "Primary renderer boom")
+                         (funcall original-render object state))))
+                    ((symbol-function 'slack-subscriptions-thread-clear-all)
+                     (lambda (_team) (cl-incf clear-count)))
+                    ((symbol-function 'display-warning) #'ignore))
+            (slack-all-threads)
+            (funcall request-primary 0 0 nil nil)
+            (should (= 0 clear-count)))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-all-threads-normalization-error-fails-once ()
+  "Malformed success data reaches the request error continuation once."
+  (slack-test-setup
+    (let (request-success request-error terminal-error
+          (error-count 0))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (setq request-success (oref request success)
+                         request-error (oref request error)))))
+        (slack-subscriptions-thread-get-view
+         team nil nil nil
+         (lambda (&rest errors)
+           (cl-incf error-count)
+           (setq terminal-error errors)))
+        (funcall request-success
+                 :data (list :ok t :threads (list (list :root_msg nil))))
+        (funcall request-error "late transport failure")
+        (should (= 1 error-count))
+        (should terminal-error)))))
+
+(ert-deftest slack-test-all-threads-refresh-normalization-error-keeps-stale-page ()
+  "Malformed refresh data preserves the stale page and exposes retry."
+  (slack-test-setup
+    (let* ((thread (slack-test--all-thread-view
+                    team channel "2.000" "1.500" "stale thread"))
+           (state (slack-team-page-state team 'all-threads))
+           (value (slack-all-threads--page-value
+                   1 1 (list thread) nil "1.500"))
+           emacs-buffer request-success)
+      (slack-page-state-store state value "1.500" nil)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select) (lambda () team))
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (object) (setq emacs-buffer (oref object buf))))
+                    ((symbol-function 'slack-request)
+                     (lambda (request)
+                       (setq request-success (oref request success))))
+                    ((symbol-function 'slack-subscriptions-thread-clear-all)
+                     #'ignore))
+            (slack-all-threads)
+            (funcall request-success
+                     :data (list :ok t
+                                 :threads (list (list :root_msg nil))))
+            (should (eq 'failed (slack-page-state-status state)))
+            (should (eq value (slack-page-state-value state)))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "stale thread" nil t))
+              (goto-char (point-min))
+              (should (search-forward "Slack request failed" nil t))
+              (should (search-forward "Retry" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
 (ert-deftest slack-test-all-threads-empty-failure-retries-in-place ()
   (slack-test-setup
     (let (object emacs-buffer request-primary request-hydrated request-error retry

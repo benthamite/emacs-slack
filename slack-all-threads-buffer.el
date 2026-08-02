@@ -60,7 +60,8 @@ Buffer-wide bindings:
                          :initform 0 :type integer)
    (new-threads-count :initarg :new-threads-count
                       :initform 0 :type integer)
-   (threads :initarg :threads :type list '())))
+   (threads :initarg :threads :type list '())
+   (unread-cleared-generation :initform 0 :type integer)))
 
 (cl-defmethod slack-buffer-name ((this slack-all-threads-buffer))
   "Return the display buffer name for THIS buffer."
@@ -168,7 +169,8 @@ ON-ERROR receives API or transport failures.  The first three
 argument positions remain compatible with existing callers."
   (let ((current-ts (or current-ts
                         (slack-all-threads--now-ts)))
-        primary-called-p)
+        primary-called-p
+        failure-called-p)
     (cl-labels
         ((callback (total-unread-replies
                     new-threads-count
@@ -181,43 +183,51 @@ argument positions remain compatible with existing callers."
                               threads
                               has-more)))
          (fail (&rest errors)
-           (when (functionp on-error)
-             (apply on-error errors)))
+           (unless failure-called-p
+             (setq failure-called-p t)
+             (when (functionp on-error)
+               (apply on-error errors))))
          (success (&key data &allow-other-keys)
                   (slack-request-handle-error
                    (data "slack-subscriptions-thread-get-view" #'fail)
-                   (let* ((total-unread-replies
-                           (or (plist-get data :total_unread_replies) 0))
-                          (new-threads-count
-                           (or (plist-get data :new_threads_count) 0))
-                          (threads
-                           (mapcar
-                            (lambda (payload)
-                              (slack-create-thread-view payload team))
-                            (plist-get data :threads)))
-                          (has-more (eq (plist-get data :has_more) t))
-                          (user-ids (slack-team-missing-user-ids
-                                     team (cl-loop for thread in threads
-                                                   nconc (slack-message-user-ids thread)))))
-                     (when (and (not primary-called-p)
-                                (functionp on-primary-page))
-                       (setq primary-called-p t)
-                       (funcall on-primary-page
-                                total-unread-replies
-                                new-threads-count
-                                threads
-                                has-more))
-                     (if (< 0 (length user-ids))
-                         (slack-users-info-request
-                          user-ids team :after-success
-                          #'(lambda () (callback total-unread-replies
-                                                 new-threads-count
-                                                 threads
-                                                 has-more)))
-                       (callback total-unread-replies
-                                 new-threads-count
-                                 threads
-                                 has-more))))))
+                   (condition-case normalization-error
+                       (let* ((total-unread-replies
+                               (or (plist-get data :total_unread_replies) 0))
+                              (new-threads-count
+                               (or (plist-get data :new_threads_count) 0))
+                              (threads
+                               (mapcar
+                                (lambda (payload)
+                                  (slack-create-thread-view payload team))
+                                (plist-get data :threads)))
+                              (has-more (eq (plist-get data :has_more) t))
+                              (user-ids
+                               (slack-team-missing-user-ids
+                                team
+                                (cl-loop for thread in threads
+                                         nconc
+                                         (slack-message-user-ids thread)))))
+                         (when (and (not primary-called-p)
+                                    (functionp on-primary-page))
+                           (setq primary-called-p t)
+                           (funcall on-primary-page
+                                    total-unread-replies
+                                    new-threads-count
+                                    threads
+                                    has-more))
+                         (if (< 0 (length user-ids))
+                             (slack-users-info-request
+                              user-ids team :after-success
+                              #'(lambda ()
+                                  (callback total-unread-replies
+                                            new-threads-count
+                                            threads
+                                            has-more)))
+                           (callback total-unread-replies
+                                     new-threads-count
+                                     threads
+                                     has-more)))
+                     (error (fail normalization-error))))))
       (slack-request
        (slack-request-create
         slack-subscriptions-thread-get-view-url
@@ -287,7 +297,23 @@ argument positions remain compatible with existing callers."
   (when (slack-page-state-loaded-p state)
     (slack-all-threads-buffer--apply-value
      buffer (slack-page-state-value state)))
-  (slack-all-threads-buffer--replace-live-contents buffer state))
+  (slack-all-threads-buffer--replace-live-contents buffer state)
+  (slack-all-threads-buffer--clear-unread-after-primary-render buffer state))
+
+(defun slack-all-threads-buffer--clear-unread-after-primary-render
+    (buffer state)
+  "Clear BUFFER's unread state after rendering STATE's primary generation."
+  (let ((generation (slack-page-state-generation state)))
+    (when (and (slack-page-state-in-flight-p state)
+               (= generation
+                  (slack-page-state-committed-generation state))
+               (> generation (oref buffer unread-cleared-generation)))
+      (oset buffer unread-cleared-generation generation)
+      (condition-case clear-error
+          (slack-subscriptions-thread-clear-all (slack-buffer-team buffer))
+        (error
+         (message "slack-all-threads: unread clear failed: %S"
+                  clear-error))))))
 
 (cl-defmethod slack-buffer-insert ((this slack-all-threads-buffer) message
                                    &optional not-tracked-p)
@@ -520,8 +546,7 @@ TS is the ts argument."
   "Return an All Threads loader for TEAM's durable STATE."
   (lambda (generation success error)
     (let ((request-current-ts (slack-all-threads--now-ts))
-          primary-seen-p
-          unread-cleared-p)
+          primary-seen-p)
       (cl-labels
           ((current-p ()
              (and (= generation (slack-page-state-generation state))
@@ -537,15 +562,7 @@ TS is the ts argument."
                          (slack-all-threads--page-value
                           total-unread-replies new-threads-count
                           threads has-more current-ts)))
-                   (when (funcall success value current-ts has-more t)
-                     (unless unread-cleared-p
-                       (setq unread-cleared-p t)
-                       (condition-case clear-error
-                           (slack-subscriptions-thread-clear-all team)
-                         (error
-                          (message
-                           "slack-all-threads: unread clear failed: %S"
-                           clear-error)))))))))
+                   (funcall success value current-ts has-more t)))))
            (hydrated (&rest _args)
              (when (and (current-p)
                         (= generation
