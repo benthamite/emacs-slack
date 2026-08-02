@@ -1373,24 +1373,34 @@ ON-ERROR is the failure callback."
       (slack-activity-feed-request
        team
        (lambda (data)
-         (condition-case page-error
-             (let* ((new-activities
-                     (slack-activity-feed--filter-mode-activities
-                      (mapcar #'slack-activity-feed--parse-item
-                              (plist-get data :items))))
-                    (all-activities (append old-activities new-activities))
-                    (pagination
-                     (plist-get (plist-get data :response_metadata)
-                                :next_cursor))
-                    (new-activity-feed
-                     (make-instance
-                      'slack-activity-feed
-                      :activities all-activities
-                      :pagination pagination
-                      :last (length old-activities)))
-                    (stored
-                     (slack-activity-feed--store-snapshot
-                      team mode all-activities pagination generation)))
+         (let ((normalized
+                (slack-request-normalize-response
+                 (lambda ()
+                   (let* ((new-activities
+                           (slack-activity-feed--filter-mode-activities
+                            (mapcar #'slack-activity-feed--parse-item
+                                    (plist-get data :items))))
+                          (all-activities
+                           (append old-activities new-activities))
+                          (pagination
+                           (plist-get (plist-get data :response_metadata)
+                                      :next_cursor))
+                          (new-activity-feed
+                           (make-instance
+                            'slack-activity-feed
+                            :activities all-activities
+                            :pagination pagination
+                            :last (length old-activities)))
+                          (stored
+                           (slack-activity-feed--store-snapshot
+                            team mode all-activities pagination generation)))
+                     (list new-activities all-activities
+                           new-activity-feed stored)))
+                 on-error)))
+           (when normalized
+             (pcase-let ((`(,new-activities ,all-activities
+                             ,new-activity-feed ,stored)
+                          (cdr normalized)))
                (if stored
                    (let* ((current-page-p
                            (and (buffer-live-p (oref this buf))
@@ -1412,10 +1422,7 @@ ON-ERROR is the failure callback."
                         (slack-activity-feed--prefetch-messages
                          new-activities team #'ignore)))
                      (funcall after-success visible-matches-state-p))
-                 (funcall after-success nil)))
-           (error
-            (when (functionp on-error)
-              (funcall on-error page-error)))))
+                 (funcall after-success nil))))))
        cursor on-error))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-activity-feed-buffer))

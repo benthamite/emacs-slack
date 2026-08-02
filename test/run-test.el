@@ -5790,6 +5790,64 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (when (buffer-live-p buffer)
           (kill-buffer buffer))))))
 
+(ert-deftest slack-test-activity-feed-load-more-preserves-consumer-errors ()
+  "Do not reclassify a pagination consumer error as a request failure."
+  (slack-test-setup
+    (let* ((key (slack-activity-feed--page-key nil))
+           (state (slack-team-page-state team key))
+           (feed (make-instance 'slack-activity-feed
+                                :activities '(old)
+                                :pagination "cursor"
+                                :last nil))
+           (object
+            (make-instance
+             'slack-activity-feed-buffer
+             :team-id (oref team id)
+             :room-id "__activity-feed__"
+             :cached-team team
+             :page-key key
+             :activity-feed feed))
+           (buffer
+            (generate-new-buffer " *slack-test-feed-consumer-error*"))
+           request-success
+           request-errors)
+      (slack-page-state-store
+       state
+       (list :activities '(old) :pagination "cursor")
+       "cursor" t)
+      (slack-buffer-cache-team object team)
+      (oset object buf buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-activity-feed-request)
+                     (lambda (_team success &optional _cursor _on-error)
+                       (setq request-success success)))
+                    ((symbol-function 'slack-activity-feed--parse-item)
+                     #'identity)
+                    ((symbol-function 'slack-activity-feed--prefetch-rooms)
+                     (lambda (_activities _team callback)
+                       (funcall callback)))
+                    ((symbol-function 'slack-activity-feed--prefetch-messages)
+                     #'ignore))
+            (slack-buffer-request-history
+             object
+             (lambda (&rest _)
+               (error "pagination consumer boom"))
+             (lambda (&rest errors)
+               (push errors request-errors)))
+            (should-error
+             (funcall request-success
+                      (list :items '(next)
+                            :response_metadata
+                            (list :next_cursor "next-cursor"))))
+            (should-not request-errors)
+            (should (equal '(old next)
+                           (plist-get (slack-page-state-value state)
+                                      :activities)))
+            (should (equal "next-cursor"
+                           (slack-page-state-continuation state))))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
 (ert-deftest slack-test-activity-feed-load-more-waits-for-primary-hydration ()
   (slack-test-setup
     (let* ((key (slack-activity-feed--page-key nil))
