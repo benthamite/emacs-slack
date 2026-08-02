@@ -29,6 +29,7 @@
 (require 'slack-team)
 (require 'slack-team-ws)
 (require 'slack-file)
+(require 'slack-file-list-buffer)
 (require 'slack-dialog-buffer)
 (require 'slack-user)
 (require 'slack-group)
@@ -42,6 +43,7 @@
 (declare-function slack-fetch-team-emojis "slack-emoji")
 (declare-function slack-emoji-fetch-master-data-async "slack-emoji")
 (declare-function slack-buffer--normalize-page-error "slack-buffer")
+(declare-function slack-file-list-handle-deleted "slack-file-list-buffer")
 (require 'slack-star)
 (require 'slack-message-notification)
 (require 'slack-room-buffer)
@@ -924,7 +926,7 @@ TEAM is the team argument."
 (defun slack-ws-handle-file-deleted (payload team)
   "Handle the Slack websocket `file deleted' event with PAYLOAD for TEAM."
   (let ((file-id (plist-get payload :file_id)))
-    (remhash file-id (oref team files))))
+    (slack-file-list-handle-deleted team file-id)))
 
 (defun slack-ws-handle-room-marked (payload team)
   "Handle the Slack websocket `room marked' event with PAYLOAD for TEAM."

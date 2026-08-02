@@ -30,6 +30,8 @@
 (require 'slack-message-buffer)
 (require 'slack-file-info-buffer)
 (require 'slack-star)
+(declare-function slack-team-remove-file "slack-file")
+(declare-function slack-team-replace-files "slack-file")
 
 (defvar slack-file-download-button-keymap
   (let ((map (make-sparse-keymap)))
@@ -165,6 +167,9 @@
                     (eq this
                         (slack-buffer-find
                          'slack-file-list-buffer team))))
+             (owner-acceptable-p ()
+               (or (not (buffer-live-p buffer))
+                   (buffer-current-p)))
              (finish ()
                (unless finished-p
                  (setq finished-p t)
@@ -180,15 +185,21 @@
                (when (buffer-current-p)
                  (with-current-buffer buffer
                    (slack-file-list-buffer-render-page-state this state))))
-             (primary (page pages)
+             (primary (page pages page-files)
                (unless finished-p
                  (condition-case pagination-error
                      (if (and (not primary-committed-p)
                               (equal page requested-page)
-                              (state-current-p requested-page))
+                              (state-current-p requested-page)
+                              (owner-acceptable-p))
                          (let* ((next-page
                                  (slack-file-list--next-page page pages))
-                                (files (slack-team-files team)))
+                                (current-files
+                                 (plist-get (slack-page-state-value state)
+                                            :files))
+                                (files
+                                 (slack-file-list--merge-files
+                                  current-files page-files)))
                            (if (slack-page-state-commit-extension
                                 state generation requested-page
                                 (list :files files :page page :pages pages)
@@ -196,6 +207,7 @@
                                (progn
                                  (setq primary-committed-p t
                                        active-page next-page)
+                                 (slack-team-replace-files team files)
                                  (oset this page page)
                                  (oset this pages pages)
                                  (render-current))
@@ -225,6 +237,17 @@
           (plist-put (copy-sequence (slack-page-state-value state))
                      :files (slack-team-files team))
           (slack-page-state-updated-at state) (current-time))))
+
+(defun slack-file-list-handle-deleted (team file-id)
+  "Remove FILE-ID from TEAM's durable file-list state and current view."
+  (let ((state (slack-team-page-state team 'file-list)))
+    (slack-team-remove-file team file-id)
+    (slack-file-list--sync-state-files team state)
+    (when-let* ((object (slack-buffer-find 'slack-file-list-buffer team))
+                (buffer (and (slot-boundp object 'buf) (oref object buf)))
+                ((buffer-live-p buffer)))
+      (with-current-buffer buffer
+        (slack-file-list-buffer-render-page-state object state)))))
 
 (cl-defmethod slack-buffer-update ((this slack-file-list-buffer) message &key replace)
   "Update THIS buffer after new data arrives.
@@ -352,17 +375,20 @@ FILE-ID is the file-id argument."
              ((current-p ()
                 (and (= generation (slack-page-state-generation state))
                      (slack-page-state-in-flight-p state)))
-              (primary (page pages)
+              (primary (page pages files)
                 (when (current-p)
-                  (let ((next-page
-                         (slack-file-list--next-page page pages)))
-                    (funcall success
-                             (list :files (slack-team-files team)
-                                   :page page
-                                   :pages pages)
-                             next-page
-                             (and next-page t)
-                             t))))
+                  (let* ((next-page
+                          (slack-file-list--next-page page pages))
+                         (accepted-files
+                          (slack-file-list--merge-files nil files)))
+                    (when (funcall success
+                                   (list :files accepted-files
+                                         :page page
+                                         :pages pages)
+                                   next-page
+                                   (and next-page t)
+                                   t)
+                      (slack-team-replace-files team accepted-files)))))
               (hydrated (&rest _ignored)
                 (when (current-p)
                   (slack-page-state-ready state generation))))
@@ -372,7 +398,19 @@ FILE-ID is the file-id argument."
             :after-success #'hydrated
             :on-error error)))
        #'slack-file-list-buffer-render-page-state
-       (not existing)))))
+       t))))
+
+(defun slack-file-list--merge-files (files new-files)
+  "Return FILES and NEW-FILES deduplicated and sorted oldest first."
+  (let ((seen (make-hash-table :test 'equal))
+        merged)
+    (dolist (file (append files new-files))
+      (when file
+        (let ((id (slack-file-id file)))
+          (unless (gethash id seen)
+            (puthash id t seen)
+            (push file merged)))))
+    (cl-sort merged #'< :key #'slack-file-sort-key)))
 
 (cl-defmethod slack-buffer-add-star ((this slack-file-list-buffer) ts)
   "Star the item at point in THIS buffer.

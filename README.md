@@ -329,6 +329,14 @@ Some terminology in the `slack-` functions:
   - uploads a file
   - the command allows to choose many channels via select loop. In order to finish the loop input an empty string. For helm that's <kbd>C+RET</kbd> or <kbd>M+TET</kbd>. In case of Ivy it's <kbd>C+M+j</kbd>.
 - File info and file lists
+  - opening the file list displays its stable buffer immediately; reopening a
+    loaded list refreshes that same buffer while keeping its current contents
+    visible
+  - stale or malformed file-list responses cannot replace the durable page or
+    team file cache, and request failures leave the previous page visible with
+    an in-buffer retry action
+  - file-deletion events remove the file from the cache, durable page, and
+    current file-list buffer together
   - re-opening a file's info and loading file-list pages that contain
     already-cached files merge correctly instead of erroring inside the
     request callback

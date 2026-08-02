@@ -392,8 +392,9 @@ A nil ID means the rtm.connect handshake never succeeded."
   "Return the list of cached file objects for THIS team in insertion order."
   (let ((ret))
     (cl-loop for id in (oref this file-ids)
-             do (push (gethash id (oref this files))
-                      ret))
+             for file = (gethash id (oref this files))
+             when file
+             do (push file ret))
     ret))
 
 (cl-defmethod slack-team-id ((this slack-team))
