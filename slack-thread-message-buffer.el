@@ -64,6 +64,14 @@ HAS-MORE indicates whether more replies remain on the server."
       (slack-buffer-cache-team buf team)
       buf)))
 
+(defun slack-thread-page-key (room thread-ts)
+  "Return the stable page key for ROOM and THREAD-TS."
+  (list 'thread (oref room id) thread-ts))
+
+(defun slack-thread-page-state (room team thread-ts)
+  "Return TEAM's durable page state for ROOM and THREAD-TS."
+  (slack-team-page-state team (slack-thread-page-key room thread-ts)))
+
 (cl-defmethod slack-buffer-name ((this slack-thread-message-buffer))
   "Return the display buffer name for THIS buffer."
   (slack-if-let* ((team (slack-buffer-team this))
@@ -96,7 +104,7 @@ so keying on TS alone could return another room's thread buffer."
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-thread-message-buffer))
   "Initialize and return the display buffer for THIS buffer."
-  (let* ((buf (cl-call-next-method)))
+  (let ((buf (cl-call-next-method)))
     (when buf
       (with-current-buffer buf
         (slack-thread-message-buffer-mode)
@@ -110,15 +118,73 @@ so keying on TS alone could return another room's thread buffer."
                 (slack-buffer-insert this message t)
                 (let ((lui-time-stamp-position nil))
                   (lui-insert (slack-buffer-separator) t))
-                (slack-if-let* ((messages (slack-message-replies message room))
-                                (latest-message (car (last messages))))
+                (slack-if-let* ((messages (slack-message-replies message room)))
                     (progn
-                      (cl-loop for m in messages
-                               do (slack-buffer-insert this m t))
-                      (slack-buffer-update-last-read this latest-message)
-                      (slack-buffer-update-mark this)))
-)))))
+                      (dolist (reply messages)
+                        (slack-buffer-insert this reply t))
+                      (unless (oref this has-more)
+                        (let ((latest-message (car (last messages))))
+                          (slack-buffer-update-last-read this latest-message)
+                          (slack-buffer-update-mark this))))))))))
     buf))
+
+(defun slack-thread-message-buffer-render-page-state (object state)
+  "Render OBJECT's cached thread and shared page status from STATE."
+  (let* ((room (slack-buffer-room object))
+         (thread-ts (oref object thread-ts))
+         (parent (slack-room-find-message room thread-ts))
+         (replies (and parent (slack-message-replies parent room)))
+         (latest-reply (car (last replies)))
+         (page-replies
+          (and (slack-page-state-loaded-p state)
+               (cl-remove-if
+                (lambda (message)
+                  (string= thread-ts (slack-ts message)))
+                (slack-page-state-value state))))
+         (latest-page-reply
+          (car (last (sort (copy-sequence page-replies)
+                           (lambda (a b)
+                             (string< (slack-ts a) (slack-ts b)))))))
+         (input-offset (when (>= (point) (marker-position lui-input-marker))
+                         (- (point) (marker-position lui-input-marker))))
+         (message-ts (get-text-property (point) 'ts))
+         (output-offset (- (point) (point-min))))
+    (when (slack-page-state-loaded-p state)
+      (oset object has-more (and (slack-page-state-has-more state) t)))
+    (slack-buffer-widen
+      (let ((inhibit-read-only t))
+        (delete-region (point-min) (marker-position lui-output-marker))
+        (set-marker lui-output-marker (point-min))
+        (goto-char lui-output-marker)
+        (slack-buffer-with-deferred-hooks
+          (when parent
+            (slack-buffer-insert object parent t)
+            (let ((lui-time-stamp-position nil))
+              (lui-insert (slack-buffer-separator) t))
+            (dolist (reply replies)
+              (slack-buffer-insert object reply t))))
+        (goto-char lui-output-marker)
+        (slack-buffer-insert-page-status object state)
+        (set-marker lui-output-marker (point))))
+    (when (slack-page-state-loaded-p state)
+      (let* ((anchor
+              (if (oref object has-more) latest-page-reply latest-reply))
+             (mark-read-p
+              (and latest-reply
+                   (not (oref object has-more))
+                   (not (equal (oref object last-read)
+                               (slack-ts latest-reply))))))
+        (slack-buffer-update-last-read object anchor)
+        (when mark-read-p
+          (slack-buffer-update-mark object))))
+    (cond
+     (input-offset
+      (goto-char (min (point-max)
+                      (+ (marker-position lui-input-marker) input-offset))))
+     ((and message-ts (slack-buffer-goto message-ts)))
+     (t
+      (goto-char (min (+ (point-min) output-offset)
+                      (marker-position lui-output-marker)))))))
 
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-thread-message-buffer))
   "Return non-nil when THIS buffer has more history to load."

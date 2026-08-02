@@ -1445,6 +1445,47 @@ produces a newline with `not-tracked-p'."
         (when (buffer-live-p buffer) (kill-buffer buffer))
         (slack-test--unregister-team team)))))
 
+;;; ---- Thread page-state rendering ----
+
+(ert-deftest slack-test-thread-page-state-is-stable-by-room-and-thread ()
+  (slack-test-setup
+    (let ((thread-ts "1.000"))
+      (should (equal (list 'thread channel-id thread-ts)
+                     (slack-thread-page-key channel thread-ts)))
+      (should (eq (slack-thread-page-state channel team thread-ts)
+                  (slack-thread-page-state channel team thread-ts))))))
+
+(ert-deftest slack-test-thread-first-render-includes-cached-replies ()
+  (slack-test-setup
+    (slack-test--register-team team)
+    (let* ((thread-ts "1.000")
+           (parent (slack-test--make-message
+                    thread-ts "cached parent" nil channel-id thread-ts))
+           (reply (slack-test--make-message
+                   "2.000" "cached reply" nil channel-id thread-ts))
+           (slack-buffer-function #'ignore)
+           object
+           buffer)
+      (slack-room-set-messages channel (list parent reply) team)
+      (slack-message-set-replies channel thread-ts (list parent reply))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-thread-replies) #'ignore))
+            (slack-thread-show-messages parent channel team)
+            (setq object (slack-buffer-find
+                          'slack-thread-message-buffer team channel thread-ts)
+                  buffer (and object (oref object buf)))
+            (should (buffer-live-p buffer))
+            (should (with-current-buffer buffer
+                      (save-excursion
+                        (goto-char (point-min))
+                        (search-forward "cached reply" nil t))))
+            (should (with-current-buffer buffer
+                      (save-excursion
+                        (goto-char (point-min))
+                        (search-forward "Loading Slack data" nil t)))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))
+        (slack-test--unregister-team team)))))
+
 ;;; ---- Runner ----
 
 (provide 'test-buffer-rendering)

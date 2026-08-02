@@ -1265,19 +1265,63 @@ BUF is a `slack-message-buffer'."
                                                  ts)))
     (slack-buffer-display buf)))
 
-(cl-defmethod slack-thread-show-messages ((this slack-message) room team &optional success-callback)
+(cl-defmethod slack-thread-show-messages
+    ((this slack-message) room team
+     &optional success-callback error-callback)
   "Open messages for THIS message's thread in ROOM on TEAM.
-Call SUCCESS-CALLBACK in the thread buffer.  A way to use that is to
-select the right point of the buffer."
-  (cl-labels
-      ((after-success (_next-cursor has-more)
-         (let ((buf (slack-create-thread-message-buffer
-                     room team (slack-thread-ts this) has-more)))
-           (slack-thread--sync-buffer buf this room)
-           (slack-buffer-display buf)
-           (when (functionp success-callback) (funcall success-callback)))))
-    (slack-thread-replies this room team
-                          :after-success #'after-success)))
+Display cached replies immediately.  Call SUCCESS-CALLBACK in the exact
+thread buffer after reply identity hydration.  Call ERROR-CALLBACK with
+the failed state and error when loading fails."
+  (let* ((thread-ts (slack-thread-ts this))
+         (state (slack-thread-page-state room team thread-ts))
+         (object
+          (slack-create-thread-message-buffer
+           room team thread-ts
+           (if (slack-page-state-loaded-p state)
+               (and (slack-page-state-has-more state) t)
+             ;; Until the primary page identifies the pagination boundary,
+             ;; cached live replies must not advance the next-page anchor.
+             t)))
+         (buffer (slack-buffer-buffer object)))
+    (slack-buffer-present-page
+     object state
+     (lambda (generation success error)
+       (slack-thread-replies
+        this room team
+        :on-primary-page
+        (lambda (messages next-cursor has-more)
+          (funcall success messages next-cursor has-more t))
+        :after-success
+        (lambda (_next-cursor _has-more)
+          (slack-page-state-ready state generation))
+        :on-error
+        (lambda (&rest errors)
+          (apply error errors))))
+     #'slack-thread-message-buffer-render-page-state)
+    ;; Presenter callbacks intentionally belong only to the most recent visual
+    ;; presentation.  These compatibility callbacks belong to every caller, so
+    ;; register them separately while still tying each one to its exact buffer.
+    (when (functionp success-callback)
+      (slack-page-state-on-ready
+       state
+       (lambda (_ready-state)
+         (when (slack-thread--current-page-buffer-p object buffer)
+           (with-current-buffer buffer
+             (funcall success-callback))))))
+    (when (functionp error-callback)
+      (slack-page-state-on-error
+       state
+       (lambda (failed-state error)
+         (when (slack-thread--current-page-buffer-p object buffer)
+           (with-current-buffer buffer
+             (funcall error-callback failed-state error))))))
+    object))
+
+(defun slack-thread--current-page-buffer-p (object buffer)
+  "Return non-nil when BUFFER is OBJECT's exact live page buffer."
+  (and (buffer-live-p buffer)
+       (slot-boundp object 'buf)
+       (eq buffer (oref object buf))))
 
 (defun slack-advice-delete-window (&optional window)
   "Notify the Slack buffer in WINDOW that its cursor is leaving."
@@ -1330,26 +1374,35 @@ never close the gap."
         (or (nth 0 page-ts) message-ts)
       (or (-last-item page-ts) message-ts))))
 
-(defun slack-messages-paginate (direction message-ts room team &optional after-success)
+(defun slack-messages-paginate
+    (direction message-ts room team &optional after-success on-error)
   "Fetch and display messages in DIRECTION from MESSAGE-TS.
 DIRECTION is `before' (older messages) or `after' (newer messages).
 ROOM and TEAM identify the channel.  AFTER-SUCCESS is called when
-done.  The \"(load more)\" markers are tagged with their DIRECTION so
-the before and after paginations never delete each other's marker."
-  (let ((ts-key (if (eq direction 'before) :latest :oldest)))
+done; ON-ERROR receives variadic transport errors on failure.  The
+\"(load more)\" markers are tagged with their DIRECTION so the before
+and after paginations never delete each other's marker."
+  (let* ((ts-key (if (eq direction 'before) :latest :oldest))
+         (object (slack-buffer-find 'slack-message-buffer team room))
+         (buffer
+          (and object
+               (slot-boundp object 'buf)
+               (buffer-live-p (oref object buf))
+               (eq (current-buffer) (oref object buf))
+               (oref object buf))))
     (cl-labels
-        ((load-more-string (anchor-ts)
+        ((captured-buffer-p ()
+           (and (buffer-live-p buffer)
+                (slot-boundp object 'buf)
+                (eq buffer (oref object buf))))
+         (load-more-string (anchor-ts)
            (propertize "(load more)\n"
                        'face '(:underline t :weight bold)
                        'keymap (let ((map (make-sparse-keymap)))
                                  (define-key map (kbd "RET")
                                              (lambda ()
                                                (interactive)
-                                               (slack-conversations-history
-                                                room team
-                                                ts-key anchor-ts
-                                                :inclusive "true"
-                                                :after-success #'success)))
+                                               (request anchor-ts)))
                                  map)
                        'loading-message direction))
          (insert-load-more-or-end (anchor-ts load-more-p)
@@ -1366,61 +1419,101 @@ the before and after paginations never delete each other's marker."
                (let ((value (get-text-property pos 'loading-message)))
                  (if (or (eq value direction) (eq value t))
                      (setq start pos)
-                   (setq pos (next-single-property-change pos 'loading-message)))))
+                   (setq pos
+                         (next-single-property-change
+                          pos 'loading-message)))))
              start))
          (update-buffer (messages anchor-ts load-more-p)
-           (if-let ((this (slack-buffer-find 'slack-message-buffer team room)))
-               (with-current-buffer (slack-buffer-buffer this)
-                 (slack-buffer-widen
-                  (let ((inhibit-read-only t))
-                    (goto-char (point-min))
-                    (slack-if-let* ((start (own-loading-region-start))
-                                    (end (or (next-single-property-change
-                                              start 'loading-message)
-                                             (point-max))))
-                        (progn
-                          (slack-buffer-delete-overlay this)
-                          (delete-region start end)
-                          (set-marker lui-output-marker start))
-                      (set-marker lui-output-marker (point-min)))
-                    (if (eq direction 'before)
-                        (progn
-                          (insert-load-more-or-end anchor-ts load-more-p)
-                          (slack-buffer-insert-messages this messages t t))
-                      (slack-buffer-insert-messages this messages t t)
-                      (insert-load-more-or-end anchor-ts load-more-p))
-                    (lui-recover-output-marker)
-                    (slack-buffer-update-marker-overlay this))))))
-         (success (messages _cursor)
-           (let* ((room-messages (oref room messages))
-                  (room-message-ts-list (-map 'slack-ts-to-time (hash-table-keys room-messages)))
-                  (message-ts-ascending (-sort 'time-less-p (-map 'slack-ts-to-time (-map 'slack-ts messages))))
-                  (boundary-ts (if (eq direction 'before)
-                                   (nth 0 message-ts-ascending)
-                                 (-last-item message-ts-ascending)))
-                  (do-we-need-load-more-p (not (-contains-p room-message-ts-list boundary-ts)))
-                  (anchor-ts (slack-messages-paginate--anchor-ts
-                              direction messages message-ts)))
-             (slack-room-set-messages room messages team)
-             (update-buffer (slack-room-sorted-messages room)
-                            anchor-ts
-                            do-we-need-load-more-p)
-             (when (functionp after-success)
-               (funcall after-success)))))
-      (slack-conversations-history room team
-                                   ts-key message-ts
-                                   :inclusive "true"
-                                   :after-success #'success))))
+           (when (captured-buffer-p)
+             (with-current-buffer buffer
+               (slack-buffer-widen
+                (let ((inhibit-read-only t))
+                  (goto-char (point-min))
+                  (slack-if-let* ((start (own-loading-region-start))
+                                  (end
+                                   (or (next-single-property-change
+                                        start 'loading-message)
+                                       (point-max))))
+                      (progn
+                        (slack-buffer-delete-overlay object)
+                        (delete-region start end)
+                        (set-marker lui-output-marker start))
+                    (set-marker lui-output-marker (point-min)))
+                  (if (eq direction 'before)
+                      (progn
+                        (insert-load-more-or-end anchor-ts load-more-p)
+                        (slack-buffer-insert-messages
+                         object messages t t))
+                    (slack-buffer-insert-messages
+                     object messages nil t)
+                    (insert-load-more-or-end anchor-ts load-more-p))
+                  (lui-recover-output-marker)
+                  (slack-buffer-update-marker-overlay object))))))
+         (fail (snapshot &rest errors)
+           (slack-room-history-release-snapshot room snapshot)
+           (when (functionp on-error)
+             (apply on-error errors)))
+         (success (messages _cursor snapshot)
+           (unwind-protect
+               (condition-case pagination-error
+                   (let* ((room-messages (oref room messages))
+                          (room-message-ts-list
+                           (-map #'slack-ts-to-time
+                                 (hash-table-keys room-messages)))
+                          (message-ts-ascending
+                           (-sort #'time-less-p
+                                  (-map #'slack-ts-to-time
+                                        (-map #'slack-ts messages))))
+                          (boundary-ts
+                           (if (eq direction 'before)
+                               (nth 0 message-ts-ascending)
+                             (-last-item message-ts-ascending)))
+                          (load-more-p
+                           (and boundary-ts
+                                (not (-contains-p
+                                      room-message-ts-list boundary-ts))))
+                          (anchor-ts
+                           (slack-messages-paginate--anchor-ts
+                            direction messages message-ts)))
+                     (slack-room-merge-history-extension
+                      room messages team snapshot)
+                     (update-buffer (slack-room-sorted-messages room)
+                                    anchor-ts load-more-p)
+                     (when (functionp after-success)
+                       (funcall after-success)))
+                 (error
+                  (fail snapshot pagination-error)))
+             (slack-room-history-release-snapshot room snapshot)))
+         (request (anchor-ts)
+           (let ((snapshot (slack-room-history-start-snapshot room)))
+             (condition-case request-error
+                 (slack-conversations-history
+                  room team
+                  ts-key anchor-ts
+                  :inclusive "true"
+                  :after-success
+                  (lambda (messages cursor)
+                    (success messages cursor snapshot))
+                  :on-error
+                  (lambda (&rest errors)
+                    (apply #'fail snapshot errors)))
+               (error
+                (fail snapshot request-error))))))
+      (request message-ts))))
 
-(defun slack-messages-before (message-ts room team &optional after-success)
+(defun slack-messages-before
+    (message-ts room team &optional after-success on-error)
   "Fetch older messages before MESSAGE-TS in ROOM for TEAM.
-AFTER-SUCCESS is called when done."
-  (slack-messages-paginate 'before message-ts room team after-success))
+AFTER-SUCCESS is called when done; ON-ERROR receives request errors."
+  (slack-messages-paginate
+   'before message-ts room team after-success on-error))
 
-(defun slack-messages-after (message-ts room team &optional after-success)
+(defun slack-messages-after
+    (message-ts room team &optional after-success on-error)
   "Fetch newer messages after MESSAGE-TS in ROOM for TEAM.
-AFTER-SUCCESS is called when done."
-  (slack-messages-paginate 'after message-ts room team after-success))
+AFTER-SUCCESS is called when done; ON-ERROR receives request errors."
+  (slack-messages-paginate
+   'after message-ts room team after-success on-error))
 
 (defun slack-open-message (team room ts thread-ts &optional goto-ts browser-fallback)
   "Open message or thread buffer for TEAM ROOM TS THREAD-TS.
@@ -1428,21 +1521,20 @@ THREAD-TS can be nil.  When GOTO-TS is non-nil, navigate to that
 timestamp instead of the default.  When BROWSER-FALLBACK is
 non-nil and the message is not found, open the permalink in the
 default browser."
-  (cl-labels ((go-to-link-position ()
-                (slack-buffer-goto (or goto-ts ts))
+  (cl-labels ((fallback (&rest _ignored)
                 (when browser-fallback
                   (slack-open-message--browser-fallback
                    ts thread-ts team room)))
-              (after-success ()
-                (slack-room-display room team #'go-to-link-position))
-              (open-thread (parent)
-                (slack-thread-show-messages
-                 parent room team #'go-to-link-position)))
+              (go-to-link-position ()
+                (unless (or (slack-buffer-goto (or goto-ts ts))
+                            (and thread-ts
+                                 (slack-buffer-goto thread-ts)))
+                  (fallback))))
     (if thread-ts
         (slack-open-message--open-thread
-         room thread-ts team #'go-to-link-position #'open-thread)
+         room thread-ts team #'go-to-link-position #'fallback)
       (slack-open-message--open-channel
-       ts room team #'go-to-link-position #'after-success))))
+       ts room team #'go-to-link-position #'fallback))))
 
 (defun slack-open-message--browser-fallback (ts thread-ts team room)
   "Open browser permalink when TS is not at point.
@@ -1458,36 +1550,32 @@ Checks both TS and THREAD-TS against current position in TEAM ROOM."
             :ts ts
             :thread-ts thread-ts)))))
 
-(defun slack-open-message--open-thread (room thread-ts team callback open-loaded)
+(defun slack-open-message--open-thread
+    (room thread-ts team callback &optional on-error)
   "Open thread THREAD-TS in ROOM for TEAM.
-Try the loaded parent first via OPEN-LOADED.  When the parent is
-not loaded, fetch the thread from the API and display it, then
-call CALLBACK to navigate."
-  (if-let ((parent (ignore-errors
-                     (slack-room-find-message room thread-ts))))
-      (progn
-        (unless (slack-thread-ts parent)
-          (oset parent thread-ts thread-ts))
-        (funcall open-loaded parent))
-    (slack-open-message--fetch-thread
-     room thread-ts team callback)))
-
-(defun slack-open-message--fetch-thread (room thread-ts team callback)
-  "Fetch thread THREAD-TS in ROOM for TEAM, then display it.
-Call CALLBACK after displaying the thread buffer."
-  (slack-conversations-replies
-   room thread-ts team
-   :after-success
-   (lambda (messages _next-cursor has-more)
-     (slack-room-set-messages room messages team)
-     (slack-message-set-replies room thread-ts messages)
-     (let* ((parent (slack-room-find-message room thread-ts))
-            (buf (slack-create-thread-message-buffer
-                  room team thread-ts has-more)))
-       (when parent
-         (slack-thread--sync-buffer buf parent room))
-       (slack-buffer-display buf)
-       (when (functionp callback) (funcall callback))))))
+Display the identified destination immediately, even when its parent is not
+cached.  Call CALLBACK after the thread page is ready and ON-ERROR if it
+fails."
+  (let ((parent
+         (or (ignore-errors
+               (slack-room-find-message room thread-ts))
+             (make-instance 'slack-message
+                            :type "message"
+                            :channel (oref room id)
+                            :ts thread-ts
+                            :thread_ts thread-ts)))
+        failed-p)
+    (unless (slack-thread-ts parent)
+      (oset parent thread-ts thread-ts))
+    (cl-labels ((fail (&rest errors)
+                  (unless failed-p
+                    (setq failed-p t)
+                    (when (functionp on-error)
+                      (apply on-error errors)))))
+      (condition-case display-error
+          (slack-thread-show-messages
+           parent room team callback #'fail)
+        (error (funcall #'fail nil display-error))))))
 
 (defun slack-thread--sync-buffer (buf parent room)
   "Insert newly-fetched replies missing from an existing thread BUF.
@@ -1532,19 +1620,55 @@ no read-mark side effects."
   (and (slot-boundp buf 'buf)
        (buffer-live-p (oref buf buf))))
 
-(defun slack-open-message--open-channel (ts room team callback after-success)
+(defun slack-open-message--open-channel
+    (ts room team callback &optional on-error)
   "Open ROOM for TEAM at message TS.
-Use CALLBACK for direct display, AFTER-SUCCESS for fetch-then-display.
-The before and after fetches run sequentially: concurrent responses
-raced on the shared buffer state, and whichever landed second could
-silently drop the other's page from the display."
-  (if (or (not slack-test-out-load-older-messages-p)
-          (-contains-p (oref room message-ids) ts))
-      (slack-room-display room team callback)
-    (slack-messages-before
-     ts room team
-     (lambda ()
-       (slack-messages-after ts room team after-success)))))
+Display the room first, wait for its initial page once, then call CALLBACK
+when TS is available.  If necessary, fetch the before and after ranges
+sequentially.  ON-ERROR receives explicit room or range failures."
+  (let* ((state (oref room history-state))
+         (object
+          (slack-create-message-buffer
+           room (or (slack-page-state-continuation state) "") team))
+         (buffer (slack-buffer-buffer object))
+         finished-p)
+    (cl-labels
+        ((active-p ()
+           (and (buffer-live-p buffer)
+                (slot-boundp object 'buf)
+                (eq buffer (oref object buf))))
+         (finish ()
+           (unless finished-p
+             (setq finished-p t)
+             (when (and (active-p) (functionp callback))
+               (with-current-buffer buffer
+                 (funcall callback)))))
+         (fail (&rest errors)
+           (unless finished-p
+             (setq finished-p t)
+             (when (and (active-p) (functionp on-error))
+               (with-current-buffer buffer
+                 (apply on-error errors)))))
+         (after-before ()
+           (when (and (not finished-p) (active-p))
+             (with-current-buffer buffer
+               (slack-messages-after ts room team #'finish #'fail))))
+         (ready (&optional _ready-state)
+           (when (and (not finished-p) (active-p))
+             (with-current-buffer buffer
+               (if (or (not slack-test-out-load-older-messages-p)
+                       (-contains-p (oref room message-ids) ts))
+                   (finish)
+                 (slack-messages-before
+                  ts room team #'after-before #'fail))))))
+      (condition-case display-error
+          (progn
+            (slack-room-display room team #'ready)
+            ;; Register independently of the presentation token: two deep-link
+            ;; callers coalesced onto one room request must both finish.
+            (slack-page-state-on-ready state #'ready)
+            (slack-page-state-on-error state #'fail))
+        (error (funcall #'fail state display-error))))))
 
 ;;;###autoload
 (defun slack-quote-and-reply (quote)
