@@ -96,17 +96,16 @@
 
 (defclass slack-dialog-buffer (slack-buffer)
   ((dialog-id :initarg :dialog-id :type string)
-   (dialog :initarg :dialog :type slack-dialog)))
+   (dialog :initarg :dialog :initform nil :type (or null slack-dialog))))
 
 (cl-defmethod slack-buffer-name ((this slack-dialog-buffer))
   "Return the display buffer name for THIS dialog buffer."
   (let ((team (slack-buffer-team this)))
     (with-slots (dialog-id dialog) this
-      (with-slots (title) dialog
-        (format "*slack-dialog: %s [%s] : %s*"
-                title
-                dialog-id
-                (slack-team-name team))))))
+      (format "*slack-dialog: %s%s : %s*"
+              dialog-id
+              (if dialog (format " - %s" (oref dialog title)) "")
+              (slack-team-name team)))))
 
 (cl-defmethod slack-buffer-key ((_class (subclass slack-dialog-buffer)) dialog-id &rest _args)
   "Return the class-level buffer key for the dialog buffer.
@@ -269,12 +268,20 @@ DIALOG-BUFFER is the dialog-buffer argument."
       ((buffer slack-current-buffer))
       (slack-dialog-buffer--submit buffer)))
 
+(defun slack-dialog-buffer-consume-page-state (buffer)
+  "Remove the remote schema state consumed by dialog BUFFER."
+  (when-let ((team (slack-buffer-team buffer)))
+    (remhash (list 'dialog (oref buffer dialog-id))
+             (oref team page-states))))
+
 (cl-defmethod slack-dialog-buffer--submit ((this slack-dialog-buffer))
   "Validate and submit dialog buffer THIS, displaying server errors on failure."
   (let* ((dialog (oref this dialog))
          (dialog-id (oref this dialog-id))
          (team (slack-buffer-team this))
-         (elements (oref dialog elements)))
+         (elements (and dialog (oref dialog elements))))
+    (unless dialog
+      (user-error "This Slack dialog is still loading"))
     (dolist (element elements)
       (let ((value (slack-dialog-element-value element)))
         (slack-dialog-element-validate element value)))
@@ -312,6 +319,7 @@ DIALOG-BUFFER is the dialog-buffer argument."
                     (set-dialog-element-error dialog-error elements))
 
                   (slack-dialog-buffer-redisplay this))
+              (slack-dialog-buffer-consume-page-state this)
               (slack-dialog-buffer-kill-buffer this))))
         (slack-dialog-clear-errors dialog)
         (slack-dialog--submit dialog dialog-id team params #'after-success)))))
@@ -322,7 +330,9 @@ DIALOG-BUFFER is the dialog-buffer argument."
   (slack-if-let* ((buffer slack-current-buffer)
                   (team (slack-buffer-team buffer)))
       (with-slots (dialog dialog-id) buffer
-        (slack-dialog-notify-cancel dialog dialog-id team)
+        (slack-dialog-buffer-consume-page-state buffer)
+        (when dialog
+          (slack-dialog-notify-cancel dialog dialog-id team))
         (slack-dialog-buffer-kill-buffer buffer))))
 
 (cl-defmethod slack-dialog-buffer-kill-buffer ((this slack-dialog-buffer))
@@ -340,28 +350,29 @@ consumed dialog-id yields confusing server errors on re-submission."
 (cl-defmethod slack-buffer-insert ((this slack-dialog-buffer))
   "Insert a rendered representation of THIS dialog buffer into the current buffer."
   (with-slots (dialog) this
-    (with-slots (error-message title elements submit-label) dialog
-      (let ((inhibit-read-only t))
-        (insert (propertize title
-                            'face 'slack-dialog-title-face))
-        (when error-message
+    (when dialog
+      (with-slots (error-message title elements submit-label) dialog
+        (let ((inhibit-read-only t))
+          (insert (propertize title
+                              'face 'slack-dialog-title-face))
+          (when error-message
+            (insert "\n")
+            (insert (propertize error-message
+                                'face 'slack-dialog-element-error-face)))
+          (insert "\n\n")
+          (mapc #'(lambda (el)
+                    (slack-buffer-insert el)
+                    (insert "\n"))
+                elements)
           (insert "\n")
-          (insert (propertize error-message
-                              'face 'slack-dialog-element-error-face)))
-        (insert "\n\n")
-        (mapc #'(lambda (el)
-                  (slack-buffer-insert el)
-                  (insert "\n"))
-              elements)
-        (insert "\n")
-        (insert (propertize " Cancel "
-                            'face 'slack-dialog-cancel-button-face
-                            'keymap slack-dialog-cancel-button-map))
-        (insert "\t")
-        (insert (propertize (format " %s " submit-label)
-                            'face 'slack-dialog-submit-button-face
-                            'keymap slack-dialog-submit-button-map))
-        (goto-char (point-min))))))
+          (insert (propertize " Cancel "
+                              'face 'slack-dialog-cancel-button-face
+                              'keymap slack-dialog-cancel-button-map))
+          (insert "\t")
+          (insert (propertize (format " %s " submit-label)
+                              'face 'slack-dialog-submit-button-face
+                              'keymap slack-dialog-submit-button-map))
+          (goto-char (point-min)))))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-dialog-buffer))
   "Initialize and return the display buffer for THIS dialog buffer."
@@ -377,11 +388,31 @@ consumed dialog-id yields confusing server errors on re-submission."
 DIALOG-ID is the dialog-id argument."
   (slack-if-let*
       ((buf (slack-buffer-find 'slack-dialog-buffer team dialog-id dialog)))
-      buf
-    (make-instance 'slack-dialog-buffer
-                   :dialog-id dialog-id
-                   :dialog dialog
-                   :team-id (oref team id))))
+      (progn
+        (when dialog
+          (oset buf dialog dialog))
+        buf)
+    (let ((buffer (make-instance 'slack-dialog-buffer
+                                 :dialog-id dialog-id
+                                 :dialog dialog
+                                 :team-id (oref team id))))
+      (slack-buffer-cache-team buffer team)
+      buffer)))
+
+(defun slack-dialog-buffer-render-page-state (object state)
+  "Render OBJECT's cached dialog schema and shared status from STATE."
+  (when (slack-page-state-loaded-p state)
+    (oset object dialog (slack-page-state-value state)))
+  (when-let ((buffer (and (slot-boundp object 'buf) (oref object buf))))
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (let ((inhibit-read-only t)
+              (position (point)))
+          (erase-buffer)
+          (slack-buffer-insert object)
+          (goto-char (point-max))
+          (slack-buffer-insert-page-status object state)
+          (goto-char (min position (point-max))))))))
 
 (cl-defmethod slack-dialog-buffer-save-element-value ((this slack-dialog-buffer) name value)
   "Save VALUE into dialog element NAME of dialog buffer THIS and redisplay."
@@ -396,8 +427,8 @@ DIALOG-ID is the dialog-id argument."
 
 (cl-defmethod slack-dialog-buffer-redisplay ((this slack-dialog-buffer))
   "Clear and re-render dialog buffer THIS, preserving point when possible."
-  (slack-if-let* ((bufname (slack-buffer-name this))
-                  (buf (get-buffer bufname)))
+  (slack-if-let* ((buf (and (slot-boundp this 'buf) (oref this buf)))
+                  ((buffer-live-p buf)))
       (with-current-buffer buf
         (let ((inhibit-read-only t)
               (cur-point (point)))
@@ -409,27 +440,44 @@ DIALOG-ID is the dialog-id argument."
 
 (defun slack-dialog-get (id team)
   "Fetch the dialog with ID from TEAM and display it in a dialog buffer."
+  (let* ((state (slack-team-page-state team (list 'dialog id)))
+         (dialog (and (slack-page-state-loaded-p state)
+                      (slack-page-state-value state)))
+         (buffer (slack-create-dialog-buffer id dialog team)))
+    (slack-buffer-present-page
+     buffer state
+     (lambda (_generation success error)
+       (slack-dialog-get-request id team success error))
+     #'slack-dialog-buffer-render-page-state
+     t)))
+
+(defun slack-dialog-get-request (id team success error)
+  "Fetch dialog ID for TEAM, calling SUCCESS or ERROR."
   (let ((url "https://slack.com/api/dialog.get")
         (params (list (cons "dialog_id" id))))
     (cl-labels
-        ((on-success (&key data &allow-other-keys)
-                     (slack-request-handle-error
-                      (data "slack-dialog-get")
-                      (slack-if-let*
-                          ((payload (plist-get data :dialog))
-                           (dialog (slack-dialog-create payload)))
-                          ;; (slack-dialog-submit dialog id team)
-                          (slack-buffer-display
-                           (slack-create-dialog-buffer id
-                                                       dialog
-                                                       team))))))
+        ((fail (&rest errors)
+               (when (functionp error)
+                 (apply error errors)))
+         (on-success (&key data &allow-other-keys)
+           (condition-case schema-error
+               (slack-request-handle-error
+                (data "slack-dialog-get" #'fail)
+                (let ((payload (plist-get data :dialog)))
+                  (unless payload
+                    (error "Slack returned no dialog schema"))
+                  (funcall success
+                           (slack-dialog-create payload)
+                           nil nil)))
+             (error (funcall #'fail schema-error)))))
       (slack-request
        (slack-request-create
         url
         team
         :type "POST"
         :params params
-        :success #'on-success)))))
+        :success #'on-success
+        :error #'fail)))))
 
 (provide 'slack-dialog-buffer)
 ;;; slack-dialog-buffer.el ends here

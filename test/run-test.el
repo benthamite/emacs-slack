@@ -20,6 +20,7 @@
 (require 'slack-search-result-buffer)
 (require 'slack-scheduled-messages-buffer)
 (require 'slack-activity-feed-buffer)
+(require 'slack-dialog-buffer)
 
 (defvar slack-channel-button-keymap nil)
 (setq slack-render-image-p t)
@@ -8957,7 +8958,326 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                      :symbol-status 'error))
           (should (= 1 (length errors)))
           (should-not success-called))))))
+;;; Remote dialog lifecycle
 
+(defun slack-test-dialog-payload (title)
+  "Return a valid remote dialog payload titled TITLE."
+  (list :title title
+        :callback_id "callback"
+        :elements nil))
+
+(defun slack-test-dialog-object (title)
+  "Return a remote dialog object titled TITLE."
+  (slack-dialog-create (slack-test-dialog-payload title)))
+
+(defun slack-test-kill-dialog-buffer (team dialog-id)
+  "Kill TEAM's DIALOG-ID buffer when it is live."
+  (when-let* ((object (slack-buffer-find
+                       'slack-dialog-buffer team dialog-id nil))
+              (buffer (and (slot-boundp object 'buf) (oref object buf)))
+              ((buffer-live-p buffer)))
+    (kill-buffer buffer)))
+
+(ert-deftest slack-test-dialog-get-displays-shell-before-request ()
+  "A dialog shell is displayed before its schema request starts."
+  (slack-test-setup
+    (oset team id "T99999")
+    (oset team name "TestTeam")
+    (let (events request object buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display)
+                     (lambda (_object)
+                       (setq events (append events '(display)))))
+                    ((symbol-function 'slack-request)
+                     (lambda (req &rest _args)
+                       (setq request req
+                             events (append events '(request))))))
+            (slack-dialog-get "D1" team)
+            (setq object (slack-buffer-find
+                          'slack-dialog-buffer team "D1" nil)
+                  buffer (and object (oref object buf)))
+            (should (equal '(display request) events))
+            (should (buffer-live-p buffer))
+            (should (string-match-p "D1" (buffer-name buffer)))
+            (should-not (oref object dialog))
+            (should (with-current-buffer buffer
+                      (string-match-p
+                       "Loading Slack data"
+                       (buffer-substring-no-properties
+                        (point-min) (point-max)))))
+            (funcall (oref request success)
+                     :data (list :ok t
+                                 :dialog (slack-test-dialog-payload "Loaded")))
+            (should (eq buffer (oref object buf)))
+            (should (equal "Loaded" (oref (oref object dialog) title)))
+            (should (eq 'ready
+                        (slack-page-state-status
+                         (slack-team-page-state
+                          team (list 'dialog "D1")))))
+            (should (with-current-buffer buffer
+                      (string-match-p
+                       "Loaded"
+                       (buffer-substring-no-properties
+                        (point-min) (point-max))))))
+        (slack-test-kill-dialog-buffer team "D1")))))
+
+(ert-deftest slack-test-dialog-get-coalesces-duplicate-schema-requests ()
+  "Opening one dialog twice while loading starts one schema request."
+  (slack-test-setup
+    (oset team id "T99999")
+    (oset team name "TestTeam")
+    (let ((request-count 0))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-request)
+                     (lambda (_req &rest _args) (cl-incf request-count))))
+            (slack-dialog-get "D1" team)
+            (slack-dialog-get "D1" team)
+            (should (= 1 request-count)))
+        (slack-test-kill-dialog-buffer team "D1")))))
+
+(ert-deftest slack-test-dialog-get-preserves-cached-schema-on-refresh-error ()
+  "A failed refresh leaves the cached dialog visible with retry."
+  (slack-test-setup
+    (oset team id "T99999")
+    (oset team name "TestTeam")
+    (let* ((state (slack-team-page-state team (list 'dialog "D1")))
+           (cached (slack-test-dialog-object "Cached"))
+           displayed-text
+           request)
+      (slack-page-state-store state cached nil nil)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display)
+                     (lambda (object)
+                       (setq displayed-text
+                             (with-current-buffer (oref object buf)
+                               (buffer-substring-no-properties
+                                (point-min) (point-max))))))
+                    ((symbol-function 'slack-request)
+                     (lambda (req &rest _args) (setq request req))))
+            (slack-dialog-get "D1" team)
+            (should (string-match-p "Cached" displayed-text))
+            (should (eq 'refreshing (slack-page-state-status state)))
+            (funcall (oref request error)
+                     :error-thrown '(error "offline")
+                     :symbol-status 'error
+                     :response nil
+                     :data nil)
+            (should (eq 'failed (slack-page-state-status state)))
+            (should (eq cached (slack-page-state-value state)))
+            (let* ((object (slack-buffer-find
+                            'slack-dialog-buffer team "D1" nil))
+                   (text (with-current-buffer (oref object buf)
+                           (buffer-substring-no-properties
+                            (point-min) (point-max)))))
+              (should (string-match-p "Cached" text))
+              (should (string-match-p "Retry" text))))
+        (slack-test-kill-dialog-buffer team "D1")))))
+
+(ert-deftest slack-test-dialog-get-retry-rejects-stale-success ()
+  "A response from a failed dialog generation cannot replace its retry."
+  (slack-test-setup
+    (oset team id "T99999")
+    (oset team name "TestTeam")
+    (let (requests object buffer state)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-request)
+                     (lambda (req &rest _args)
+                       (setq requests (append requests (list req))))))
+            (slack-dialog-get "D1" team)
+            (setq object (slack-buffer-find
+                          'slack-dialog-buffer team "D1" nil)
+                  buffer (oref object buf)
+                  state (slack-team-page-state team (list 'dialog "D1")))
+            (funcall (oref (car requests) error)
+                     :error-thrown '(error "offline")
+                     :symbol-status 'error
+                     :response nil
+                     :data nil)
+            (with-current-buffer buffer
+              (funcall slack-buffer-page-retry-function))
+            (should (= 2 (length requests)))
+            (funcall (oref (car requests) success)
+                     :data (list :ok t
+                                 :dialog (slack-test-dialog-payload "Stale")))
+            (should (eq 'loading (slack-page-state-status state)))
+            (should-not (slack-page-state-value state))
+            (funcall (oref (cadr requests) success)
+                     :data (list :ok t
+                                 :dialog (slack-test-dialog-payload "Current")))
+            (should (equal "Current"
+                           (oref (slack-page-state-value state) title))))
+        (slack-test-kill-dialog-buffer team "D1")))))
+
+(ert-deftest slack-test-dialog-get-routes-api-and-schema-errors ()
+  "Dialog API and schema failures both become visible page failures."
+  (dolist (data (list (list :ok :json-false :error "invalid_auth")
+                      (list :ok t
+                            :dialog
+                            (list :title "Broken"
+                                  :callback_id "callback"
+                                  :elements
+                                  (list (list :type "unknown"))))))
+    (slack-test-setup
+      (oset team id "T99999")
+      (oset team name "TestTeam")
+      (let (request)
+        (unwind-protect
+            (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                      ((symbol-function 'slack-request)
+                       (lambda (req &rest _args) (setq request req))))
+              (slack-dialog-get "D1" team)
+              (funcall (oref request success) :data data)
+              (let ((state (slack-team-page-state
+                            team (list 'dialog "D1"))))
+                (should (eq 'failed (slack-page-state-status state)))
+                (should (slack-page-state-error state))))
+          (slack-test-kill-dialog-buffer team "D1"))))))
+
+(ert-deftest slack-test-dialog-get-late-schema-does-not-recreate-killed-buffer ()
+  "A late schema commits durably without recreating its killed buffer."
+  (slack-test-setup
+    (oset team id "T99999")
+    (oset team name "TestTeam")
+    (let (request object buffer)
+      (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                ((symbol-function 'slack-request)
+                 (lambda (req &rest _args) (setq request req))))
+        (slack-dialog-get "D1" team)
+        (setq object (slack-buffer-find
+                      'slack-dialog-buffer team "D1" nil)
+              buffer (oref object buf))
+        (kill-buffer buffer)
+        (funcall (oref request success)
+                 :data (list :ok t
+                             :dialog (slack-test-dialog-payload "Late")))
+        (should-not (buffer-live-p buffer))
+        (should-not (slack-buffer-find
+                     'slack-dialog-buffer team "D1" nil))
+        (should (equal
+                 "Late"
+                 (oref (slack-page-state-value
+                        (slack-team-page-state team (list 'dialog "D1")))
+                       title)))))))
+
+(ert-deftest slack-test-dialog-get-reopens-from-durable-schema ()
+  "Killing an unconsumed dialog keeps its schema for immediate reopen."
+  (slack-test-setup
+    (oset team id "T99999")
+    (oset team name "TestTeam")
+    (let* ((state (slack-team-page-state team (list 'dialog "D1")))
+           (cached (slack-test-dialog-object "Cached"))
+           old-object old-buffer displayed-text)
+      (slack-page-state-store state cached nil nil)
+      (setq old-object (slack-create-dialog-buffer "D1" cached team)
+            old-buffer (slack-buffer-buffer old-object))
+      (kill-buffer old-buffer)
+      (should (eq state (gethash (list 'dialog "D1")
+                                 (oref team page-states))))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display)
+                     (lambda (object)
+                       (setq displayed-text
+                             (with-current-buffer (oref object buf)
+                               (buffer-substring-no-properties
+                                (point-min) (point-max))))))
+                    ((symbol-function 'slack-request) #'ignore))
+            (slack-dialog-get "D1" team)
+            (should (string-match-p "Cached" displayed-text))
+            (let ((new-object (slack-buffer-find
+                               'slack-dialog-buffer team "D1" nil)))
+              (should-not (eq old-object new-object))
+              (should-not (eq old-buffer (oref new-object buf)))))
+        (slack-test-kill-dialog-buffer team "D1")))))
+
+(ert-deftest slack-test-dialog-submit-success-consumes-page-state ()
+  "A successful dialog submission removes its consumed schema state."
+  (slack-test-setup
+    (oset team id "T99999")
+    (oset team name "TestTeam")
+    (let* ((key (list 'dialog "D1"))
+           (state (slack-team-page-state team key))
+           (dialog (slack-test-dialog-object "Submit"))
+           (object (slack-create-dialog-buffer "D1" dialog team))
+           (buffer (slack-buffer-buffer object))
+           callback)
+      (slack-page-state-store state dialog nil nil)
+      (cl-letf (((symbol-function 'slack-dialog--submit)
+                 (lambda (_dialog _id _team _params &optional after-success)
+                   (setq callback after-success))))
+        (slack-dialog-buffer--submit object))
+      (should (eq state (gethash key (oref team page-states))))
+      (funcall callback (list :ok t))
+      (should-not (gethash key (oref team page-states)))
+      (should-not (buffer-live-p buffer)))))
+
+(ert-deftest slack-test-dialog-submit-error-retains-page-state ()
+  "A rejected dialog submission retains its schema and live buffer."
+  (slack-test-setup
+    (oset team id "T99999")
+    (oset team name "TestTeam")
+    (let* ((key (list 'dialog "D1"))
+           (state (slack-team-page-state team key))
+           (dialog (slack-test-dialog-object "Submit"))
+           (object (slack-create-dialog-buffer "D1" dialog team))
+           (buffer (slack-buffer-buffer object))
+           callback)
+      (slack-page-state-store state dialog nil nil)
+      (unwind-protect
+          (progn
+            (cl-letf (((symbol-function 'slack-dialog--submit)
+                       (lambda (_dialog _id _team _params
+                                &optional after-success)
+                         (setq callback after-success))))
+              (slack-dialog-buffer--submit object))
+            (funcall callback
+                     (list :ok t :error "Correct the fields"
+                           :dialog_errors nil))
+            (should (eq state (gethash key (oref team page-states))))
+            (should (buffer-live-p buffer))
+            (should (equal "Correct the fields"
+                           (oref dialog error-message))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(ert-deftest slack-test-dialog-cancel-consumes-page-state ()
+  "Explicit cancellation removes dialog state before closing the buffer."
+  (slack-test-setup
+    (oset team id "T99999")
+    (oset team name "TestTeam")
+    (let* ((key (list 'dialog "D1"))
+           (state (slack-team-page-state team key))
+           (dialog (slack-test-dialog-object "Cancel"))
+           (object (slack-create-dialog-buffer "D1" dialog team))
+           (buffer (slack-buffer-buffer object))
+           notified)
+      (slack-page-state-store state dialog nil nil)
+      (cl-letf (((symbol-function 'slack-dialog-notify-cancel)
+                 (lambda (&rest _args) (setq notified t))))
+        (with-current-buffer buffer
+          (slack-dialog-buffer-cancel)))
+      (should notified)
+      (should-not (gethash key (oref team page-states)))
+      (should-not (buffer-live-p buffer)))))
+
+(ert-deftest slack-test-dialog-loading-cancel-consumes-page-state ()
+  "A schema-less dialog shell can be explicitly cancelled locally."
+  (slack-test-setup
+    (oset team id "T99999")
+    (oset team name "TestTeam")
+    (let* ((key (list 'dialog "D1"))
+           (state (slack-team-page-state team key))
+           (object (slack-create-dialog-buffer "D1" nil team))
+           (buffer (slack-buffer-buffer object))
+           notified)
+      (slack-page-state-begin state)
+      (cl-letf (((symbol-function 'slack-dialog-notify-cancel)
+                 (lambda (&rest _args) (setq notified t))))
+        (with-current-buffer buffer
+          (slack-dialog-buffer-cancel)))
+      (should-not notified)
+      (should-not (gethash key (oref team page-states)))
+      (should-not (buffer-live-p buffer)))))
 (if noninteractive
     (ert-run-tests-batch-and-exit)
   (ert t))

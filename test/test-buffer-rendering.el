@@ -22,6 +22,7 @@
 (require 'slack-search-result-buffer)
 (require 'slack-scheduled-messages-buffer)
 (require 'slack-pinned-items-buffer)
+(require 'slack-dialog-buffer)
 (require 'slack-buffer)
 (require 'slack-room)
 (require 'slack-user)
@@ -1778,6 +1779,51 @@ produces a newline with `not-tracked-p'."
               (should-not (search-forward "Loading Slack data" nil t))))
         (when (buffer-live-p buffer)
           (kill-buffer buffer))
+        (slack-test--unregister-team team)))))
+
+;;; ---- Remote dialog page-state rendering ----
+
+(ert-deftest slack-test-dialog-page-state-renders-shell-schema-and-failure ()
+  "Dialog rendering distinguishes loading, loaded, and stale failure states."
+  (slack-test-setup
+    (oset team name "TestTeam")
+    (slack-test--register-team team)
+    (let* ((key (list 'dialog "D1"))
+           (state (slack-team-page-state team key))
+           (dialog (slack-dialog-create
+                    (list :title "Rendered"
+                          :callback_id "callback"
+                          :elements nil)))
+           (object (slack-create-dialog-buffer "D1" nil team))
+           buffer)
+      (unwind-protect
+          (progn
+            (setq buffer (slack-buffer-buffer object))
+            (slack-page-state-begin state)
+            (with-current-buffer buffer
+              (slack-dialog-buffer-render-page-state object state)
+              (should (string-match-p
+                       "Loading Slack data"
+                       (buffer-substring-no-properties
+                        (point-min) (point-max)))))
+            (slack-page-state-commit
+             state (slack-page-state-generation state) dialog nil nil)
+            (with-current-buffer buffer
+              (slack-dialog-buffer-render-page-state object state)
+              (let ((text (buffer-substring-no-properties
+                           (point-min) (point-max))))
+                (should (string-match-p "Rendered" text))
+                (should (string-match-p "Cancel" text))
+                (should (string-match-p "Submit" text))))
+            (let ((generation (slack-page-state-begin state t)))
+              (slack-page-state-fail state generation "offline"))
+            (with-current-buffer buffer
+              (slack-dialog-buffer-render-page-state object state)
+              (let ((text (buffer-substring-no-properties
+                           (point-min) (point-max))))
+                (should (string-match-p "Rendered" text))
+                (should (string-match-p "Retry" text)))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))
         (slack-test--unregister-team team)))))
 
 ;;; ---- Runner ----
