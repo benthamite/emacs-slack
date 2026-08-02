@@ -86,6 +86,8 @@ When DEFER-READY is non-nil, publish the primary page but remain in flight."
           (slack-page-state-error state) nil
           (slack-page-state-updated-at state) (current-time)
           (slack-page-state-committed-generation state) generation)
+    (unless defer-ready
+      (setf (slack-page-state-status state) 'ready))
     (unwind-protect
         (slack-page-state--notify-commit state)
       (unless defer-ready
@@ -98,7 +100,8 @@ When DEFER-READY is non-nil, publish the primary page but remain in flight."
              (= generation (slack-page-state-generation state)))
     (cond
      ((= generation (slack-page-state-ready-generation state)) t)
-     ((and (slack-page-state-in-flight-p state)
+     ((and (or (slack-page-state-in-flight-p state)
+               (eq 'ready (slack-page-state-status state)))
            (= generation (slack-page-state-committed-generation state)))
       (setf (slack-page-state-status state) 'ready
             (slack-page-state-ready-generation state) generation)
@@ -134,7 +137,12 @@ When DEFER-READY is non-nil, publish the primary page but remain in flight."
            (= (slack-page-state-ready-generation state)
               (slack-page-state-generation state)))
       (slack-page-state--invoke-callback callback state))
-     ((slack-page-state-in-flight-p state)
+     ((or (slack-page-state-in-flight-p state)
+          (and (eq 'ready (slack-page-state-status state))
+               (= (slack-page-state-committed-generation state)
+                  (slack-page-state-generation state))
+               (/= (slack-page-state-ready-generation state)
+                   (slack-page-state-generation state))))
       (push (cons (slack-page-state-generation state) callback)
             (slack-page-state-ready-waiters state))))))
 

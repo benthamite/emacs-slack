@@ -32,6 +32,7 @@
 (require 'slack-room)
 (require 'slack-image)
 (require 'slack-message-formatter)
+(require 'slack-page-state)
 (require 'dash)
 (declare-function emojify-mode "emojify")
 (declare-function emojify-redisplay-emojis-in-region "emojify")
@@ -40,6 +41,10 @@
 (defvar slack-buffer-function)
 (defvar slack-completing-read-function)
 (defvar-local slack-current-buffer nil)
+(defvar-local slack-buffer-page-retry-function nil
+  "Function used to retry the current remote page request.")
+(defvar-local slack-buffer-page-presentation-token nil
+  "Identity token for the current logical remote-page presentation.")
 (defvar lui-prompt-string "> ")
 (defvar slack-typing-visibility)
 
@@ -339,6 +344,160 @@ ERR is the API error payload or transport error, when available."
                             (slack-buffer-team this)
                             :level 'error))
                (signal (car err) (cdr err)))))))
+
+(defun slack-buffer-page-retry (&optional _button)
+  "Retry the failed remote page displayed in the current buffer."
+  (interactive)
+  (if (functionp slack-buffer-page-retry-function)
+      (funcall slack-buffer-page-retry-function)
+    (user-error "This Slack page cannot be retried")))
+
+(defun slack-buffer-remove-page-status (_object)
+  "Remove all shared remote-page status rows for OBJECT in the current buffer."
+  (let ((inhibit-read-only t)
+        (position (point-min)))
+    (while (< position (point-max))
+      (let ((next (next-single-property-change
+                   position 'slack-page-status nil (point-max))))
+        (if (get-text-property position 'slack-page-status)
+            (delete-region position next)
+          (setq position next))))))
+
+(defun slack-buffer-insert-page-status (object state)
+  "Insert OBJECT's shared loading or failure row from STATE."
+  (slack-buffer-remove-page-status object)
+  (let ((status (slack-page-state-status state))
+        (start (point)))
+    (pcase status
+      ('loading (insert "Loading Slack data…\n"))
+      ('refreshing (insert "Refreshing Slack data…\n"))
+      ('failed
+       (insert (format "Slack request failed%s  "
+                       (if (slack-page-state-error state)
+                           (format ": %s" (slack-page-state-error state))
+                         "")))
+       (insert-text-button "Retry" 'action #'slack-buffer-page-retry
+                           'follow-link t)
+       (insert "\n")))
+    (when (< start (point))
+      (put-text-property start (point) 'slack-page-status status))))
+
+(defun slack-buffer-present-page
+    (object state loader renderer &optional refresh on-ready on-error)
+  "Display OBJECT from STATE, then invoke LOADER and RENDERER.
+REFRESH reloads ready data while coalescing in-flight work.  ON-READY and
+ON-ERROR are terminal callbacks for the current request generation.  LOADER's
+error continuation accepts API errors or variadic transport error arguments.
+Synchronous setup errors fail a begun generation and are then re-signaled."
+  (let ((generation (slack-page-state-begin state refresh))
+        (token (cons state nil))
+        buffer
+        visual-milestone
+        presentation-installed-p
+        error-registered-p)
+    (cl-labels
+        ((active-p ()
+           (and presentation-installed-p
+                (buffer-live-p buffer)
+                (slot-boundp object 'buf)
+                (eq buffer (oref object buf))
+                (eq token
+                    (buffer-local-value
+                     'slack-buffer-page-presentation-token buffer))))
+         (milestone ()
+           (list (slack-page-state-generation state)
+                 (slack-page-state-committed-generation state)
+                 (slack-page-state-status state)))
+         (render (_rendered-state)
+           (when (active-p)
+             (let ((current-milestone (milestone)))
+               (unless (equal current-milestone visual-milestone)
+                 (setq visual-milestone current-milestone)
+                 (with-current-buffer buffer
+                   (funcall renderer object state))))))
+         (ready (ready-state)
+           (when (active-p)
+             (unwind-protect
+                 (render ready-state)
+               (when (and (active-p) (functionp on-ready))
+                 (funcall on-ready ready-state)))))
+         (failed (failed-state error)
+           (when (active-p)
+             (unwind-protect
+                 (render failed-state)
+               (when (and (active-p) (functionp on-error))
+                 (funcall on-error failed-state error)))))
+         (retry ()
+           (slack-buffer-present-page
+            object state loader renderer t on-ready on-error))
+         (report-terminal-error (setup-error)
+           (condition-case callback-error
+               (cond
+                ((not presentation-installed-p)
+                 (when (functionp on-error)
+                   (funcall on-error state setup-error)))
+                ((active-p) (failed state setup-error)))
+             (error
+              (display-warning
+               'slack-buffer
+               (format "Page terminal callback failed: %S" callback-error)
+               :error))))
+         (fail-current (setup-error)
+           (when (and generation
+                      (= generation (slack-page-state-generation state))
+                      (slack-page-state-in-flight-p state)
+                      (slack-page-state-fail state generation setup-error)
+                      (not error-registered-p))
+             (report-terminal-error setup-error))))
+      (condition-case setup-error
+          (progn
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (setq-local slack-buffer-page-presentation-token token)
+              (setq-local slack-buffer-page-retry-function #'retry)
+              (setq presentation-installed-p t)
+              (render state))
+            (slack-buffer-display object)
+            (slack-page-state-on-commit state #'render)
+            (slack-page-state-on-ready state #'ready)
+            (slack-page-state-on-error state #'failed)
+            (setq error-registered-p t)
+            (when generation
+              (funcall
+               loader generation
+               (lambda (value continuation has-more &optional defer-ready)
+                 (slack-page-state-commit
+                  state generation value continuation has-more defer-ready))
+               (lambda (&rest errors)
+                 (slack-page-state-fail
+                  state generation
+                  (slack-buffer--normalize-page-error errors))))))
+        (error
+         (fail-current setup-error)
+         (signal (car setup-error) (cdr setup-error)))))))
+
+(defun slack-buffer--normalize-page-error (arguments)
+  "Return one concise page error value from transport ARGUMENTS."
+  (if (= 1 (length arguments))
+      (car arguments)
+    (ignore (plist-get arguments :response)
+            (plist-get arguments :data))
+    (or (slack-buffer--safe-page-error-value
+         (plist-get arguments :error-thrown))
+        (slack-buffer--safe-page-error-value
+         (plist-get arguments :symbol-status))
+        "Slack transport error")))
+
+(defun slack-buffer--safe-page-error-value (value)
+  "Return a safe scalar error summary extracted from VALUE."
+  (cond
+   ((or (stringp value) (numberp value) (and value (symbolp value))) value)
+   ((consp value)
+    (let ((detail (if (atom (cdr value)) (cdr value) (cadr value))))
+      (when (or (stringp detail)
+                (numberp detail)
+                (and detail (symbolp detail)))
+        detail)))))
 
 (defun slack-buffer-separator ()
   "Return a propertized string that renders as a thin horizontal rule."
