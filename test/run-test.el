@@ -3957,6 +3957,67 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
             (should (equal '(display request page hydrated ready) events)))
         (slack-test-kill-room-buffer channel team)))))
 
+(ert-deftest slack-test-room-history-stale-primary-releases-snapshot-once ()
+  "A stale interactive primary releases its history snapshot exactly once."
+  (slack-test-setup
+    (oset team mark-as-read-immediately nil)
+    (let ((state (oref channel history-state))
+          (release-function
+           (symbol-function 'slack-room-history-release-snapshot))
+          (release-count 0)
+          primary
+          hydrated)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-room-history-release-snapshot)
+                     (lambda (room snapshot)
+                       (cl-incf release-count)
+                       (funcall release-function room snapshot)))
+                    ((symbol-function 'slack-conversations-history)
+                     (lambda (_room _team &rest args)
+                       (setq primary (plist-get args :on-primary-page)
+                             hydrated (plist-get args :after-success)))))
+            (slack-room-display channel team)
+            (should (= 1 (length (oref channel history-snapshots))))
+            (let ((replacement-generation (slack-page-state-restart state)))
+              (funcall primary
+                       (list (slack-test-room-message "1.000" "stale"))
+                       "stale-cursor")
+              (funcall hydrated nil "stale-cursor")
+              (should (= 1 release-count))
+              (should-not (oref channel history-snapshots))
+              (should (= replacement-generation
+                         (slack-page-state-generation state)))
+              (should (eq 'loading (slack-page-state-status state)))
+              (should-not (slack-page-state-loaded-p state))
+              (should-not (slack-page-state-value state))))
+        (slack-test-kill-room-buffer channel team)))))
+
+(ert-deftest slack-test-room-history-sync-error-releases-snapshot-once ()
+  "A synchronous interactive history error releases its snapshot once."
+  (slack-test-setup
+    (oset team mark-as-read-immediately nil)
+    (let ((state (oref channel history-state))
+          (release-function
+           (symbol-function 'slack-room-history-release-snapshot))
+          (release-count 0))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-room-history-release-snapshot)
+                     (lambda (room snapshot)
+                       (cl-incf release-count)
+                       (funcall release-function room snapshot)))
+                    ((symbol-function 'slack-conversations-history)
+                     (lambda (&rest _args)
+                       (error "synchronous history failure"))))
+            (slack-room-display channel team)
+            (should (= 1 release-count))
+            (should-not (oref channel history-snapshots))
+            (should (eq 'failed (slack-page-state-status state)))
+            (should (equal '(error "synchronous history failure")
+                           (slack-page-state-error state))))
+        (slack-test-kill-room-buffer channel team)))))
+
 (ert-deftest slack-test-room-display-dormant-im-displays-before-open ()
   "A dormant direct-message shell appears before conversations.open starts."
   (slack-test-setup
@@ -4201,6 +4262,61 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (should (equal "offline" (slack-page-state-error state)))
         (should-not (oref channel history-snapshots))))))
 
+(ert-deftest slack-test-prefetch-stale-primary-releases-snapshot-once ()
+  "A stale prefetch primary releases its history snapshot exactly once."
+  (slack-test-setup
+    (let* ((state (oref channel history-state))
+           (generation (slack-page-state-begin state))
+           (release-function
+            (symbol-function 'slack-room-history-release-snapshot))
+           (release-count 0)
+           primary
+           hydrated)
+      (cl-letf (((symbol-function 'slack-room-history-release-snapshot)
+                 (lambda (room snapshot)
+                   (cl-incf release-count)
+                   (funcall release-function room snapshot)))
+                ((symbol-function 'slack-conversations-history)
+                 (lambda (_room _team &rest args)
+                   (setq primary (plist-get args :on-primary-page)
+                         hydrated (plist-get args :after-success)))))
+        (slack-prefetch-room-history channel team generation)
+        (should (= 1 (length (oref channel history-snapshots))))
+        (let ((replacement-generation (slack-page-state-restart state)))
+          (funcall primary
+                   (list (slack-test-room-message "1.000" "stale"))
+                   "stale-cursor")
+          (funcall hydrated nil "stale-cursor")
+          (should (= 1 release-count))
+          (should-not (oref channel history-snapshots))
+          (should (= replacement-generation
+                     (slack-page-state-generation state)))
+          (should (eq 'loading (slack-page-state-status state)))
+          (should-not (slack-page-state-loaded-p state))
+          (should-not (slack-page-state-value state)))))))
+
+(ert-deftest slack-test-prefetch-sync-error-releases-snapshot-once ()
+  "A synchronous prefetch history error releases its snapshot once."
+  (slack-test-setup
+    (let* ((state (oref channel history-state))
+           (generation (slack-page-state-begin state))
+           (release-function
+            (symbol-function 'slack-room-history-release-snapshot))
+           (release-count 0))
+      (cl-letf (((symbol-function 'slack-room-history-release-snapshot)
+                 (lambda (room snapshot)
+                   (cl-incf release-count)
+                   (funcall release-function room snapshot)))
+                ((symbol-function 'slack-conversations-history)
+                 (lambda (&rest _args)
+                   (error "synchronous prefetch failure"))))
+        (slack-prefetch-room-history channel team generation)
+        (should (= 1 release-count))
+        (should-not (oref channel history-snapshots))
+        (should (eq 'failed (slack-page-state-status state)))
+        (should (equal '(error "synchronous prefetch failure")
+                       (slack-page-state-error state)))))))
+
 (ert-deftest slack-test-room-load-more-updates-shared-continuation-on-primary-page ()
   "Pagination publishes its next cursor and messages before user hydration."
   (slack-test-setup
@@ -4397,6 +4513,87 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
             (funcall hydrated nil "cursor-2")
             (with-current-buffer buffer
               (should-not slack-buffer--loading-more-p)))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(ert-deftest slack-test-room-load-more-stale-primary-releases-snapshot-once ()
+  "A stale pagination primary releases its history snapshot exactly once."
+  (slack-test-setup
+    (oset team mark-as-read-immediately nil)
+    (let* ((initial (slack-test-room-message "2.000" "initial"))
+           (older (slack-test-room-message "1.000" "stale older"))
+           (state (oref channel history-state))
+           (object (slack-create-message-buffer channel "cursor-1" team))
+           (release-function
+            (symbol-function 'slack-room-history-release-snapshot))
+           (release-count 0)
+           buffer
+           primary
+           hydrated)
+      (slack-room-set-messages channel (list initial) team)
+      (slack-page-state-store state (list initial) "cursor-1" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-room-history-release-snapshot)
+                     (lambda (room snapshot)
+                       (cl-incf release-count)
+                       (funcall release-function room snapshot)))
+                    ((symbol-function 'slack-conversations-history)
+                     (lambda (_room _team &rest args)
+                       (setq primary (plist-get args :on-primary-page)
+                             hydrated (plist-get args :after-success)))))
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (slack-buffer-load-more object)
+              (should slack-buffer--loading-more-p))
+            (should (= 1 (length (oref channel history-snapshots))))
+            (let ((replacement-generation (slack-page-state-restart state)))
+              (funcall primary (list older) "cursor-2")
+              (should (= 1 release-count))
+              (should-not (oref channel history-snapshots))
+              (should-not (slack-room-find-message channel "1.000"))
+              (should (= replacement-generation
+                         (slack-page-state-generation state)))
+              (should (eq 'refreshing (slack-page-state-status state)))
+              (should (equal (list initial)
+                             (slack-page-state-value state)))
+              (funcall hydrated nil "cursor-2")
+              (should (= 1 release-count))
+              (with-current-buffer buffer
+                (should-not slack-buffer--loading-more-p))
+              (should (equal "cursor-1" (oref object cursor)))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(ert-deftest slack-test-room-load-more-sync-error-releases-snapshot-once ()
+  "A synchronous pagination history error releases its snapshot once."
+  (slack-test-setup
+    (oset team mark-as-read-immediately nil)
+    (let* ((initial (slack-test-room-message "2.000" "initial"))
+           (state (oref channel history-state))
+           (object (slack-create-message-buffer channel "cursor-1" team))
+           (release-function
+            (symbol-function 'slack-room-history-release-snapshot))
+           (release-count 0)
+           buffer)
+      (slack-room-set-messages channel (list initial) team)
+      (slack-page-state-store state (list initial) "cursor-1" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-room-history-release-snapshot)
+                     (lambda (room snapshot)
+                       (cl-incf release-count)
+                       (funcall release-function room snapshot)))
+                    ((symbol-function 'slack-conversations-history)
+                     (lambda (&rest _args)
+                       (error "synchronous pagination failure")))
+                    ((symbol-function 'message) #'ignore))
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (slack-buffer-load-more object)
+              (should-not slack-buffer--loading-more-p))
+            (should (= 1 release-count))
+            (should-not (oref channel history-snapshots))
+            (should (eq 'ready (slack-page-state-status state)))
+            (should (equal "cursor-1"
+                           (slack-page-state-continuation state)))
+            (should (equal "cursor-1" (oref object cursor))))
         (when (buffer-live-p buffer) (kill-buffer buffer))))))
 
 (ert-deftest slack-test-room-load-more-rejects-stale-cursor-callback ()
