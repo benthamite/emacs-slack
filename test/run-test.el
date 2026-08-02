@@ -4261,6 +4261,343 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (kill-buffer feed-buffer)
         (kill-buffer other-buffer)))))
 
+(defun slack-test--all-thread-view (team room ts last-read &optional text)
+  "Return a test thread view for TEAM in ROOM at TS and LAST-READ."
+  (make-instance
+   'slack-thread-view
+   :root_msg
+   (slack-message-create
+    (list :type "message"
+          :ts ts
+          :last_read last-read
+          :text (or text (format "thread %s" ts))
+          :user "U11111"
+          :channel (oref room id))
+    team room)))
+
+(ert-deftest slack-test-all-threads-displays-before-request-and-clears-on-primary ()
+  (slack-test-setup
+    (let (displayed primary emacs-buffer
+          (clear-count 0)
+          events)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select) (lambda () team))
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (object)
+                       (setq displayed object
+                             emacs-buffer (oref object buf))
+                       (push 'display events)))
+                    ((symbol-function 'slack-subscriptions-thread-clear-all)
+                     (lambda (_team) (cl-incf clear-count)))
+                    ((symbol-function 'slack-subscriptions-thread-get-view)
+                     (lambda (_team _current-ts _after-success
+                              &optional on-primary-page _on-error)
+                       (setq primary on-primary-page)
+                       (push 'request events))))
+            (slack-all-threads)
+            (should displayed)
+            (should (equal '(request display) events))
+            (should (= 0 clear-count))
+            (funcall primary 0 0 nil nil)
+            (should (= 1 clear-count))
+            ;; A buggy duplicate primary callback must not repeat the side effect.
+            (funcall primary 0 0 nil nil)
+            (should (= 1 clear-count)))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-all-threads-primary-precedes-user-hydration-and-forwards-error ()
+  (slack-test-setup
+    (let (request-success request-error users-success events)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (setq request-success (oref request success)
+                         request-error (oref request error))))
+                ((symbol-function 'slack-team-missing-user-ids)
+                 (lambda (&rest _args) '("U-missing")))
+                ((symbol-function 'slack-users-info-request)
+                 (lambda (_ids _team &rest args)
+                   (setq users-success (plist-get args :after-success))
+                   (push 'users events))))
+        (slack-subscriptions-thread-get-view
+         team nil
+         (lambda (&rest _args) (push 'hydrated events))
+         (lambda (&rest _args) (push 'primary events))
+         (lambda (&rest _args) (push 'error events)))
+        (funcall request-success
+                 :data (list :ok t
+                             :total_unread_replies 0
+                             :new_threads_count 0
+                             :threads nil
+                             :has_more :json-false))
+        (should (equal '(users primary) events))
+        (funcall users-success)
+        (should (equal '(hydrated users primary) events))
+        (funcall request-error "transport failure")
+        (should (equal '(error hydrated users primary) events))))))
+
+(ert-deftest slack-test-all-threads-empty-failure-retries-in-place ()
+  (slack-test-setup
+    (let (object emacs-buffer request-primary request-hydrated request-error retry
+          (request-count 0))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select) (lambda () team))
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (displayed)
+                       (setq object displayed
+                             emacs-buffer (oref displayed buf))))
+                    ((symbol-function 'slack-subscriptions-thread-clear-all)
+                     #'ignore)
+                    ((symbol-function 'slack-subscriptions-thread-get-view)
+                     (lambda (_team _current-ts after-success
+                              &optional on-primary-page on-error)
+                       (cl-incf request-count)
+                       (setq request-primary on-primary-page
+                             request-hydrated after-success
+                             request-error on-error))))
+            (slack-all-threads)
+            (setq retry
+                  (buffer-local-value
+                   'slack-buffer-page-retry-function emacs-buffer))
+            (funcall request-error "rate_limited")
+            (should (eq 'failed
+                        (slack-page-state-status
+                         (slack-team-page-state team 'all-threads))))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "Slack request failed: rate_limited" nil t))
+              (should (search-forward "Retry" nil t)))
+            (funcall retry)
+            (should (= 2 request-count))
+            (should (eq emacs-buffer (oref object buf)))
+            (funcall request-primary 0 0 nil nil)
+            (funcall request-hydrated 0 0 nil nil)
+            (should (eq 'ready
+                        (slack-page-state-status
+                         (slack-team-page-state team 'all-threads))))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "No threads." nil t))
+              (goto-char (point-min))
+              (should-not (search-forward "Slack request failed" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-all-threads-refresh-keeps-buffer-and-durable-page ()
+  (slack-test-setup
+    (let* ((thread (slack-test--all-thread-view
+                    team channel "2.000" "1.500" "durable thread"))
+           object emacs-buffer request-primary request-hydrated
+           (clear-count 0))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select) (lambda () team))
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (displayed)
+                       (setq object displayed
+                             emacs-buffer (oref displayed buf))))
+                    ((symbol-function 'slack-subscriptions-thread-clear-all)
+                     (lambda (_team) (cl-incf clear-count)))
+                    ((symbol-function 'slack-subscriptions-thread-get-view)
+                     (lambda (_team _current-ts after-success
+                              &optional on-primary-page _on-error)
+                       (setq request-primary on-primary-page
+                             request-hydrated after-success))))
+            (slack-all-threads)
+            (funcall request-primary 1 1 (list thread) t)
+            (funcall request-hydrated 1 1 (list thread) t)
+            (let* ((state (slack-team-page-state team 'all-threads))
+                   (value (slack-page-state-value state)))
+              (should (equal (list thread) (plist-get value :threads)))
+              (should (equal "1.500" (plist-get value :current-ts)))
+              (should (equal "1.500"
+                             (slack-page-state-continuation state)))
+              (should (slack-page-state-has-more state)))
+            (let ((first-buffer emacs-buffer))
+              (slack-all-threads)
+              (should (eq first-buffer emacs-buffer))
+              (should (buffer-live-p first-buffer)))
+            (should (= 1 clear-count)))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-all-threads-late-hydration-does-not-recreate-killed-buffer ()
+  (slack-test-setup
+    (let (object emacs-buffer request-primary request-hydrated)
+      (cl-letf (((symbol-function 'slack-team-select) (lambda () team))
+                ((symbol-function 'slack-buffer-display)
+                 (lambda (displayed)
+                   (setq object displayed
+                         emacs-buffer (oref displayed buf))))
+                ((symbol-function 'slack-subscriptions-thread-clear-all)
+                 #'ignore)
+                ((symbol-function 'slack-subscriptions-thread-get-view)
+                 (lambda (_team _current-ts after-success
+                          &optional on-primary-page _on-error)
+                   (setq request-primary on-primary-page
+                         request-hydrated after-success))))
+        (slack-all-threads)
+        (funcall request-primary 0 0 nil nil)
+        (kill-buffer emacs-buffer)
+        (let ((buffers-after-kill (buffer-list)))
+          (funcall request-hydrated 0 0 nil nil)
+          (should-not (buffer-live-p emacs-buffer))
+          (should (equal buffers-after-kill (buffer-list)))
+          (should (eq 'ready
+                      (slack-page-state-status
+                       (slack-team-page-state team 'all-threads)))))))))
+
+(ert-deftest slack-test-all-threads-load-more-commits-durable-page ()
+  (slack-test-setup
+    (let* ((old-thread (slack-test--all-thread-view
+                        team channel "3.000" "2.500" "old thread"))
+           (new-thread (slack-test--all-thread-view
+                        team channel "2.000" "1.500" "new thread"))
+           (state (slack-team-page-state team 'all-threads))
+           (old-value (list :total-unread-replies 1
+                            :new-threads-count 1
+                            :threads (list old-thread)
+                            :has-more t
+                            :current-ts "2.500"))
+           (object (slack-create-all-threads-buffer
+                    team 1 1 (list old-thread) t "2.500"))
+           (emacs-buffer (slack-buffer-buffer object))
+           request-primary request-hydrated requested-ts)
+      (slack-page-state-store state old-value "2.500" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-subscriptions-thread-get-view)
+                     (lambda (_team current-ts after-success
+                              &optional on-primary-page _on-error)
+                       (setq requested-ts current-ts
+                             request-primary on-primary-page
+                             request-hydrated after-success))))
+            (with-current-buffer emacs-buffer
+              (slack-buffer-load-more object)
+              (should slack-buffer--loading-more-p))
+            (should (equal "2.500" requested-ts))
+            (funcall request-primary 0 0 (list new-thread) nil)
+            (let ((value (slack-page-state-value state)))
+              (should (equal (list old-thread new-thread)
+                             (plist-get value :threads)))
+              (should (equal "1.500" (plist-get value :current-ts)))
+              (should-not (slack-page-state-has-more state)))
+            (funcall request-hydrated 0 0 (list new-thread) nil)
+            (with-current-buffer emacs-buffer
+              (should-not slack-buffer--loading-more-p)
+              (goto-char (point-min))
+              (should (search-forward "new thread" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-all-threads-load-more-rejects-stale-generation ()
+  (slack-test-setup
+    (let* ((old-thread (slack-test--all-thread-view
+                        team channel "4.000" "3.500"))
+           (page-thread (slack-test--all-thread-view
+                         team channel "3.000" "2.500"))
+           (newer-thread (slack-test--all-thread-view
+                          team channel "5.000" "4.500"))
+           (old-value (slack-all-threads--page-value
+                       1 1 (list old-thread) t "3.500"))
+           (newer-value (slack-all-threads--page-value
+                         2 2 (list newer-thread) t "4.500"))
+           (state (slack-team-page-state team 'all-threads))
+           (object (slack-create-all-threads-buffer
+                    team 1 1 (list old-thread) t "3.500"))
+           (emacs-buffer (slack-buffer-buffer object))
+           request-primary request-hydrated)
+      (slack-page-state-store state old-value "3.500" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-subscriptions-thread-get-view)
+                     (lambda (_team _current-ts after-success
+                              &optional on-primary-page _on-error)
+                       (setq request-primary on-primary-page
+                             request-hydrated after-success))))
+            (with-current-buffer emacs-buffer
+              (slack-buffer-load-more object)
+              (should slack-buffer--loading-more-p))
+            (slack-page-state-store state newer-value "4.500" t)
+            (funcall request-primary 0 0 (list page-thread) nil)
+            (funcall request-hydrated 0 0 (list page-thread) nil)
+            (should (eq newer-value (slack-page-state-value state)))
+            (should (equal (list newer-thread)
+                           (plist-get (slack-page-state-value state)
+                                      :threads)))
+            (should (equal "4.500"
+                           (slack-page-state-continuation state)))
+            (with-current-buffer emacs-buffer
+              (should-not slack-buffer--loading-more-p)))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-all-threads-load-more-resets-on-error ()
+  (slack-test-setup
+    (let* ((thread (slack-test--all-thread-view
+                    team channel "3.000" "2.500"))
+           (value (slack-all-threads--page-value
+                   1 1 (list thread) t "2.500"))
+           (state (slack-team-page-state team 'all-threads))
+           (object (slack-create-all-threads-buffer
+                    team 1 1 (list thread) t "2.500"))
+           (emacs-buffer (slack-buffer-buffer object))
+           request-error)
+      (slack-page-state-store state value "2.500" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-subscriptions-thread-get-view)
+                     (lambda (_team _current-ts _after-success
+                              &optional _on-primary-page on-error)
+                       (setq request-error on-error))))
+            (with-current-buffer emacs-buffer
+              (slack-buffer-load-more object)
+              (should slack-buffer--loading-more-p))
+            (funcall request-error "rate_limited")
+            (should (eq value (slack-page-state-value state)))
+            (with-current-buffer emacs-buffer
+              (should-not slack-buffer--loading-more-p)))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-all-threads-load-more-skips-replacement-buffer ()
+  (slack-test-setup
+    (let* ((old-thread (slack-test--all-thread-view
+                        team channel "3.000" "2.500"))
+           (new-thread (slack-test--all-thread-view
+                        team channel "2.000" "1.500"))
+           (old-value (slack-all-threads--page-value
+                       1 1 (list old-thread) t "2.500"))
+           (state (slack-team-page-state team 'all-threads))
+           (object (slack-create-all-threads-buffer
+                    team 1 1 (list old-thread) t "2.500"))
+           (original (slack-buffer-buffer object))
+           (replacement (generate-new-buffer
+                         " *slack-test-all-threads-replacement*"))
+           request-primary request-hydrated)
+      (slack-page-state-store state old-value "2.500" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-subscriptions-thread-get-view)
+                     (lambda (_team _current-ts after-success
+                              &optional on-primary-page _on-error)
+                       (setq request-primary on-primary-page
+                             request-hydrated after-success))))
+            (with-current-buffer original
+              (slack-buffer-load-more object)
+              (should slack-buffer--loading-more-p))
+            (oset object buf replacement)
+            (with-current-buffer replacement
+              (insert "replacement sentinel"))
+            (funcall request-primary 0 0 (list new-thread) nil)
+            (funcall request-hydrated 0 0 (list new-thread) nil)
+            (should (equal (list old-thread new-thread)
+                           (plist-get (slack-page-state-value state)
+                                      :threads)))
+            (with-current-buffer replacement
+              (should (equal "replacement sentinel" (buffer-string))))
+            (with-current-buffer original
+              (should-not slack-buffer--loading-more-p)))
+        (when (buffer-live-p original)
+          (kill-buffer original))
+        (when (buffer-live-p replacement)
+          (kill-buffer replacement))))))
+
 (ert-deftest slack-test-marker-overlay-uses-own-buffer ()
   (slack-test-setup
     (let* ((buf-obj (make-instance 'slack-message-buffer

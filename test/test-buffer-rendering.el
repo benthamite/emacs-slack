@@ -825,6 +825,45 @@ produces a newline with `not-tracked-p'."
     (should (memq #'slack-buffer--pre-output-render-emoji
                   lui-pre-output-hook))))
 
+(ert-deftest slack-test-all-threads-page-renderer-distinguishes-empty-and-error ()
+  "The durable All Threads renderer shows empty and failed states distinctly."
+  (slack-test-setup
+    (let* ((state (slack-team-page-state team 'all-threads))
+           (value (list :total-unread-replies 0
+                        :new-threads-count 0
+                        :threads nil
+                        :has-more nil
+                        :current-ts "1.000"))
+           (object (make-instance 'slack-all-threads-buffer
+                                  :team-id (oref team id)
+                                  :current-ts "1.000"
+                                  :has-more nil
+                                  :total-unread-replies 0
+                                  :new-threads-count 0
+                                  :threads nil))
+           emacs-buffer)
+      (slack-buffer-cache-team object team)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-subscriptions-thread-clear-all)
+                     #'ignore))
+            (setq emacs-buffer (slack-buffer-buffer object))
+            (slack-page-state-store state value nil nil)
+            (with-current-buffer emacs-buffer
+              (slack-all-threads-buffer-render-page-state object state)
+              (goto-char (point-min))
+              (should (search-forward "No threads." nil t))
+              (should-not (search-forward "Slack request failed" nil t)))
+            (let ((generation (slack-page-state-begin state t)))
+              (slack-page-state-fail state generation "offline"))
+            (with-current-buffer emacs-buffer
+              (slack-all-threads-buffer-render-page-state object state)
+              (goto-char (point-min))
+              (should (search-forward "No threads." nil t))
+              (goto-char (point-min))
+              (should (search-forward "Slack request failed: offline" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
 (ert-deftest slack-test-message-buffer-mode-derives-from-slack-buffer-mode ()
   "`slack-message-buffer-mode' derives from `slack-buffer-mode'."
   (slack-test-with-mode (slack-message-buffer-mode)
