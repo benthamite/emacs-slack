@@ -29,6 +29,9 @@
 (require 'slack-room-buffer)
 (require 'slack-pinned-item)
 
+(declare-function slack-pins-list "slack-pinned-item"
+                  (room team after-success &optional on-primary-page on-error))
+
 (define-derived-mode slack-pinned-items-buffer-mode slack-buffer-mode "Slack Pinned Items"
   "Major mode for a Slack pinned items buffer.
 
@@ -38,7 +41,11 @@ Buffer-wide bindings:
 \\{slack-pinned-items-buffer-mode-map}")
 
 (defclass slack-pinned-items-buffer (slack-room-buffer)
-  ((items :initarg :items :type list)))
+  ((items :initarg :items :initform nil :type list)))
+
+(defun slack-pinned-items-buffer-page-key (room)
+  "Return the durable pinned-items page key for ROOM."
+  (list 'pins (oref room id)))
 
 (cl-defmethod slack-buffer-name ((this slack-pinned-items-buffer))
   "Return the display buffer name for THIS buffer."
@@ -83,21 +90,79 @@ ROOM is the room argument."
   (let* ((buf (cl-call-next-method)))
     (with-current-buffer buf
       (slack-pinned-items-buffer-mode)
-      (slack-buffer-set-current-buffer this)
-      (slack-pinned-items-buffer-insert-items this))
+      (slack-buffer-set-current-buffer this))
     buf))
 
-(defun slack-create-pinned-items-buffer (room team items)
-  "Create and return a new pinned items buffer instance from PAYLOAD.
+(cl-defun slack-create-pinned-items-buffer
+    (room team &optional (items nil items-supplied-p))
+  "Find or create ROOM's pinned-items buffer on TEAM.
+When ITEMS-SUPPLIED-P is non-nil, update the buffer object's items.
 ROOM is the room argument.
 TEAM is the team argument."
-  (slack-if-let* ((buf (slack-buffer-find 'slack-pinned-items-buffer team room)))
-      (progn
-        (oset buf items items)
-        buf)
-    (slack-pinned-items-buffer :room-id (oref room id)
-                               :team-id (oref team id)
-                               :items items)))
+  (let ((buffer
+         (or (slack-buffer-find 'slack-pinned-items-buffer team room)
+             (slack-pinned-items-buffer :room-id (oref room id)
+                                        :team-id (oref team id)
+                                        :items items))))
+    (when items-supplied-p
+      (oset buffer items items))
+    (slack-buffer-cache-team buffer team)
+    buffer))
+
+(defun slack-pinned-items-buffer-render-page-state (buffer state)
+  "Render exact pinned-items BUFFER from durable page STATE."
+  (when (and (slot-boundp buffer 'buf)
+             (buffer-live-p (oref buffer buf)))
+    (when (slack-page-state-loaded-p state)
+      (oset buffer items (slack-page-state-value state)))
+    (with-current-buffer (oref buffer buf)
+      (slack-buffer-widen
+       (let ((inhibit-read-only t))
+         (delete-region (point-min) lui-output-marker)
+         (if (slack-page-state-loaded-p state)
+             (slack-pinned-items-buffer-insert-items buffer)
+           (let ((lui-time-stamp-position nil))
+             (lui-insert
+              (propertize "Pinned Items\n"
+                          'face '(:underline t :weight bold))
+              t)))
+         (goto-char (point-min))
+         (slack-buffer-insert-page-status buffer state)
+         (goto-char (point-min)))))))
+
+(defun slack-pinned-items-buffer--page-loader (room team state)
+  "Return the primary-then-hydrated page loader for ROOM on TEAM using STATE."
+  (lambda (generation success error)
+    (slack-pins-list
+     room team
+     (lambda (&rest _ignored)
+       (slack-page-state-ready state generation))
+     (lambda (items)
+       (funcall success items nil nil t))
+     (lambda (&rest errors)
+       (apply error errors)))))
+
+(defun slack-pinned-items-buffer--present (room team refresh)
+  "Present ROOM's pinned items on TEAM, reloading when REFRESH is non-nil."
+  (let* ((state (slack-team-page-state
+                 team (slack-pinned-items-buffer-page-key room)))
+         (buffer (slack-create-pinned-items-buffer room team)))
+    (slack-buffer-present-page
+     buffer state
+     (slack-pinned-items-buffer--page-loader room team state)
+     #'slack-pinned-items-buffer-render-page-state
+     refresh)
+    buffer))
+
+(defun slack-pinned-items-refresh ()
+  "Refresh the current pinned-items buffer in place."
+  (interactive)
+  (if (cl-typep slack-current-buffer 'slack-pinned-items-buffer)
+      (slack-pinned-items-buffer--present
+       (slack-buffer-room slack-current-buffer)
+       (slack-buffer-team slack-current-buffer)
+       t)
+    (user-error "Current buffer is not a Slack pinned-items buffer")))
 
 (cl-defmethod slack-buffer--replace ((this slack-pinned-items-buffer) ts)
   "Replace the rendered message identified by the argument in THIS buffer.
@@ -131,6 +196,7 @@ pins carry a file, not a message, and cannot open a thread)."
     (error "Not possible to jump to message because permalink is not defined")))
 
 (define-key slack-pinned-items-buffer-mode-map (kbd "RET") 'slack-pinned-items-open-message)
+(define-key slack-pinned-items-buffer-mode-map (kbd "g") #'slack-pinned-items-refresh)
 
 (provide 'slack-pinned-items-buffer)
 ;;; slack-pinned-items-buffer.el ends here

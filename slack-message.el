@@ -102,7 +102,7 @@ TEAM is the team argument."
                   (and (slot-boundp m 'comment)
                        (plist-get (oref m comment) :user)))))
     (if user
-        (slack-user-name user team)
+        (or (slack-user-name user team) user)
       "User Not Found")))
 
 (cl-defmethod slack-message-sender-id ((_this slack-message))

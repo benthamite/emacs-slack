@@ -463,6 +463,9 @@ Some terminology in the `slack-` functions:
   - the pinned-items list opens even when the channel contains legacy
     or unknown pin types (they are skipped instead of crashing the
     response handler)
+  - pinned-items buffers appear immediately, publish pins before user
+    metadata finishes loading, and refresh in place with visible error
+    and retry state
   - `slack-file-update` refreshes the file-info buffer it was invoked
     from (it previously sent a malformed request and updated only the
     file-list buffer)

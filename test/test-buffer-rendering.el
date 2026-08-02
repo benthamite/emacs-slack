@@ -21,6 +21,7 @@
 (require 'slack-activity-feed-buffer)
 (require 'slack-search-result-buffer)
 (require 'slack-scheduled-messages-buffer)
+(require 'slack-pinned-items-buffer)
 (require 'slack-buffer)
 (require 'slack-room)
 (require 'slack-user)
@@ -1664,6 +1665,44 @@ produces a newline with `not-tracked-p'."
               (should (search-forward "(No scheduled messages.)" nil t))))
         (when (buffer-live-p emacs-buffer)
           (kill-buffer emacs-buffer))
+        (slack-test--unregister-team team)))))
+
+(ert-deftest slack-test-pinned-items-page-render-replaces-primary-with-empty ()
+  (slack-test-setup
+    (slack-test--register-team team)
+    (let* ((state (slack-team-page-state team (list 'pins channel-id)))
+           (generation (slack-page-state-begin state))
+           (item (slack-pinned-item-create
+                  (list :type "message"
+                        :message (list :type "message"
+                                       :user user-id
+                                       :ts "1.000"
+                                       :text "rendered pin"))
+                  channel team))
+           (object (slack-create-pinned-items-buffer channel team))
+           buffer)
+      (unwind-protect
+          (progn
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (slack-pinned-items-buffer-render-page-state object state)
+              (goto-char (point-min))
+              (should (search-forward "Loading Slack data" nil t))
+              (should-not (search-forward "No Pinned Items" nil t)))
+            (slack-page-state-commit state generation (list item) nil nil t)
+            (with-current-buffer buffer
+              (slack-pinned-items-buffer-render-page-state object state)
+              (goto-char (point-min))
+              (should (search-forward "rendered pin" nil t)))
+            (slack-page-state-store state nil nil nil)
+            (with-current-buffer buffer
+              (slack-pinned-items-buffer-render-page-state object state)
+              (goto-char (point-min))
+              (should (search-forward "No Pinned Items" nil t))
+              (goto-char (point-min))
+              (should-not (search-forward "rendered pin" nil t))))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))
         (slack-test--unregister-team team)))))
 
 ;;; ---- Runner ----

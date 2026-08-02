@@ -117,6 +117,20 @@
   "Return a successful scheduled-list response containing DRAFTS."
   (list :ok t :drafts drafts))
 
+(defun slack-test-pin-message-payload (ts text &optional user-id)
+  "Return a pinned-message payload at TS with TEXT from USER-ID."
+  (list :type "message"
+        :message (list :type "message"
+                       :user (or user-id "U11111")
+                       :ts ts
+                       :text text)))
+
+(defun slack-test-pinned-item (room team ts text &optional user-id)
+  "Return a pinned item in ROOM on TEAM at TS with TEXT from USER-ID."
+  (slack-pinned-item-create
+   (slack-test-pin-message-payload ts text user-id)
+   room team))
+
 (ert-deftest slack-test-image-path ()
   (let* ((url "http://example.com/image.jpg?crop=1:2;3:4")
          (splitted (split-string url "?"))
@@ -6526,6 +6540,258 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                                                         :text "pinned")))))
       (should (eq 1 (length received-items)))
       (should (cl-typep (car received-items) 'slack-pinned-item)))))
+
+(ert-deftest slack-test-pins-list-publishes-primary-before-user-hydration ()
+  (slack-test-setup
+    (let (request user-success primary-items hydrated-items events)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (created &rest _args)
+                   (setq request created)))
+                ((symbol-function 'slack-users-info-request)
+                 (lambda (_ids _team &rest args)
+                   (setq user-success (plist-get args :after-success))
+                   (push 'users-request events))))
+        (slack-pins-list
+         channel team
+         (lambda (items)
+           (setq hydrated-items items)
+           (push 'hydrated events))
+         (lambda (items)
+           (setq primary-items items)
+           (push 'primary events)))
+        (funcall (oref request success)
+                 :data
+                 (list :ok t
+                       :items
+                       (list (slack-test-pin-message-payload
+                              "1710000000.000100" "primary pin" "U99999"))))
+        (should (equal '(primary users-request) (reverse events)))
+        (should (= 1 (length primary-items)))
+        (should-not hydrated-items)
+        (should (functionp user-success))
+        (funcall user-success)
+        (should (eq primary-items hydrated-items))
+        (should (equal '(primary users-request hydrated)
+                       (reverse events)))))))
+
+(ert-deftest slack-test-pins-list-routes-api-and-transport-errors ()
+  (slack-test-setup
+    (let (request errors primary hydrated)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (created &rest _args)
+                   (setq request created))))
+        (slack-pins-list
+         channel team
+         (lambda (_items) (setq hydrated t))
+         (lambda (_items) (setq primary t))
+         (lambda (&rest values) (push values errors)))
+        (funcall (oref request success)
+                 :data (list :ok :json-false :error "invalid_auth"))
+        (should (equal '(("invalid_auth")) errors))
+        (should-not primary)
+        (should-not hydrated)
+        (funcall (oref request error) :error-thrown "offline")
+        (should (equal '((:error-thrown "offline") ("invalid_auth"))
+                       errors))))))
+
+(ert-deftest slack-test-pinned-items-display-primary-before-user-hydration ()
+  (slack-test-setup
+    (let* ((source (slack-create-message-buffer channel "" team))
+           events request user-success object emacs-buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display)
+                     (lambda (displayed)
+                       (setq object displayed
+                             emacs-buffer (oref displayed buf))
+                       (push 'display events)))
+                    ((symbol-function 'slack-request)
+                     (lambda (created &rest _args)
+                       (setq request created)
+                       (push 'request events)))
+                    ((symbol-function 'slack-users-info-request)
+                     (lambda (_ids _team &rest args)
+                       (setq user-success (plist-get args :after-success)))))
+            (let ((returned (slack-buffer-display-pins-list source)))
+              (should (eq object returned)))
+            (should (equal '(display request) (nreverse events)))
+            (let ((state (slack-team-page-state
+                          team (list 'pins channel-id))))
+              (should (eq 'loading (slack-page-state-status state)))
+              (with-current-buffer emacs-buffer
+                (goto-char (point-min))
+                (should (search-forward "Pinned Items" nil t))
+                (goto-char (point-min))
+                (should (search-forward "Loading Slack data" nil t))
+                (goto-char (point-min))
+                (should-not (search-forward "No Pinned Items" nil t)))
+              (funcall
+               (oref request success)
+               :data
+               (list :ok t
+                     :items
+                     (list (slack-test-pin-message-payload
+                            "1710000000.000100" "primary pin" "U99999"))))
+              (should (slack-page-state-loaded-p state))
+              (should (eq 'loading (slack-page-state-status state)))
+              (should (= 1 (length (oref object items))))
+              (with-current-buffer emacs-buffer
+                (goto-char (point-min))
+                (should (search-forward "primary pin" nil t)))
+              (funcall user-success)
+              (should (eq 'ready (slack-page-state-status state)))
+              (should (eq emacs-buffer (oref object buf)))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-pinned-items-room-keys-are-isolated ()
+  (slack-test-setup
+    (let* ((other (make-instance 'slack-channel
+                                 :id "C22222" :name "OtherChannel"))
+           (source-one (slack-create-message-buffer channel "" team))
+           source-two callbacks object-one object-two)
+      (puthash (oref other id) other (oref team channels))
+      (setq source-two (slack-create-message-buffer other "" team))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-pins-list)
+                     (lambda (room _team after-success
+                                   &optional on-primary-page _on-error)
+                       (push (list (oref room id)
+                                   after-success on-primary-page)
+                             callbacks))))
+            (setq object-one (slack-buffer-display-pins-list source-one)
+                  object-two (slack-buffer-display-pins-list source-two))
+            (should-not (eq object-one object-two))
+            (let ((state-one (slack-team-page-state
+                              team (list 'pins channel-id)))
+                  (state-two (slack-team-page-state
+                              team (list 'pins (oref other id))))
+                  (item (slack-test-pinned-item
+                         channel team "1.000" "room one")))
+              (should-not (eq state-one state-two))
+              (funcall (nth 2 (assoc channel-id callbacks)) (list item))
+              (should (equal (list item) (slack-page-state-value state-one)))
+              (should-not (slack-page-state-loaded-p state-two))))
+        (dolist (object (list object-one object-two))
+          (when (and object
+                     (slot-boundp object 'buf)
+                     (buffer-live-p (oref object buf)))
+            (kill-buffer (oref object buf))))))))
+
+(ert-deftest slack-test-pinned-items-refreshes-same-buffer-to-empty ()
+  (slack-test-setup
+    (let* ((source (slack-create-message-buffer channel "" team))
+           callbacks object emacs-buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-pins-list)
+                     (lambda (_room _team after-success
+                                   &optional on-primary-page _on-error)
+                       (push (cons after-success on-primary-page) callbacks))))
+            (setq object (slack-buffer-display-pins-list source)
+                  emacs-buffer (oref object buf))
+            (let ((item (slack-test-pinned-item
+                         channel team "1.000" "first pin")))
+              (funcall (cdar callbacks) (list item))
+              (funcall (caar callbacks) (list item)))
+            (should (eq object (slack-buffer-display-pins-list source)))
+            (should (eq emacs-buffer (oref object buf)))
+            (funcall (cdar callbacks) nil)
+            (funcall (caar callbacks) nil)
+            (should-not (oref object items))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "No Pinned Items" nil t))
+              (goto-char (point-min))
+              (should-not (search-forward "first pin" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-pinned-items-failure-retries-in-place ()
+  (slack-test-setup
+    (let* ((source (slack-create-message-buffer channel "" team))
+           (requests 0)
+           on-error object emacs-buffer retry)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-pins-list)
+                     (lambda (_room _team _after-success
+                                   &optional _on-primary-page error)
+                       (cl-incf requests)
+                       (setq on-error error))))
+            (setq object (slack-buffer-display-pins-list source)
+                  emacs-buffer (oref object buf))
+            (funcall on-error :error-thrown "offline")
+            (should (eq 'failed
+                        (slack-page-state-status
+                         (slack-team-page-state
+                          team (list 'pins channel-id)))))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "offline" nil t))
+              (setq retry slack-buffer-page-retry-function))
+            (funcall retry)
+            (should (= 2 requests))
+            (should (eq emacs-buffer (oref object buf))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-pinned-items-hydration-does-not-resurrect-killed-buffer ()
+  (slack-test-setup
+    (let* ((source (slack-create-message-buffer channel "" team))
+           primary hydrated object emacs-buffer)
+      (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                ((symbol-function 'slack-pins-list)
+                 (lambda (_room _team after-success
+                               &optional on-primary-page _on-error)
+                   (setq primary on-primary-page
+                         hydrated after-success))))
+        (setq object (slack-buffer-display-pins-list source)
+              emacs-buffer (oref object buf))
+        (let ((item (slack-test-pinned-item
+                     channel team "1.000" "durable pin")))
+          (funcall primary (list item))
+          (with-current-buffer emacs-buffer
+            (goto-char (point-min))
+            (should (search-forward "durable pin" nil t)))
+          (kill-buffer emacs-buffer)
+          (funcall hydrated (list item)))
+        (should-not (buffer-live-p emacs-buffer))
+        (should-not (slack-buffer-find
+                     'slack-pinned-items-buffer team channel))
+        (let ((state (slack-team-page-state
+                      team (list 'pins channel-id))))
+          (should (eq 'ready (slack-page-state-status state)))
+          (should (= 1 (length (slack-page-state-value state)))))))))
+
+(ert-deftest slack-test-pinned-items-result-skips-replacement-buffer ()
+  (slack-test-setup
+    (let* ((source (slack-create-message-buffer channel "" team))
+           primary hydrated object original replacement)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-pins-list)
+                     (lambda (_room _team after-success
+                                   &optional on-primary-page _on-error)
+                       (setq primary on-primary-page
+                             hydrated after-success))))
+            (setq object (slack-buffer-display-pins-list source)
+                  original (oref object buf)
+                  replacement (generate-new-buffer
+                               " *slack-pins-replacement*"))
+            (oset object buf replacement)
+            (with-current-buffer replacement
+              (insert "replacement sentinel"))
+            (let ((item (slack-test-pinned-item
+                         channel team "1.000" "late pin")))
+              (funcall primary (list item))
+              (funcall hydrated (list item)))
+            (with-current-buffer replacement
+              (should (equal "replacement sentinel" (buffer-string)))))
+        (when (buffer-live-p original)
+          (kill-buffer original))
+        (when (buffer-live-p replacement)
+          (kill-buffer replacement))))))
 
 (ert-deftest slack-test-star-empty-cursor-means-no-next-page ()
   (let ((star (slack-create-star

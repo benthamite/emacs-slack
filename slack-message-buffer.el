@@ -48,6 +48,8 @@
 
 (declare-function slack-ts-saved-p
                   "slack-star" (team ts &optional item-type item-id))
+(declare-function slack-pinned-items-buffer--present
+                  "slack-pinned-items-buffer" (room team refresh))
 
 (defvar slack-completing-read-function)
 (defvar slack-channel-button-keymap
@@ -494,12 +496,7 @@ would be stale once history is inserted above it."
   "Open the pinned-items buffer for THIS buffer."
   (let ((team (slack-buffer-team this))
         (room (slack-buffer-room this)))
-    (slack-pins-list
-     room team
-     #'(lambda (items)
-         (let* ((buf (slack-create-pinned-items-buffer
-                      room team items)))
-           (slack-buffer-display buf))))))
+    (slack-pinned-items-buffer--present room team t)))
 
 (cl-defmethod slack-buffer-display-user-profile ((this slack-message-buffer))
   "Display the selected user's profile from THIS buffer."

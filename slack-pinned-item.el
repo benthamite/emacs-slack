@@ -73,15 +73,25 @@ TEAM is the team argument."
         (slack-message-to-string message (slack-ts message) team)
       (slack-message-to-string message team))))
 
-(defun slack-pins-list (room team after-success)
-  "Fetch pinned items in ROOM on TEAM, calling AFTER-SUCCESS with the list."
+(defun slack-pins-list
+    (room team after-success &optional on-primary-page on-error)
+  "Fetch pinned items in ROOM on TEAM.
+Call ON-PRIMARY-PAGE with parsed items before missing-user hydration, then call
+AFTER-SUCCESS with the same items after hydration.  ON-ERROR receives API or
+transport failures."
   (cl-labels
       ((callback (items)
                  (funcall after-success items))
+       (primary (items)
+                (when (functionp on-primary-page)
+                  (funcall on-primary-page items)))
        (success
         (&key data &allow-other-keys)
         (slack-request-handle-error
-         (data "slack-pins-list")
+         (data "slack-pins-list"
+               (lambda (api-error)
+                 (when (functionp on-error)
+                   (funcall on-error api-error))))
          (let* ((items (delq nil
                              (mapcar #'(lambda (item)
                                          (slack-pinned-item-create item
@@ -91,6 +101,7 @@ TEAM is the team argument."
                 (user-ids (slack-team-missing-user-ids
                            team (cl-loop for item in items
                                          nconc (slack-message-user-ids item)))))
+           (primary items)
            (if (< 0 (length user-ids))
                (slack-users-info-request
                 user-ids team
@@ -101,7 +112,10 @@ TEAM is the team argument."
       slack-room-pins-list-url
       team
       :params (list (cons "channel" (oref room id)))
-      :success #'success))))
+      :success #'success
+      :error (lambda (&rest errors)
+               (when (functionp on-error)
+                 (apply on-error errors)))))))
 
 (provide 'slack-pinned-item)
 ;;; slack-pinned-item.el ends here
