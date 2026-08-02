@@ -337,6 +337,18 @@ Some terminology in the `slack-` functions:
     an in-buffer retry action
   - file-deletion events remove the file from the cache, durable page, and
     current file-list buffer together
+  - opening file info creates and displays its stable buffer immediately;
+    cached metadata remains visible while complete details load in the
+    background
+  - failed file-info requests keep any cached details visible and offer a
+    retry, while late responses cannot recreate a killed buffer
+  - complete file-info responses hydrate cached file objects in place, so
+    existing file-list snapshots see the new metadata without changing object
+    identity
+  - file events remain visible during detail refreshes: replacement events
+    supersede stale requests, while in-place star changes survive hydration
+  - superseded file-info responses cannot mutate newer cached metadata or
+    leave the shared detail state stuck refreshing
   - re-opening a file's info and loading file-list pages that contain
     already-cached files merge correctly instead of erroring inside the
     request callback

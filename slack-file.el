@@ -305,6 +305,30 @@ OLD is the old argument."
   "Insert file F into TEAM's file cache, merging with any existing entry."
   (slack-team-set-files team (list f)))
 
+(defun slack-file-cache-info (file team)
+  "Cache the complete FILE returned by `files.info' on TEAM.
+When the cached object has the same class, hydrate it in place so existing
+buffers and list snapshots observe the complete metadata.  Return the cached
+object."
+  (let* ((id (oref file id))
+         (old (slack-file-find id team)))
+    (cond
+     ((not old)
+      (slack-file-pushnew file team)
+      file)
+     ((eq (eieio-object-class-name old)
+          (eieio-object-class-name file))
+      (dolist (descriptor (eieio-class-slots (eieio-object-class file)))
+        (let ((slot (eieio-slot-descriptor-name descriptor)))
+          (when (slot-boundp file slot)
+            (setf (slot-value old slot) (slot-value file slot)))))
+      old)
+     (t
+      ;; A summary can omit the specialized email subtype.  Preserve the
+      ;; complete response rather than forcing subtype slots into OLD.
+      (puthash id file (oref team files))
+      file))))
+
 (defun slack-file-create-email-from (payload &optional type)
   "Build an email address object from PAYLOAD.
 TYPE is `to', `cc', or nil (the default, meaning From)."
@@ -364,38 +388,63 @@ NEW is the new argument."
   (apply 'make-instance 'slack-file-comment
          (slack-collect-slots 'slack-file-comment payload)))
 
-(defun slack-file-request-info (file-id page team &optional after-success)
+(defun slack-file-request-info
+    (file-id page team &optional after-success on-error accept-result)
   "Fetch `files.info' for FILE-ID on TEAM, for the given PAGE of comments.
-Calls AFTER-SUCCESS with the file and team on success."
+Calls AFTER-SUCCESS with the file and team on success.  ON-ERROR
+receives API, transport, and response-normalization failures.  ACCEPT-RESULT,
+when non-nil, receives the parsed file and TEAM before cache mutation; discard
+the response when it returns nil."
   (cl-labels
-      ((on-file-info
+      ((fail (&rest errors)
+         (when (functionp on-error)
+           (apply on-error errors)))
+       (on-file-info
          (&key data &allow-other-keys)
          (slack-request-handle-error
-          (data "slack-file-info")
-          (let* ((file (slack-file-create (plist-get data :file)))
-                 (comments (mapcar #'slack-file-comment-create
-                                   (plist-get data :comments)))
-                 (content (make-instance 'slack-file-content
-                                         :content
-                                         (plist-get data :content)
-                                         :content_highlight_html
-                                         (plist-get data :content_highlight_html)
-                                         :content_highlight_css
-                                         (plist-get data :content_highlight_css)
-                                         :is_truncated
-                                         (eq t (plist-get data :is_truncated)))))
-            (oset file comments comments)
-            (oset file content content)
-            (slack-file-pushnew file team)
-            (if after-success
-		(funcall after-success file team))))))
+          (data "slack-file-info" #'fail)
+          (let ((file
+                 (condition-case response-error
+                     (slack-file--normalize-info-response data)
+                   (error
+                    (funcall #'fail response-error)
+                    nil))))
+            (when (and file
+                       (or (null accept-result)
+                           (funcall accept-result file team)))
+              (setq file
+                    (condition-case cache-error
+                        (slack-file-cache-info file team)
+                      (error
+                       (funcall #'fail cache-error)
+                       nil)))
+              (when (and file (functionp after-success))
+                (funcall after-success file team)))))))
     (slack-request
      (slack-request-create
       slack-file-info-url
       team
       :params (list (cons "file" file-id)
                     (cons "page" (number-to-string page)))
-      :success #'on-file-info))))
+      :success #'on-file-info
+      :error (lambda (&rest errors)
+               (apply #'fail errors))))))
+
+(defun slack-file--normalize-info-response (data)
+  "Return the complete Slack file parsed from files.info response DATA."
+  (let* ((file (slack-file-create (plist-get data :file)))
+         (comments (mapcar #'slack-file-comment-create
+                           (plist-get data :comments)))
+         (content
+          (make-instance
+           'slack-file-content
+           :content (plist-get data :content)
+           :content_highlight_html (plist-get data :content_highlight_html)
+           :content_highlight_css (plist-get data :content_highlight_css)
+           :is_truncated (eq t (plist-get data :is_truncated)))))
+    (oset file comments comments)
+    (oset file content content)
+    file))
 
 (cl-defmethod slack-file-gdoc-p ((this slack-file))
   "Return non-nil when THIS file is a Google Doc."

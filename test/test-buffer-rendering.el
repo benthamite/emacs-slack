@@ -1937,5 +1937,38 @@ produces a newline with `not-tracked-p'."
 
 ;;; ---- Runner ----
 
+(ert-deftest slack-test-file-detail-page-render-transitions-from-shell-to-file ()
+  (slack-test-setup
+    (slack-test--register-team team)
+    (let* ((state (slack-team-page-state team '(file-info "F11111")))
+           (generation (slack-page-state-begin state))
+           (file (slack-file-create
+                  (list :id "F11111" :created 1710000000
+                        :name "Rendered detail" :title "Rendered detail"
+                        :size 1000 :public :json-false :filetype "text"
+                        :mimetype "text/plain" :pretty_type "Plain Text"
+                        :user user-id :preview "" :permalink ""
+                        :username "TestUser" :url_private ""
+                        :url_private_download "")))
+           (object (slack-create-file-info-buffer team "F11111"))
+           buffer)
+      (unwind-protect
+          (progn
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (slack-file-info-buffer-render-page-state object state)
+              (goto-char (point-min))
+              (should (search-forward "Loading Slack data" nil t)))
+            (slack-page-state-commit state generation file nil nil)
+            (with-current-buffer buffer
+              (slack-file-info-buffer-render-page-state object state)
+              (goto-char (point-min))
+              (should (search-forward "Rendered detail" nil t))
+              (goto-char (point-min))
+              (should-not (search-forward "Loading Slack data" nil t))))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))
+        (slack-test--unregister-team team)))))
+
 (provide 'test-buffer-rendering)
 ;;; test-buffer-rendering.el ends here

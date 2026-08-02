@@ -132,6 +132,26 @@
    (slack-test-pin-message-payload ts text user-id)
    room team))
 
+(defun slack-test-file-detail (id title &optional page)
+  "Return a renderable Slack file fixture with ID, TITLE, and PAGE."
+  (slack-file-create
+   (list :id id
+         :created 1710000000
+         :name title
+         :title title
+         :size 1000
+         :public :json-false
+         :filetype "text"
+         :mimetype "text/plain"
+         :pretty_type "Plain Text"
+         :user "U11111"
+         :preview ""
+         :permalink (format "https://example.test/files/%s" id)
+         :username "TestUser"
+         :page (or page 1)
+         :url_private (format "https://example.test/files/%s/view" id)
+         :url_private_download "")))
+
 (ert-deftest slack-test-image-path ()
   (let* ((url "http://example.com/image.jpg?crop=1:2;3:4")
          (splitted (split-string url "?"))
@@ -4812,20 +4832,405 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
           (when (buffer-live-p (oref buf-obj buf))
             (kill-buffer (oref buf-obj buf))))))))
 
-(ert-deftest slack-test-file-update-passes-file-id ()
+(ert-deftest slack-test-file-detail-cold-open-displays-before-request ()
   (slack-test-setup
-    (let* ((file (slack-file-create (list :id "F11111")))
-           (buf-obj (make-instance 'slack-file-info-buffer
-                                   :team-id (oref team id)
-                                   :file file))
-           (captured-id nil))
-      (slack-buffer-cache-team buf-obj team)
-      (cl-letf (((symbol-function 'slack-file-request-info)
-                 (lambda (file-id _page _team &optional _after-success)
-                   (setq captured-id file-id))))
-        (let ((slack-current-buffer buf-obj))
-          (slack-file-update)))
-      (should (equal "F11111" captured-id)))))
+    (let* ((source (slack-create-message-buffer channel "" team))
+           (full (slack-test-file-detail "F11111" "Full file"))
+           events success object emacs-buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display)
+                     (lambda (displayed)
+                       (setq object displayed
+                             emacs-buffer (oref displayed buf))
+                       (push 'display events)))
+                    ((symbol-function 'slack-file-request-info)
+                     (lambda (file-id page request-team
+                                      &optional after-success _on-error
+                                      _accept-result)
+                       (should (equal "F11111" file-id))
+                       (should (= 1 page))
+                       (should (eq team request-team))
+                       (setq success after-success)
+                       (push 'request events))))
+            (let ((result (slack-buffer-display-file source "F11111")))
+              (should (eq object result)))
+            (should (equal '(display request) (nreverse events)))
+            (should (string-match-p "F11111" (buffer-name emacs-buffer)))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "Loading Slack data" nil t)))
+            (funcall success full team)
+            (let ((state (slack-team-page-state team '(file-info "F11111"))))
+              (should (eq 'ready (slack-page-state-status state)))
+              (should (eq full (slack-page-state-value state))))
+            (should (eq object
+                        (slack-buffer-find
+                         'slack-file-info-buffer team "F11111")))
+            (should (eq emacs-buffer (oref object buf)))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "Full file" nil t))
+              (goto-char (point-min))
+              (should-not (search-forward "Loading Slack data" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-file-detail-renders-cached-summary-before-refresh ()
+  (slack-test-setup
+    (let* ((source (slack-create-message-buffer channel "" team))
+           (summary (slack-test-file-detail "F11111" "Cached summary"))
+           (full (slack-test-file-detail "F11111" "Hydrated detail"))
+           success object emacs-buffer)
+      (slack-file-pushnew summary team)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-file-request-info)
+                     (lambda (_file-id _page _team
+                                      &optional after-success _on-error
+                                      _accept-result)
+                       (setq success after-success))))
+            (setq object (slack-buffer-display-file source "F11111")
+                  emacs-buffer (oref object buf))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "Cached summary" nil t))
+              (goto-char (point-min))
+              (should (search-forward "Refreshing Slack data" nil t)))
+            (funcall success full team)
+            (should (eq emacs-buffer (oref object buf)))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "Hydrated detail" nil t))
+              (goto-char (point-min))
+              (should-not (search-forward "Cached summary" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-file-detail-failure-preserves-summary-and-retries ()
+  (slack-test-setup
+    (let* ((source (slack-create-message-buffer channel "" team))
+           (summary (slack-test-file-detail "F11111" "Cached summary"))
+           (requests 0)
+           on-error object emacs-buffer retry)
+      (slack-file-pushnew summary team)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-file-request-info)
+                     (lambda (_file-id _page _team
+                                      &optional _after-success error
+                                      _accept-result)
+                       (cl-incf requests)
+                       (setq on-error error))))
+            (setq object (slack-buffer-display-file source "F11111")
+                  emacs-buffer (oref object buf))
+            (funcall on-error "offline")
+            (let ((state (slack-team-page-state team '(file-info "F11111"))))
+              (should (eq 'failed (slack-page-state-status state)))
+              (should (eq summary (slack-page-state-value state))))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "Cached summary" nil t))
+              (goto-char (point-min))
+              (should (search-forward "offline" nil t))
+              (setq retry slack-buffer-page-retry-function))
+            (funcall retry)
+            (should (= 2 requests))
+            (should (eq emacs-buffer (oref object buf))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-file-detail-late-result-does-not-recreate-killed-buffer ()
+  (slack-test-setup
+    (let* ((source (slack-create-message-buffer channel "" team))
+           (full (slack-test-file-detail "F11111" "Hydrated detail"))
+           success object emacs-buffer)
+      (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                ((symbol-function 'slack-file-request-info)
+                 (lambda (_file-id _page _team
+                                  &optional after-success _on-error
+                                  _accept-result)
+                   (setq success after-success))))
+        (setq object (slack-buffer-display-file source "F11111")
+              emacs-buffer (oref object buf))
+        (kill-buffer emacs-buffer)
+        (funcall success full team)
+        (should-not (buffer-live-p emacs-buffer))
+        (should-not (slack-buffer-find
+                     'slack-file-info-buffer team "F11111"))
+        (should (eq full
+                    (slack-page-state-value
+                     (slack-team-page-state team '(file-info "F11111")))))))))
+
+(ert-deftest slack-test-file-info-request-routes-every-failure ()
+  (slack-test-setup
+    (dolist (failure '(api transport normalization))
+      (let (request reported success-called)
+        (cl-letf (((symbol-function 'slack-request)
+                   (lambda (created &rest _)
+                     (setq request created))))
+          (slack-file-request-info
+           "F11111" 1 team
+           (lambda (&rest _) (setq success-called t))
+           (lambda (&rest errors) (push errors reported)))
+          (pcase failure
+            ('api
+             (funcall (oref request success)
+                      :data '(:ok :json-false :error "invalid_auth")))
+            ('transport
+             (funcall (oref request error)
+                      :error-thrown '(error "offline")
+                      :symbol-status 'error))
+            ('normalization
+             (funcall (oref request success)
+                      :data '(:ok t :file (:id "F11111" :mimetype 4)))))
+          (should (= 1 (length reported)))
+          (should-not success-called))))))
+
+(ert-deftest slack-test-file-info-request-hydrates-cached-object-in-place ()
+  (slack-test-setup
+    (let ((summary (slack-test-file-detail "F11111" "Cached summary"))
+          request returned)
+      (slack-file-pushnew summary team)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (created &rest _)
+                   (setq request created))))
+        (slack-file-request-info
+         "F11111" 1 team (lambda (file &rest _) (setq returned file)))
+        (funcall
+         (oref request success)
+         :data
+         '(:ok t
+           :file (:id "F11111" :created 1710000000
+                  :name "Hydrated detail" :title "Hydrated detail"
+                  :size 2000 :public :json-false :filetype "text"
+                  :mimetype "text/plain" :pretty_type "Plain Text"
+                  :user "U11111" :preview "complete"
+                  :permalink "https://example.test/files/F11111"
+                  :username "TestUser" :page 1
+                  :url_private "https://example.test/files/F11111/view"
+                  :url_private_download "")
+           :comments nil))
+        (should (eq summary returned))
+        (should (eq summary (slack-file-find "F11111" team)))
+        (should (equal "Hydrated detail" (oref summary title)))
+        (should (equal "complete" (oref summary preview)))))))
+
+(ert-deftest slack-test-file-detail-event-replacement-uses-file-id-key ()
+  (slack-test-setup
+    (let* ((summary (slack-test-file-detail "F11111" "Cached summary"))
+           (updated (slack-test-file-detail "F11111" "Event update"))
+           (state (slack-team-page-state team '(file-info "F11111")))
+           (object (slack-create-file-info-buffer team "F11111" summary))
+           (emacs-buffer (slack-buffer-buffer object)))
+      (slack-page-state-store state summary nil nil)
+      (unwind-protect
+          (progn
+            (slack-message-replace-buffer updated team)
+            (should (eq updated (oref object file)))
+            (should (eq updated (slack-page-state-value state)))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "Event update" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-file-detail-event-replacement-supersedes-refresh ()
+  (slack-test-setup
+    (let* ((summary (slack-test-file-detail "F11111" "Cached summary"))
+           (updated (slack-test-file-detail "F11111" "Event update"))
+           (state (slack-team-page-state team '(file-info "F11111")))
+           (object (slack-create-file-info-buffer team "F11111" summary))
+           (emacs-buffer (slack-buffer-buffer object)))
+      (slack-page-state-store state summary nil nil)
+      (slack-page-state-begin state t)
+      (unwind-protect
+          (progn
+            (slack-message-replace-buffer updated team)
+            (should (eq 'ready (slack-page-state-status state)))
+            (should (eq updated (oref object file)))
+            (should (eq updated (slack-page-state-value state)))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "Event update" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-file-detail-stale-result-does-not-mutate-current-cache ()
+  (slack-test-setup
+    (let* ((summary (slack-test-file-detail "F11111" "Cached summary"))
+           (newer (slack-test-file-detail "F11111" "Newer detail"))
+           (state (slack-team-page-state team '(file-info "F11111")))
+           request object emacs-buffer)
+      (slack-file-pushnew summary team)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-request)
+                     (lambda (created &rest _ignored)
+                       (setq request created))))
+            (setq object (slack-file-info-buffer--present
+                          team "F11111" 1 t)
+                  emacs-buffer (oref object buf))
+            (puthash "F11111" newer (oref team files))
+            (slack-page-state-store state newer nil nil)
+            (funcall
+             (oref request success)
+             :data
+             '(:ok t
+               :file (:id "F11111" :created 1710000000
+                      :name "Stale detail" :title "Stale detail"
+                      :size 2000 :public :json-false :filetype "text"
+                      :mimetype "text/plain" :pretty_type "Plain Text"
+                      :user "U11111" :preview "stale"
+                      :permalink "https://example.test/files/F11111"
+                      :username "TestUser" :page 1
+                      :url_private "https://example.test/files/F11111/view"
+                      :url_private_download "")
+               :comments nil))
+            (should (eq newer (slack-file-find "F11111" team)))
+            (should (eq newer (slack-page-state-value state)))
+            (should (equal "Newer detail" (oref newer title))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-file-detail-cache-replacement-finishes-current-load ()
+  (slack-test-setup
+    (let* ((summary (slack-test-file-detail "F11111" "Cached summary"))
+           (newer (slack-test-file-detail "F11111" "Newer detail"))
+           (state (slack-team-page-state team '(file-info "F11111")))
+           request object emacs-buffer)
+      (slack-file-pushnew summary team)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-request)
+                     (lambda (created &rest _ignored)
+                       (setq request created))))
+            (setq object (slack-file-info-buffer--present
+                          team "F11111" 1 t)
+                  emacs-buffer (oref object buf))
+            (puthash "F11111" newer (oref team files))
+            (funcall
+             (oref request success)
+             :data
+             '(:ok t
+               :file (:id "F11111" :created 1710000000
+                      :name "Stale detail" :title "Stale detail"
+                      :size 2000 :public :json-false :filetype "text"
+                      :mimetype "text/plain" :pretty_type "Plain Text"
+                      :user "U11111" :preview "stale"
+                      :permalink "https://example.test/files/F11111"
+                      :username "TestUser" :page 1
+                      :url_private "https://example.test/files/F11111/view"
+                      :url_private_download "")
+               :comments nil))
+            (should (eq 'ready (slack-page-state-status state)))
+            (should (eq newer (slack-page-state-value state)))
+            (should (eq newer (slack-file-find "F11111" team)))
+            (should (equal "Newer detail" (oref newer title))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-file-detail-refresh-reconciles-live-star-event ()
+  (slack-test-setup
+    (let* ((summary (slack-test-file-detail "F11111" "Cached summary"))
+           (state (slack-team-page-state team '(file-info "F11111")))
+           request object emacs-buffer)
+      (slack-file-pushnew summary team)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-request)
+                     (lambda (created &rest _ignored)
+                       (setq request created))))
+            (setq object (slack-file-info-buffer--present
+                          team "F11111" 1 t)
+                  emacs-buffer (oref object buf))
+            (slack-message-star-added summary)
+            (slack-message-replace-buffer summary team)
+            (funcall
+             (oref request success)
+             :data
+             '(:ok t
+               :file (:id "F11111" :created 1710000000
+                      :name "Hydrated detail" :title "Hydrated detail"
+                      :size 2000 :public :json-false :filetype "text"
+                      :mimetype "text/plain" :pretty_type "Plain Text"
+                      :user "U11111" :preview "complete"
+                      :is_starred :json-false
+                      :permalink "https://example.test/files/F11111"
+                      :username "TestUser" :page 1
+                      :url_private "https://example.test/files/F11111/view"
+                      :url_private_download "")
+               :comments nil))
+            (should (eq 'ready (slack-page-state-status state)))
+            (should (equal "Hydrated detail" (oref summary title)))
+            (should (oref summary is-starred))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "Hydrated detail" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-file-info-request-does-not-reclassify-callback-errors ()
+  (slack-test-setup
+    (let ((data
+           '(:ok t
+             :file (:id "F11111" :created 1710000000
+                    :name "Detail" :title "Detail"
+                    :size 2000 :public :json-false :filetype "text"
+                    :mimetype "text/plain" :pretty_type "Plain Text"
+                    :user "U11111" :preview "complete"
+                    :permalink "https://example.test/files/F11111"
+                    :username "TestUser" :page 1
+                    :url_private "https://example.test/files/F11111/view"
+                    :url_private_download "")
+             :comments nil)))
+      (let (request (error-count 0))
+        (cl-letf (((symbol-function 'slack-request)
+                   (lambda (created &rest _ignored)
+                     (setq request created))))
+          (slack-file-request-info
+           "F11111" 1 team
+           (lambda (&rest _ignored) (error "consumer failed"))
+           (lambda (&rest _ignored) (cl-incf error-count)))
+          (should-error (funcall (oref request success) :data data))
+          (should (= 0 error-count))))
+      (let (request (error-count 0))
+        (cl-letf (((symbol-function 'slack-request)
+                   (lambda (created &rest _ignored)
+                     (setq request created))))
+          (slack-file-request-info
+           "F11111" 1 team #'ignore
+           (lambda (&rest _ignored)
+             (cl-incf error-count)
+             (error "error consumer failed")))
+          (should-error
+           (funcall (oref request success)
+                    :data '(:ok :json-false :error "invalid_auth")))
+          (should (= 1 error-count)))))))
+
+(ert-deftest slack-test-file-update-refreshes-same-file-buffer ()
+  (slack-test-setup
+    (let* ((file (slack-test-file-detail "F11111" "Initial detail" 3))
+           (state (slack-team-page-state team '(file-info "F11111")))
+           (object (slack-create-file-info-buffer team "F11111" file))
+           (emacs-buffer (slack-buffer-buffer object))
+           captured-id captured-page)
+      (slack-page-state-store state file nil nil)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-file-request-info)
+                     (lambda (file-id page _team
+                                      &optional _after-success _on-error
+                                      _accept-result)
+                       (setq captured-id file-id
+                             captured-page page))))
+            (let ((slack-current-buffer object))
+              (should (eq object (slack-file-update))))
+            (should (equal "F11111" captured-id))
+            (should (= 3 captured-page))
+            (should (eq emacs-buffer (oref object buf)))
+            (should (eq 'refreshing (slack-page-state-status state))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
 
 (ert-deftest slack-test-scheduled-messages-buffer-is-findable ()
   (slack-test-setup

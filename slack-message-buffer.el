@@ -1052,7 +1052,8 @@ Call SUCCESS-CALLBACK after supplemental identity hydration."
 
 (cl-defmethod slack-message-replace-buffer ((this slack-file) team)
   "Replace THIS file in all buffers on TEAM showing it."
-  (slack-if-let* ((buffer (slack-buffer-find 'slack-file-info-buffer team this)))
+  (slack-if-let* ((buffer (slack-buffer-find
+                           'slack-file-info-buffer team (oref this id))))
       (progn
         (oset buffer file this)
         (slack-buffer-update buffer)))
