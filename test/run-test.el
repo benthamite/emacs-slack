@@ -70,6 +70,38 @@
                  :item-type "message"
                  :ts ts))
 
+(defun slack-test-search-pagination (page page-count first last)
+  "Return search pagination for PAGE of PAGE-COUNT covering FIRST through LAST."
+  (make-instance 'slack-search-pagination
+                 :total_count last
+                 :page page
+                 :per_page (max 0 (1+ (- last first)))
+                 :page_count page-count
+                 :first first
+                 :last last))
+
+(defun slack-test-search-file (id title user-id created)
+  "Return a minimal file search match with ID, TITLE, USER-ID, and CREATED."
+  (make-instance 'slack-file
+                 :id id
+                 :created created
+                 :title title
+                 :mimetype "text/plain"
+                 :user user-id
+                 :mode "hosted"))
+
+(defun slack-test-file-search-result
+    (query matches page page-count first last)
+  "Return a file search result for QUERY and MATCHES at PAGE of PAGE-COUNT."
+  (make-instance 'slack-file-search-result
+                 :query query
+                 :sort "timestamp"
+                 :sort-dir "desc"
+                 :total (length matches)
+                 :matches matches
+                 :pagination
+                 (slack-test-search-pagination page page-count first last)))
+
 (ert-deftest slack-test-image-path ()
   (let* ((url "http://example.com/image.jpg?crop=1:2;3:4")
          (splitted (split-string url "?"))
@@ -1457,6 +1489,331 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                    (setq shown (list message room thread-team)))))
         (slack-buffer-display-thread buf thread-ts))
       (should (equal shown (list parent channel team))))))
+
+(ert-deftest slack-test-search-empty-pagination-is-fully-initialized ()
+  (let ((pagination (slack-search-empty-pagination)))
+    (dolist (slot '(total-count page per-page page-count first last))
+      (should (= 0 (slot-value pagination slot))))))
+
+(ert-deftest slack-test-search-commands-display-before-request-with-stable-keys ()
+  (slack-test-setup
+    (let ((original-page-state (symbol-function 'slack-team-page-state))
+          keys
+          events
+          objects)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-search-query-params)
+                     (lambda (&optional _query)
+                       (list team "needle" "timestamp" "desc")))
+                    ((symbol-function 'slack-team-page-state)
+                     (lambda (state-team key)
+                       (push key keys)
+                       (funcall original-page-state state-team key)))
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (object)
+                       (push object objects)
+                       (push (list 'display
+                                   (if (slack-file-search-result-p
+                                        (oref object search-result))
+                                       'file
+                                     'messages))
+                             events)))
+                    ((symbol-function 'slack-search-request)
+                     (lambda (result &rest _args)
+                       (should (= 0 (oref result total)))
+                       (should-not (oref result matches))
+                       (dolist (slot '(total-count page per-page page-count
+                                      first last))
+                         (should (= 0 (slot-value
+                                       (oref result pagination) slot))))
+                       (push (list 'request
+                                   (if (slack-file-search-result-p result)
+                                       'file
+                                     'messages))
+                             events))))
+            (slack-search-from-messages nil)
+            (slack-search-from-files)
+            (should
+             (equal '((display messages) (request messages)
+                      (display file) (request file))
+                    (nreverse events)))
+            (should (member '(search messages "needle" "timestamp" "desc")
+                            keys))
+            (should (member '(search file "needle" "timestamp" "desc")
+                            keys)))
+        (dolist (object objects)
+          (when (buffer-live-p (oref object buf))
+            (kill-buffer (oref object buf))))))))
+
+(ert-deftest slack-test-search-primary-precedes-user-hydration ()
+  (slack-test-setup
+    (let* ((result (make-instance
+                    'slack-search-result
+                    :query "needle"
+                    :sort "timestamp"
+                    :sort-dir "desc"
+                    :total 0
+                    :matches nil
+                    :pagination (slack-test-search-pagination 0 0 0 0)))
+           request-success
+           users-success
+           events)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (setq request-success (oref request success))))
+                ((symbol-function 'slack-team-missing-user-ids)
+                 (lambda (&rest _args) (list "U-missing")))
+                ((symbol-function 'slack-users-info-request)
+                 (lambda (_ids _team &rest args)
+                   (setq users-success (plist-get args :after-success))
+                   (push 'users events))))
+        (slack-search-request
+         result
+         (lambda () (push 'ready events))
+         team 1
+         (lambda (&rest _args) (push 'error events))
+         (lambda (primary)
+           (should (eq primary result))
+           (push 'primary events)))
+        (funcall
+         request-success
+         :data
+         (list :ok t
+               :query "needle"
+               :messages
+               (list :total 1
+                     :matches
+                     (list
+                      (list :channel (list :id channel-id
+                                           :name channel-name)
+                            :user user-id
+                            :username user-name
+                            :permalink "https://example.com/message"
+                            :type "message"
+                            :text "search result"
+                            :ts "1.000"))
+                     :pagination
+                     (list :total_count 1 :page 1 :per_page 20
+                           :page_count 1 :first 1 :last 1))))
+        (should (equal '(users primary) events))
+        (should (= 1 (length (oref result matches))))
+        (funcall users-success)
+        (should (equal '(ready users primary) events))))))
+
+(ert-deftest slack-test-search-five-argument-errors-remain-compatible ()
+  (slack-test-setup
+    (let ((result (slack-test-file-search-result "needle" nil 0 0 0 0))
+          request-success
+          request-error
+          errors)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (setq request-success (oref request success)
+                         request-error (oref request error)))))
+        (slack-search-request
+         result #'ignore team 1
+         (lambda (&rest values) (push values errors)))
+        (funcall request-success
+                 :data (list :ok :json-false :error "invalid_auth"))
+        (funcall request-error :error-thrown "transport failure"))
+      (should (= 2 (length errors)))
+      (should (equal '("invalid_auth") (cadr errors)))
+      (should (equal '(:error-thrown "transport failure")
+                     (car errors))))))
+
+(ert-deftest slack-test-search-repeated-query-renders-in-same-buffer ()
+  (slack-test-setup
+    (let (callbacks
+          object
+          first-buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-search-query-params)
+                     (lambda (&optional _query)
+                       (list team "needle" "timestamp" "desc")))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-search-request)
+                     (lambda (_result after-success _team &optional _page
+                              on-error on-primary-page)
+                       (setq callbacks
+                             (list after-success on-error on-primary-page)))))
+            (setq object (slack-search-from-files)
+                  first-buffer (oref object buf))
+            (let ((first
+                   (slack-test-file-search-result
+                    "needle"
+                    (list (slack-test-search-file
+                           "F1" "first result" user-id 1))
+                    1 1 1 1)))
+              (funcall (nth 2 callbacks) first)
+              (funcall (car callbacks)))
+            (with-current-buffer first-buffer
+              (goto-char (point-min))
+              (should (search-forward "first result" nil t)))
+            (let ((again (slack-search-from-files)))
+              (should (eq object again))
+              (should (eq first-buffer (oref again buf))))
+            (let ((second
+                   (slack-test-file-search-result
+                    "needle"
+                    (list (slack-test-search-file
+                           "F2" "second result" user-id 2))
+                    1 1 1 1)))
+              (funcall (nth 2 callbacks) second)
+              (funcall (car callbacks)))
+            (with-current-buffer first-buffer
+              (goto-char (point-min))
+              (should (search-forward "second result" nil t))
+              (goto-char (point-min))
+              (should-not (search-forward "first result" nil t))))
+        (when (buffer-live-p first-buffer)
+          (kill-buffer first-buffer))))))
+
+(ert-deftest slack-test-search-empty-error-and-retry-stay-in-place ()
+  (slack-test-setup
+    (let (callbacks
+          object
+          emacs-buffer
+          retry
+          (requests 0))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-search-query-params)
+                     (lambda (&optional _query)
+                       (list team "needle" "timestamp" "desc")))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-search-request)
+                     (lambda (_result after-success _team &optional _page
+                              on-error on-primary-page)
+                       (cl-incf requests)
+                       (setq callbacks
+                             (list after-success on-error on-primary-page)))))
+            (setq object (slack-search-from-messages nil)
+                  emacs-buffer (oref object buf))
+            (funcall
+             (nth 2 callbacks)
+             (make-instance
+              'slack-search-result
+              :query "needle"
+              :sort "timestamp"
+              :sort-dir "desc"
+              :total 0
+              :matches nil
+              :pagination (slack-test-search-pagination 1 1 0 0)))
+            (funcall (car callbacks))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "(no more messages)" nil t)))
+            (setq object (slack-search-from-messages nil))
+            (funcall (nth 1 callbacks) "rate_limited")
+            (should (eq emacs-buffer (oref object buf)))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "Slack request failed: rate_limited"
+                                      nil t))
+              (setq retry slack-buffer-page-retry-function))
+            (funcall retry)
+            (should (= 3 requests))
+            (should (eq emacs-buffer (oref object buf))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-search-pagination-survives-buffer-kill ()
+  (slack-test-setup
+    (let (callbacks
+          requested-page
+          object
+          old-buffer
+          reopened-buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-search-query-params)
+                     (lambda (&optional _query)
+                       (list team "needle" "timestamp" "desc")))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-search-request)
+                     (lambda (_result after-success _team &optional page
+                              on-error on-primary-page)
+                       (setq requested-page page
+                             callbacks
+                             (list after-success on-error on-primary-page)))))
+            (setq object (slack-search-from-files)
+                  old-buffer (oref object buf))
+            (funcall
+             (nth 2 callbacks)
+             (slack-test-file-search-result
+              "needle"
+              (list (slack-test-search-file "F1" "first" user-id 1))
+              1 2 1 1))
+            (funcall (car callbacks))
+            (with-current-buffer old-buffer
+              (slack-buffer-load-more object))
+            (should (= 2 requested-page))
+            (kill-buffer old-buffer)
+            (funcall
+             (nth 2 callbacks)
+             (slack-test-file-search-result
+              "needle"
+              (list (slack-test-search-file "F2" "second" user-id 2))
+              2 2 2 2))
+            (funcall (car callbacks))
+            (let* ((key '(search file "needle" "timestamp" "desc"))
+                   (state (slack-team-page-state team key)))
+              (should (= 2 (length
+                            (oref (slack-page-state-value state) matches))))
+              (should-not (slack-page-state-continuation state))
+              (should-not (buffer-live-p old-buffer)))
+            (setq object (slack-search-from-files)
+                  reopened-buffer (oref object buf))
+            (with-current-buffer reopened-buffer
+              (goto-char (point-min))
+              (should (search-forward "first" nil t))
+              (goto-char (point-min))
+              (should (search-forward "second" nil t))))
+        (when (buffer-live-p old-buffer)
+          (kill-buffer old-buffer))
+        (when (buffer-live-p reopened-buffer)
+          (kill-buffer reopened-buffer))))))
+
+(ert-deftest slack-test-search-load-more-rejects-stale-generation ()
+  (slack-test-setup
+    (let* ((key '(search file "needle" "timestamp" "desc"))
+           (state (slack-team-page-state team key))
+           (initial
+            (slack-test-file-search-result
+             "needle"
+             (list (slack-test-search-file "F1" "first" user-id 1))
+             1 2 1 1))
+           (newer
+            (slack-test-file-search-result
+             "needle"
+             (list (slack-test-search-file "F3" "newer" user-id 3))
+             1 1 1 1))
+           (object (slack-create-search-result-buffer initial team))
+           (emacs-buffer (slack-buffer-buffer object))
+           callbacks)
+      (slack-page-state-store state initial 2 t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-search-request)
+                     (lambda (_result after-success _team &optional _page
+                              on-error on-primary-page)
+                       (setq callbacks
+                             (list after-success on-error on-primary-page)))))
+            (with-current-buffer emacs-buffer
+              (slack-buffer-load-more object))
+            (slack-page-state-store state newer nil nil)
+            (funcall
+             (nth 2 callbacks)
+             (slack-test-file-search-result
+              "needle"
+              (list (slack-test-search-file "F2" "stale" user-id 2))
+              2 2 2 2))
+            (funcall (car callbacks))
+            (should (eq newer (slack-page-state-value state)))
+            (should (equal (list "F3")
+                           (mapcar (lambda (file) (oref file id))
+                                   (oref newer matches))))
+            (with-current-buffer emacs-buffer
+              (should-not slack-buffer--loading-more-p)))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
 
 (ert-deftest slack-test-activity-feed-open-loaded-parent-keeps-thread-ts ()
   (slack-test-setup

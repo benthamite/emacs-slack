@@ -19,6 +19,7 @@
 (require 'slack-star)
 (require 'slack-stars-buffer)
 (require 'slack-activity-feed-buffer)
+(require 'slack-search-result-buffer)
 (require 'slack-buffer)
 (require 'slack-room)
 (require 'slack-user)
@@ -1538,6 +1539,61 @@ produces a newline with `not-tracked-p'."
                         (search-forward "Loading Slack data" nil t)))))
         (when (buffer-live-p buffer) (kill-buffer buffer))
         (slack-test--unregister-team team)))))
+
+(ert-deftest slack-test-search-page-render-replaces-results-and-tail ()
+  (slack-test-setup
+    (let* ((file (make-instance 'slack-file
+                                :id "F1"
+                                :created 1
+                                :title "rendered search file"
+                                :mimetype "text/plain"
+                                :user user-id
+                                :mode "hosted"))
+           (pagination (make-instance 'slack-search-pagination
+                                      :total_count 1
+                                      :page 1
+                                      :per_page 1
+                                      :page_count 2
+                                      :first 1
+                                      :last 1))
+           (result (make-instance 'slack-file-search-result
+                                  :query "needle"
+                                  :sort "timestamp"
+                                  :sort-dir "desc"
+                                  :total 1
+                                  :matches (list file)
+                                  :pagination pagination))
+           (state (slack-team-page-state
+                   team '(search file "needle" "timestamp" "desc")))
+           (object (slack-create-search-result-buffer result team))
+           emacs-buffer)
+      (slack-page-state-store state result 2 t)
+      (unwind-protect
+          (progn
+            (setq emacs-buffer (slack-buffer-buffer object))
+            (with-current-buffer emacs-buffer
+              (slack-search-result-buffer-render-page-state object state)
+              (goto-char (point-min))
+              (should (search-forward "rendered search file" nil t))
+              (goto-char (point-min))
+              (should (search-forward "(load more)" nil t)))
+            (let ((empty (make-instance
+                          'slack-file-search-result
+                          :query "needle"
+                          :sort "timestamp"
+                          :sort-dir "desc"
+                          :total 0
+                          :matches nil
+                          :pagination (slack-search-empty-pagination))))
+              (slack-page-state-store state empty nil nil)
+              (with-current-buffer emacs-buffer
+                (slack-search-result-buffer-render-page-state object state)
+                (goto-char (point-min))
+                (should-not (search-forward "rendered search file" nil t))
+                (goto-char (point-min))
+                (should (search-forward "(no more messages)" nil t)))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
 
 ;;; ---- Runner ----
 

@@ -30,6 +30,8 @@
 (require 'slack-search)
 (require 'slack-room-buffer)
 
+(declare-function slack-search-empty-pagination "slack-search")
+
 (define-derived-mode slack-search-result-buffer-mode slack-buffer-mode "Slack Search Result"
   "Major mode for a Slack search results buffer.
 
@@ -42,6 +44,27 @@ Buffer-wide bindings:
 
 (defclass slack-search-result-buffer (slack-buffer)
   ((search-result :initarg :search-result :type slack-search-result)))
+
+(defun slack-search-result-page-key (search-result)
+  "Return the durable query key for SEARCH-RESULT."
+  (with-slots (query sort sort-dir) search-result
+    (list 'search
+          (if (slack-file-search-result-p search-result) 'file 'messages)
+          query sort sort-dir)))
+
+(defun slack-search-result-empty (class query sort sort-dir)
+  "Return an empty CLASS result shell for QUERY, SORT, and SORT-DIR."
+  (make-instance class
+                 :query query
+                 :sort sort
+                 :sort-dir sort-dir
+                 :total 0
+                 :matches nil
+                 :pagination (slack-search-empty-pagination)))
+
+(defun slack-search-result-next-page (search-result)
+  "Return SEARCH-RESULT's next page number, or nil when exhausted."
+  (slack-search-paging-next-page (oref search-result pagination)))
 
 (cl-defmethod slack-buffer-name ((_class (subclass slack-search-result-buffer)) search-result team)
   "Return the display buffer name for the search result buffer.
@@ -93,22 +116,20 @@ SEARCH-RESULT is the search-result argument."
   'slack-search-result-buffer)
 
 (defun slack-create-search-result-buffer (search-result team)
-  "Create and return a new search result buffer instance from PAYLOAD.
+  "Create or update the stable buffer for SEARCH-RESULT on TEAM.
 SEARCH-RESULT is the search-result argument.
-TEAM is the team argument.  Re-running an identical query replaces
-the existing buffer's result with the freshly fetched one; returning
-the stale buffer unchanged would display the first search's matches
-and discard the new fetch."
-  (slack-if-let* ((buffer (slack-buffer-find 'slack-search-result-buffer team search-result)))
-      (progn
-        (oset buffer search-result search-result)
-        (when (buffer-live-p (oref buffer buf))
-          (kill-buffer (oref buffer buf))
-          (oset buffer buf nil))
-        buffer)
-    (make-instance 'slack-search-result-buffer
-                   :team-id (oref team id)
-                   :search-result search-result)))
+TEAM is the team argument.  Re-running an identical query updates the
+existing object without killing its live Emacs buffer; the durable
+page renderer replaces its contents in place."
+  (let ((buffer
+         (or (slack-buffer-find
+              'slack-search-result-buffer team search-result)
+             (make-instance 'slack-search-result-buffer
+                            :team-id (oref team id)
+                            :search-result search-result))))
+    (oset buffer search-result search-result)
+    (slack-buffer-cache-team buffer team)
+    buffer))
 (cl-defmethod slack-buffer-file-search-result-to-string ((this slack-search-result-buffer) file)
   "Render FILE as a single line entry in the search result buffer THIS."
   (let ((title (slack-file-title file))
@@ -137,8 +158,11 @@ MATCH is the match argument."
 
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-search-result-buffer))
   "Return non-nil when THIS buffer has more history to load."
-  (with-slots (search-result) this
-    (slack-search-has-next-page-p search-result)))
+  (let* ((team (slack-buffer-team this))
+         (key (slack-search-result-page-key (oref this search-result)))
+         (state (slack-team-page-state team key)))
+    (and (slack-page-state-has-more state)
+         (slack-page-state-continuation state))))
 
 (cl-defmethod slack-buffer-insert-history ((this slack-search-result-buffer))
   "Insert historical messages into the buffer for THIS buffer."
@@ -167,12 +191,29 @@ request failure."
   (let ((buffer (cl-call-next-method)))
     (with-current-buffer buffer
       (slack-search-result-buffer-mode)
-      (slack-buffer-set-current-buffer this)
-      (with-slots (search-result) this
-        (let* ((messages (oref search-result matches)))
-          (cl-loop for m in messages
-                   do (slack-buffer-insert this m)))))
+      (slack-buffer-set-current-buffer this))
     buffer))
+
+(defun slack-search-result-buffer-render-page-state (buffer state)
+  "Render exact BUFFER from durable search STATE."
+  (when (and (slot-boundp buffer 'buf)
+             (buffer-live-p (oref buffer buf)))
+    (when (slack-page-state-loaded-p state)
+      (oset buffer search-result (slack-page-state-value state)))
+    (with-current-buffer (oref buffer buf)
+      (slack-buffer-widen
+       (let ((inhibit-read-only t))
+         (delete-region (point-min) lui-output-marker)
+         (when (slack-page-state-loaded-p state)
+           (dolist (match (oref (slack-page-state-value state) matches))
+             (slack-buffer-insert buffer match))
+           (if (slack-page-state-has-more state)
+               (slack-buffer-insert-load-more buffer)
+             (let ((lui-time-stamp-position nil))
+               (lui-insert "(no more messages)\n" t))))
+         (goto-char (point-min))
+         (slack-buffer-insert-page-status buffer state)
+         (goto-char (point-min)))))))
 
 (cl-defmethod slack-buffer-delete-load-more-string ((_this slack-search-result-buffer))
   "Remove the \"load more\" marker from the buffer for the search result
@@ -188,35 +229,151 @@ buffer.")
     (let ((lui-time-stamp-position nil))
       (lui-insert "(no more messages)\n" t))))
 
+(defun slack-search-result-buffer--page-loader (search-result team state)
+  "Return a primary-before-hydration loader for SEARCH-RESULT on TEAM and STATE."
+  (lambda (generation success error)
+    (let (primary-result hydration-started-p)
+      (cl-labels
+          ((current-p ()
+             (and (= generation (slack-page-state-generation state))
+                  (slack-page-state-in-flight-p state)))
+           (primary (result)
+             (when (current-p)
+               (setq primary-result result)
+               (let ((next-page (slack-search-result-next-page result)))
+                 (funcall success result next-page (and next-page t) t))))
+           (hydrated ()
+             (when (and primary-result
+                        (not hydration-started-p)
+                        (current-p)
+                        (= generation
+                           (slack-page-state-committed-generation state)))
+               (setq hydration-started-p t)
+               (slack-page-state-ready state generation)))
+           (failed (&rest errors)
+             (when (current-p)
+               (apply error errors))))
+        (slack-search-request
+         search-result #'hydrated team 1 #'failed #'primary)))))
+
+(defun slack-search-result-buffer--present (search-result team)
+  "Present SEARCH-RESULT for TEAM immediately, then refresh it."
+  (let* ((key (slack-search-result-page-key search-result))
+         (state (slack-team-page-state team key))
+         (buffer (slack-create-search-result-buffer search-result team)))
+    (slack-buffer-present-page
+     buffer state
+     (slack-search-result-buffer--page-loader search-result team state)
+     #'slack-search-result-buffer-render-page-state
+     t)
+    buffer))
+
+(cl-defmethod slack-buffer-load-more ((this slack-search-result-buffer))
+  "Load the next durable search page for THIS without replacing its buffer."
+  (let* ((team (slack-buffer-team this))
+         (key (slack-search-result-page-key (oref this search-result)))
+         (state (slack-team-page-state team key)))
+    (when (and (slack-buffer-has-next-page-p this)
+               (not slack-buffer--loading-more-p)
+               (eq 'ready (slack-page-state-status state))
+               (eq (current-buffer) (oref this buf)))
+      (setq slack-buffer--loading-more-p t)
+      (let* ((source-result (slack-page-state-value state))
+             (source-matches (copy-sequence (oref source-result matches)))
+             (generation (slack-page-state-generation state))
+             (requested-page (slack-page-state-continuation state))
+             (origin-buffer (current-buffer))
+             (page-result
+              (slack-search-result-empty
+               (eieio-object-class-name source-result)
+               (oref source-result query)
+               (oref source-result sort)
+               (oref source-result sort-dir)))
+             accepted-result
+             primary-seen-p)
+        (cl-labels
+            ((reset-loading-flag ()
+               (when (buffer-live-p origin-buffer)
+                 (with-current-buffer origin-buffer
+                   (setq slack-buffer--loading-more-p nil))))
+             (state-current-p ()
+               (and (= generation (slack-page-state-generation state))
+                    (eq 'ready (slack-page-state-status state))
+                    (eq source-result (slack-page-state-value state))
+                    (equal source-matches (oref source-result matches))
+                    (equal requested-page
+                           (slack-page-state-continuation state))))
+             (accepted-current-p ()
+               (and accepted-result
+                    (= generation (slack-page-state-generation state))
+                    (eq accepted-result (slack-page-state-value state))))
+             (presentation-current-p ()
+               (and (buffer-live-p origin-buffer)
+                    (eq origin-buffer (oref this buf))))
+             (primary (result)
+               (unless primary-seen-p
+                 (setq primary-seen-p t)
+                 (condition-case page-error
+                     (if (state-current-p)
+                         (let* ((candidate
+                                 (slack-search-result-empty
+                                  (eieio-object-class-name source-result)
+                                  (oref source-result query)
+                                  (oref source-result sort)
+                                  (oref source-result sort-dir)))
+                                (next-page
+                                 (slack-search-result-next-page result)))
+                           (oset candidate total (oref source-result total))
+                           (oset candidate matches source-matches)
+                           (oset candidate pagination
+                                 (oref source-result pagination))
+                           (slack-merge candidate result)
+                           (when (slack-page-state-commit-extension
+                                  state generation requested-page candidate
+                                  next-page (and next-page t))
+                             (setq accepted-result candidate)
+                             (when (presentation-current-p)
+                               (slack-search-result-buffer-render-page-state
+                                this state))))
+                       (reset-loading-flag))
+                   (error
+                    (reset-loading-flag)
+                    (message "slack-search: page processing failed: %S"
+                             page-error)))))
+             (hydrated ()
+               (unwind-protect
+                   (when (and (accepted-current-p)
+                              (presentation-current-p))
+                     (slack-search-result-buffer-render-page-state this state))
+                 (reset-loading-flag)))
+             (failed (&rest _errors)
+               (reset-loading-flag)))
+          (condition-case request-error
+              (slack-search-request
+               page-result #'hydrated team requested-page #'failed #'primary)
+            (error
+             (reset-loading-flag)
+             (signal (car request-error) (cdr request-error)))))))))
+
 (defun slack-search-from-messages (query)
   "Run a Slack message search for QUERY and display the result buffer."
   (interactive
    (list (when (region-active-p)
            (substring-no-properties (funcall region-extract-function)))))
   (cl-destructuring-bind (team query sort sort-dir) (slack-search-query-params query)
-    (let ((instance (make-instance 'slack-search-result
-                                   :sort sort
-                                   :sort-dir sort-dir
-                                   :query query)))
-      (cl-labels
-          ((after-success ()
-             (let ((buffer (slack-create-search-result-buffer instance team)))
-               (slack-buffer-display buffer))))
-        (slack-search-request instance #'after-success team)))))
+    (slack-search-result-buffer--present
+     (slack-search-result-empty
+      'slack-search-result query sort sort-dir)
+     team)))
 
 (defun slack-search-from-files ()
   "Run a Slack file search prompted interactively and display the result buffer."
   (interactive)
   (cl-destructuring-bind (team query sort sort-dir) (slack-search-query-params)
-    (let ((instance (make-instance 'slack-file-search-result
-                                   :sort sort
-                                   :sort-dir sort-dir
-                                   :query query)))
-      (cl-labels
-          ((after-success ()
-             (let ((buffer (slack-create-search-result-buffer instance team)))
-               (slack-buffer-display buffer))))
-        (slack-search-request instance #'after-success team)))))
+    (slack-search-result-buffer--present
+     (slack-search-result-empty
+      'slack-file-search-result query sort sort-dir)
+     team)))
 
 (cl-defmethod slack-buffer-display-thread ((this slack-search-result-buffer) ts)
   "Open the thread of the search match at TS in THIS buffer.

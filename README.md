@@ -288,6 +288,8 @@ Some terminology in the `slack-` functions:
   - press <kbd>RET</kbd> on a pinned message's thread-status link ("N replies,
     Last reply ...") to open the associated thread
 - `slack-search-from-messages`
+  - message and file searches display a stable query buffer immediately, then
+    refresh, retry, and paginate in place as Slack data arrives
   - press <kbd>RET</kbd> on a search result's thread-status link ("N replies,
     Last reply ...") to open the associated thread
 - `slack-message-embed-mention`

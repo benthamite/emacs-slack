@@ -51,6 +51,16 @@
    (first :initarg :first :type number)
    (last :initarg :last :type number)))
 
+(defun slack-search-empty-pagination ()
+  "Return a fully initialized empty search pagination object."
+  (make-instance 'slack-search-pagination
+                 :total_count 0
+                 :page 0
+                 :per_page 0
+                 :page_count 0
+                 :first 0
+                 :last 0))
+
 (defclass slack-search-result (slack-room)
   ((query :initarg :query :type string)
    (sort :initarg :sort :type string)
@@ -233,13 +243,16 @@ If QUERY is non-nil, use it as the search query without prompting."
   "Return the API URL for searching files."
   "https://slack.com/api/search.files")
 
-(cl-defmethod slack-search-request ((this slack-search-result)
-                                    after-success team &optional (page 1) on-error)
+(cl-defmethod slack-search-request
+    ((this slack-search-result) after-success team
+     &optional (page 1) on-error on-primary-page)
   "Issue the search request for THIS, fetching PAGE (1 by default) from TEAM.
 AFTER-SUCCESS is called once the result (and any missing users) are
 merged into THIS.  ON-ERROR is invoked on API or transport failure so
 callers can clear their in-flight state — the search API is
-aggressively rate limited."
+aggressively rate limited.  ON-PRIMARY-PAGE receives THIS after the
+result and pagination are merged, before missing-user hydration.  The
+first five positional arguments remain compatible with existing callers."
   (cl-labels
       ((callback ()
          (funcall after-success))
@@ -262,6 +275,8 @@ aggressively rate limited."
                             team (cl-loop for match in (oref search-result matches)
                                           nconc (slack-message-user-ids match)))))
             (slack-merge this search-result)
+            (when (functionp on-primary-page)
+              (funcall on-primary-page this))
             (if (< 0 (length user-ids))
                 (slack-users-info-request
                  user-ids team :after-success #'(lambda () (callback)))
@@ -278,7 +293,8 @@ aggressively rate limited."
                           (cons "sort_dir" sort-dir)
                           (cons "page" (number-to-string page)))
             :success #'on-success
-            :error (lambda (&rest args) (apply #'fail args))))))))
+            :error (lambda (&rest args) (apply #'fail args))))
+        (fail "Search query is empty")))))
 
 (cl-defmethod slack-message-user-ids ((this slack-search-message))
   "Return the list of user IDs referenced by the search message.
