@@ -24,6 +24,7 @@
 
 ;;; Code:
 (require 'eieio)
+(require 'slack-page-state)
 (require 'slack-util)
 (require 'slack-team-ws)
 (require 'dash)
@@ -62,6 +63,7 @@
    (ims :initarg :ims :initform (make-hash-table :test 'equal))
    (file-room :initform nil)
    (search-results :initform nil)
+   (page-states :initform (make-hash-table :test 'equal))
    (users :initarg :users :initform (make-hash-table :test 'equal))
    (bots :initarg :bots :initform (make-hash-table :test 'equal))
    (sent-message :initform (make-hash-table :test 'equal))
@@ -114,6 +116,13 @@
    (disable-block-format :initform nil :initarg :disable-block-format :type boolean)
    (user-prefs :initform nil)
    ))
+
+(defun slack-team-page-state (team key)
+  "Return TEAM's durable remote page state under logical KEY."
+  (or (gethash key (oref team page-states))
+      (let ((state (slack-page-state-create)))
+        (puthash key state (oref team page-states))
+        state)))
 
 (defun slack-create-team (plist)
   "Create and return a new team instance from PAYLOAD.

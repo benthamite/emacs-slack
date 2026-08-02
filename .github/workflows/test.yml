@@ -59,3 +59,13 @@ jobs:
             -l emacs-slack \
             -l test/test-buffer-rendering.el \
             --eval "(ert-run-tests-batch-and-exit)"
+
+      - name: Run page-state tests
+        run: |
+          emacs --batch -Q \
+            --eval "(require 'package)" \
+            --eval "(package-initialize)" \
+            -L . -L test \
+            -l emacs-slack \
+            -l test/test-page-state.el \
+            --eval "(ert-run-tests-batch-and-exit)"

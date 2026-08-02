@@ -73,6 +73,7 @@ force a reconnect."
 (declare-function browse-url-default-browser "browse-url")
 
 (require 'slack-util)
+(require 'slack-page-state)
 (require 'slack-team)
 (require 'slack-channel)
 (require 'slack-im)
