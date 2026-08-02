@@ -1410,6 +1410,41 @@ produces a newline with `not-tracked-p'."
         (when (buffer-live-p buffer) (kill-buffer buffer))
         (slack-test--unregister-team team)))))
 
+(ert-deftest slack-test-message-buffer-render-history-shows-ready-empty-room ()
+  "An empty room says so only after supplemental hydration is ready."
+  (slack-test-setup
+    (slack-test--register-team team)
+    (oset team mark-as-read-immediately nil)
+    (let* ((state (oref channel history-state))
+           (generation (slack-page-state-begin state))
+           (object (slack-create-message-buffer channel "cursor-1" team))
+           buffer)
+      (slack-page-state-commit state generation nil "cursor-1" t t)
+      (unwind-protect
+          (progn
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (slack-message-buffer-render-history-state object state)
+              (should-not (save-excursion
+                            (goto-char (point-min))
+                            (search-forward "(no messages)" nil t)))
+              (slack-page-state-ready state generation)
+              (slack-message-buffer-render-history-state object state)
+              (should (save-excursion
+                        (goto-char (point-min))
+                        (search-forward "(no messages)" nil t)))
+              (should (save-excursion
+                        (goto-char (point-min))
+                        (search-forward "(load more)" nil t)))
+              (should-not (save-excursion
+                            (goto-char (point-min))
+                            (search-forward "Loading Slack data" nil t)))
+              (should-not (save-excursion
+                            (goto-char (point-min))
+                            (search-forward "Slack request failed" nil t)))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))
+        (slack-test--unregister-team team)))))
+
 ;;; ---- Runner ----
 
 (provide 'test-buffer-rendering)

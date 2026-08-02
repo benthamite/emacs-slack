@@ -124,6 +124,26 @@ When DEFER-READY is non-nil, publish the primary page but remain in flight."
         (slack-page-state-ready state generation)))
     t))
 
+(defun slack-page-state-commit-extension
+    (state generation expected-continuation value continuation has-more)
+  "Commit an additional page of VALUE to ready STATE for GENERATION.
+EXPECTED-CONTINUATION must still be STATE's cursor.  Unlike
+`slack-page-state-commit', this does not begin or finish a lifecycle: it only
+extends the value already published by the same ready generation."
+  (when (and (= generation (slack-page-state-generation state))
+             (= generation (slack-page-state-committed-generation state))
+             (= generation (slack-page-state-ready-generation state))
+             (eq 'ready (slack-page-state-status state))
+             (slack-page-state-loaded-p state)
+             (equal expected-continuation
+                    (slack-page-state-continuation state)))
+    (setf (slack-page-state-value state) value
+          (slack-page-state-continuation state) continuation
+          (slack-page-state-has-more state) has-more
+          (slack-page-state-error state) nil
+          (slack-page-state-updated-at state) (current-time))
+    t))
+
 (defun slack-page-state-ready (state generation)
   "Finish STATE GENERATION after supplemental hydration."
   (when (and (> generation 0)

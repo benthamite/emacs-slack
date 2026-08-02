@@ -4131,22 +4131,177 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
            (state (oref channel history-state))
            (object (slack-create-message-buffer channel "cursor-1" team))
            buffer
-           primary)
+           primary
+           hydrated)
       (slack-room-set-messages channel (list initial) team)
       (slack-page-state-store state (list initial) "cursor-1" t)
       (unwind-protect
           (cl-letf (((symbol-function 'slack-conversations-history)
                      (lambda (_room _team &rest args)
-                       (setq primary (plist-get args :on-primary-page)))))
+                       (setq primary (plist-get args :on-primary-page)
+                             hydrated (plist-get args :after-success)))))
             (setq buffer (slack-buffer-buffer object))
             (with-current-buffer buffer
+              (should (slack-buffer-goto "2.000"))
               (slack-buffer-load-more object))
             (should (functionp primary))
             (funcall primary (list older) "cursor-2")
             (should (eq older (slack-room-find-message channel "1.000")))
+            (should (equal (list older initial)
+                           (slack-page-state-value state)))
             (should (equal "cursor-2"
                            (slack-page-state-continuation state)))
-            (should (equal "cursor-2" (oref object cursor))))
+            (should (equal "cursor-2" (oref object cursor)))
+            (with-current-buffer buffer
+              (should (equal "2.000" (get-text-property (point) 'ts))))
+            (funcall hydrated nil "cursor-2")
+            (with-current-buffer buffer
+              (should-not slack-buffer--loading-more-p)
+              (should (equal "2.000" (get-text-property (point) 'ts)))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(ert-deftest slack-test-room-load-more-coalesces-duplicate-invocations ()
+  "A room buffer sends only one pagination request while one is in flight."
+  (slack-test-setup
+    (oset team mark-as-read-immediately nil)
+    (let* ((initial (slack-test-room-message "2.000" "initial"))
+           (state (oref channel history-state))
+           (object (slack-create-message-buffer channel "cursor-1" team))
+           (request-count 0)
+           buffer
+           hydrated)
+      (slack-room-set-messages channel (list initial) team)
+      (slack-page-state-store state (list initial) "cursor-1" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-conversations-history)
+                     (lambda (_room _team &rest args)
+                       (cl-incf request-count)
+                       (setq hydrated (plist-get args :after-success)))))
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (slack-buffer-load-more object)
+              (slack-buffer-load-more object)
+              (should slack-buffer--loading-more-p))
+            (should (= 1 request-count))
+            (funcall hydrated nil "cursor-1")
+            (with-current-buffer buffer
+              (should-not slack-buffer--loading-more-p)))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(ert-deftest slack-test-room-load-more-rejects-stale-generation-callback ()
+  "An older pagination page cannot overwrite a newer room refresh."
+  (slack-test-setup
+    (oset team mark-as-read-immediately nil)
+    (let* ((initial (slack-test-room-message "2.000" "initial"))
+           (older (slack-test-room-message "1.000" "stale older"))
+           (refreshed (slack-test-room-message "3.000" "refreshed"))
+           (state (oref channel history-state))
+           (object (slack-create-message-buffer channel "cursor-1" team))
+           buffer
+           primary
+           hydrated)
+      (slack-room-set-messages channel (list initial) team)
+      (slack-page-state-store state (list initial) "cursor-1" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-conversations-history)
+                     (lambda (_room _team &rest args)
+                       (setq primary (plist-get args :on-primary-page)
+                             hydrated (plist-get args :after-success)))))
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (slack-buffer-load-more object))
+            (let ((generation (slack-page-state-restart state)))
+              (slack-room-set-messages channel (list refreshed) team)
+              (slack-page-state-commit
+               state generation (list refreshed) "cursor-refresh" t))
+            (funcall primary (list older) "cursor-2")
+            (should-not (slack-room-find-message channel "1.000"))
+            (should (eq refreshed
+                        (slack-room-find-message channel "3.000")))
+            (should (equal "cursor-refresh"
+                           (slack-page-state-continuation state)))
+            (should (equal (list refreshed)
+                           (slack-page-state-value state)))
+            (funcall hydrated nil "cursor-2")
+            (with-current-buffer buffer
+              (should-not slack-buffer--loading-more-p)))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(ert-deftest slack-test-room-load-more-rejects-stale-cursor-callback ()
+  "A pagination page requested for an obsolete cursor is ignored."
+  (slack-test-setup
+    (oset team mark-as-read-immediately nil)
+    (let* ((initial (slack-test-room-message "2.000" "initial"))
+           (older (slack-test-room-message "1.000" "stale older"))
+           (state (oref channel history-state))
+           (object (slack-create-message-buffer channel "cursor-1" team))
+           buffer
+           primary
+           hydrated)
+      (slack-room-set-messages channel (list initial) team)
+      (slack-page-state-store state (list initial) "cursor-1" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-conversations-history)
+                     (lambda (_room _team &rest args)
+                       (setq primary (plist-get args :on-primary-page)
+                             hydrated (plist-get args :after-success)))))
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (slack-buffer-load-more object))
+            (oset object cursor "cursor-new")
+            (setf (slack-page-state-continuation state) "cursor-new")
+            (funcall primary (list older) "cursor-2")
+            (should-not (slack-room-find-message channel "1.000"))
+            (should (equal "cursor-new" (oref object cursor)))
+            (should (equal "cursor-new"
+                           (slack-page-state-continuation state)))
+            (should (equal (list initial)
+                           (slack-page-state-value state)))
+            (funcall hydrated nil "cursor-2")
+            (with-current-buffer buffer
+              (should-not slack-buffer--loading-more-p)))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(ert-deftest slack-test-room-load-more-resets-and-reports-on-error ()
+  "A pagination failure is visible and does not leave the buffer guarded."
+  (slack-test-setup
+    (oset team mark-as-read-immediately nil)
+    (let* ((initial (slack-test-room-message "2.000" "initial"))
+           (state (oref channel history-state))
+           (object (slack-create-message-buffer channel "cursor-1" team))
+           (request-count 0)
+           reported
+           buffer
+           on-error)
+      (slack-room-set-messages channel (list initial) team)
+      (slack-page-state-store state (list initial) "cursor-1" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-conversations-history)
+                     (lambda (_room _team &rest args)
+                       (cl-incf request-count)
+                       (setq on-error (plist-get args :on-error))))
+                    ((symbol-function 'message)
+                     (lambda (format-string &rest args)
+                       (setq reported (apply #'format format-string args)))))
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (slack-buffer-load-more object)
+              (should slack-buffer--loading-more-p))
+            (funcall on-error
+                     :error-thrown '(error "offline")
+                     :symbol-status 'error)
+            (with-current-buffer buffer
+              (should-not slack-buffer--loading-more-p)
+              (slack-buffer-load-more object))
+            (should (= 2 request-count))
+            (should (string-match-p "offline" reported))
+            (funcall on-error "invalid_auth")
+            (with-current-buffer buffer
+              (should-not slack-buffer--loading-more-p))
+            (should (string-match-p "invalid_auth" reported))
+            (should (eq 'ready (slack-page-state-status state)))
+            (should (equal "cursor-1"
+                           (slack-page-state-continuation state))))
         (when (buffer-live-p buffer) (kill-buffer buffer))))))
 
 (if noninteractive

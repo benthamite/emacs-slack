@@ -170,6 +170,11 @@ Some terminology in the `slack-` functions:
   - select direct message from list
 - `slack-channel-select`
   - select channel from list
+  - display the channel buffer immediately from cached history while current
+    history and supplemental user data load in the background
+  - an empty channel shows `(no messages)` after loading finishes
+  - repeated `(load more)` requests are coalesced, and a late page cannot
+    overwrite a newer channel refresh or pagination cursor
 - `slack-group-list-update`
   - update group list
 - `slack-im-list-update`

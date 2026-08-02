@@ -268,6 +268,15 @@ inserted messages."
         (slack-buffer-with-deferred-hooks
           (when (< 0 (length continuation))
             (slack-buffer-insert-load-more object))
+          (when (and (slack-page-state-loaded-p state)
+                     (eq 'ready (slack-page-state-status state))
+                     (or (null messages)
+                         (= 0 (length continuation))))
+            (let ((lui-time-stamp-position nil))
+              (lui-insert (if messages
+                              "(no more messages)"
+                            "(no messages)")
+                          t)))
           (slack-buffer-insert-messages object messages nil t))
         (goto-char lui-output-marker)
         (slack-buffer-insert-page-status object state)
@@ -364,63 +373,122 @@ CURSOR is the pagination cursor for fetching older messages."
   "Fetch additional history to display in THIS buffer.
 Point is restored via the ts at (or after) point: a numeric offset
 would be stale once history is inserted above it."
-  (when (< 0 (length (oref this cursor)))
-    (let ((oldest (oref this oldest))
-        (team (slack-buffer-team this))
-        (room (slack-buffer-room this))
-        (current-ts (or (get-text-property (point) 'ts)
-                        (let ((change (next-single-property-change (point) 'ts)))
-                          (when change
-                            (get-text-property change 'ts))))))
-    (cl-labels
-        ((update-buffer
-          (messages)
-          ;; The fetch is async; the buffer may have been killed in the
-          ;; meantime. slack-buffer-buffer would re-create it, so check
-          ;; liveness instead.
-          (when (buffer-live-p (oref this buf))
-          (with-current-buffer (oref this buf)
-            (slack-buffer-widen
-             (let ((inhibit-read-only t))
-               (goto-char (point-min))
+  (let* ((room (slack-buffer-room this))
+         (state (oref room history-state)))
+    (when (and (< 0 (length (oref this cursor)))
+               (not slack-buffer--loading-more-p)
+               (eq 'ready (slack-page-state-status state)))
+      (setq slack-buffer--loading-more-p t)
+      (let* ((buffer (current-buffer))
+             (oldest (oref this oldest))
+             (team (slack-buffer-team this))
+             (requested-cursor (oref this cursor))
+             (requested-generation (slack-page-state-generation state))
+             (active-cursor requested-cursor)
+             (primary-committed-p nil)
+             (finished-p nil)
+             (current-ts
+              (or (get-text-property (point) 'ts)
+                  (let ((change
+                         (next-single-property-change (point) 'ts)))
+                    (when change
+                      (get-text-property change 'ts))))))
+        (cl-labels
+            ((request-current-p ()
+               (and (= requested-generation
+                       (slack-page-state-generation state))
+                    (eq 'ready (slack-page-state-status state))
+                    (equal active-cursor
+                           (slack-page-state-continuation state))
+                    (equal active-cursor (oref this cursor))))
+             (finish ()
+               (unless finished-p
+                 (setq finished-p t)
+                 (when (buffer-live-p buffer)
+                   (with-current-buffer buffer
+                     (setq slack-buffer--loading-more-p nil)))))
+             (fail (&rest errors)
+               (unless finished-p
+                 (message "Slack: failed to load more messages: %s"
+                          (slack-buffer--normalize-page-error errors))
+                 (finish)))
+             (update-buffer (messages)
+               ;; The fetch is async; the buffer may have been killed in the
+               ;; meantime.  Do not ask `slack-buffer-buffer' to recreate it.
+               (when (buffer-live-p buffer)
+                 (with-current-buffer buffer
+                   (slack-buffer-widen
+                    (let ((inhibit-read-only t))
+                      (goto-char (point-min))
+                      (slack-if-let*
+                          ((loading-message-end
+                            (slack-buffer-loading-message-end-point this)))
+                          (progn
+                            (slack-buffer-delete-overlay this)
+                            (delete-region (point-min) loading-message-end))
+                        (message "loading-message-end not found, oldest: %s"
+                                 oldest))
+                      (set-marker lui-output-marker (point-min))
+                      (if (< 0 (length (oref this cursor)))
+                          (slack-buffer-insert-load-more this)
+                        (let ((lui-time-stamp-position nil))
+                          (lui-insert "(no more messages)" t)))
+                      (slack-buffer-insert-messages this messages t t)
+                      (lui-recover-output-marker)
+                      (slack-buffer-update-marker-overlay this)))
+                   (when current-ts
+                     (slack-buffer-goto current-ts)))))
+             (primary (messages next-cursor)
+               (when (and (not finished-p)
+                          (not primary-committed-p)
+                          (request-current-p))
+                 (condition-case pagination-error
+                     (let ((merged-messages
+                            (slack-message-buffer--merge-history-values
+                             (slack-room-sorted-messages room) messages)))
+                       ;; No asynchronous work occurs between this currentness
+                       ;; check and the state commit.  Mutate the room first so
+                       ;; a cache error cannot publish a value it never stored.
+                       (slack-room-set-messages room messages team)
+                       (when (slack-page-state-commit-extension
+                              state requested-generation requested-cursor
+                              merged-messages next-cursor
+                              (and next-cursor
+                                   (< 0 (length next-cursor))))
+                         (setq primary-committed-p t)
+                         (setq active-cursor next-cursor)
+                         (oset this cursor next-cursor)
+                         (update-buffer merged-messages)))
+                   (error (funcall #'fail pagination-error)))))
+             (hydrated (&rest _ignored)
+               (unless finished-p
+                 (unwind-protect
+                     (when (and (request-current-p)
+                                (buffer-live-p buffer))
+                       (with-current-buffer buffer
+                         (slack-message-buffer-render-history-state
+                          this state)))
+                   (finish)))))
+          (condition-case request-error
+              (slack-conversations-history
+               room team
+               :cursor requested-cursor
+               :on-primary-page #'primary
+               :after-success #'hydrated
+               :on-error #'fail)
+            (error (funcall #'fail request-error))))))))
 
-               (slack-if-let* ((loading-message-end
-                                (slack-buffer-loading-message-end-point this)))
-                   (progn
-                     (slack-buffer-delete-overlay this)
-                     (delete-region (point-min) loading-message-end))
-                 (message "loading-message-end not found, oldest: %s" oldest))
-
-               (set-marker lui-output-marker (point-min))
-               (if (< 0 (length (oref this cursor)))
-                   (slack-buffer-insert-load-more this)
-                 (let ((lui-time-stamp-position nil))
-                   (lui-insert "(no more messages)" t)))
-
-               (slack-buffer-insert-messages this messages t t)
-               (lui-recover-output-marker)
-               (slack-buffer-update-marker-overlay this)
-               ))
-            (when current-ts
-              (slack-buffer-goto current-ts)))))
-         (primary (messages next-cursor)
-                  (let ((state (oref room history-state)))
-                    (oset this cursor next-cursor)
-                    (setf (slack-page-state-continuation state) next-cursor
-                          (slack-page-state-has-more state)
-                          (and next-cursor (< 0 (length next-cursor)))
-                          (slack-page-state-updated-at state) (current-time))
-                    (slack-room-set-messages room messages team)
-                    (update-buffer (slack-room-sorted-messages room))))
-         (hydrated (&rest _ignored)
-                   (when (buffer-live-p (oref this buf))
-                     (with-current-buffer (oref this buf)
-                       (slack-message-buffer-render-history-state
-                        this (oref room history-state))))))
-      (slack-conversations-history room team
-                                   :cursor (oref this cursor)
-                                   :on-primary-page #'primary
-                                   :after-success #'hydrated)))))
+(defun slack-message-buffer--merge-history-values (cached fetched)
+  "Return the timestamp-deduplicated chronological union of CACHED and FETCHED.
+When both contain a timestamp, the freshly FETCHED message wins."
+  (let ((by-timestamp (make-hash-table :test 'equal))
+        merged)
+    (dolist (message cached)
+      (puthash (slack-ts message) message by-timestamp))
+    (dolist (message fetched)
+      (puthash (slack-ts message) message by-timestamp))
+    (maphash (lambda (_timestamp message) (push message merged)) by-timestamp)
+    (slack-room-sort-messages merged)))
 
 (cl-defmethod slack-buffer-display-pins-list ((this slack-message-buffer))
   "Open the pinned-items buffer for THIS buffer."
