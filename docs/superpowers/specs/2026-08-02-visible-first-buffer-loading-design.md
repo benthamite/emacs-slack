@@ -53,6 +53,7 @@ A small shared page-state object records the lifecycle of a logical remote view:
 
 - `status`: `unloaded`, `loading`, `ready`, `refreshing`, or `failed`;
 - `generation`: a monotonically increasing request generation;
+- `loaded-p`: whether any successful page, including an empty one, has committed;
 - `value`: the last successfully loaded domain value;
 - `continuation`: an opaque cursor or page token owned by the adapter;
 - `has-more`: whether another page exists;
@@ -65,9 +66,11 @@ delivery, and failure transitions. It deliberately does not know how Slack APIs
 encode pages or how a view renders them.
 
 Room history state belongs to `slack-room`, because its message cache already
-survives buffer death and is updated by websocket events and prefetch. Team-level
-or query-level views keep state with their stable buffer/domain owner. A buffer is
-a presenter and subscriber, not the cache-validity signal.
+survives buffer death and is updated by websocket events and prefetch. Every
+other page is stored in a team-owned page-state registry under a stable domain
+key such as `(search messages QUERY SORT DIRECTION)`, `(pins ROOM-ID)`, or
+`saved-items`. Buffer objects remain disposable presenters and subscribers; they
+are never the cache-validity owner.
 
 ### State transitions
 
@@ -116,17 +119,30 @@ before starting history. If retained messages exist, they are rendered as a stal
 snapshot; otherwise the buffer shows a loading row. It does not clear retained
 messages before a request.
 
-The initial history response replaces the authoritative initial-page snapshot,
-stores the cursor, and rerenders the captured live buffer in place. Websocket
-messages that arrive while history is loading are merged after the response rather
-than lost. An empty successful page is represented by `ready` plus an empty value,
-so it is distinguishable from `unloaded`.
+The conversations request layer exposes a primary-page callback immediately after
+parsing the API response, while preserving its existing post-user-hydration
+callback for callers that need resolved identities. The primary callback commits
+the page, stores the cursor, and rerenders the captured live buffer. The later
+hydration callback replaces affected rendered entries without changing page
+generation or pagination.
+
+The room records a per-timestamp cache revision at request start. When the primary
+response arrives, it may replace or remove an initial-page entry only when that
+timestamp's revision is unchanged; a websocket create, edit, or delete after the
+request began therefore wins even when a handler mutates an object in place.
+Messages that arrived after the request began are never removed. An empty
+successful page is represented by `ready` plus an explicit loaded flag and empty
+value, so it is distinguishable from `unloaded`.
 
 Unread-room prefetch uses the same room history state and stores its continuation.
 A later room display consumes that state immediately and refreshes according to
 the same policy; it cannot discard prefetched data merely because no buffer exists.
 Direct and multi-person conversations still resolve their server-side room id
-first when necessary, then enter this same room-history lifecycle.
+first when necessary. Dormant direct conversations also retain their existing
+`conversations.open` precondition even when a stable id already exists, because
+Slack can reject history for a closed DM. Once the stable room identity is known,
+they enter the same visible room-history lifecycle and display its shell; the
+loader performs `conversations.open` before requesting history.
 
 ### Supplemental hydration
 
