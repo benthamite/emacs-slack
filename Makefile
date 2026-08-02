@@ -14,7 +14,7 @@ BATCH := $(EMACS) --batch -Q $(LOAD_PATH)
 
 test: compile test-upstream test-suite test-buffer test-page-state
 
-compile:
+compile: clean
 	$(BATCH) --eval '(batch-byte-compile)' *.el
 
 test-upstream:
