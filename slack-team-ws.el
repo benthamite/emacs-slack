@@ -101,14 +101,12 @@
         (cancel-timer reconnect-timer))
     (setq reconnect-timer nil)))
 
-(cl-defmethod slack-ws-set-reconnect-timer ((ws slack-team-ws) delay fn &rest fn-args)
-  "Schedule FN with FN-ARGS to fire after DELAY seconds on WS.
-DELAY is passed explicitly so the scheduled wait matches what the
-caller logged; reading the slot here would use the already-doubled
-backoff value."
+(cl-defmethod slack-ws-set-reconnect-timer ((ws slack-team-ws) fn &rest fn-args)
+  "Schedule FN with FN-ARGS after the current reconnect delay on WS."
   (slack-ws-cancel-reconnect-timer ws)
   (oset ws reconnect-timer
-        (apply #'run-at-time delay nil fn fn-args)))
+        (apply #'run-at-time (oref ws reconnect-after-sec)
+               nil fn fn-args)))
 
 (cl-defmethod slack-ws-reconnect-count-exceed-p ((ws slack-team-ws))
   "Return non-nil when WS has exceeded the maximum reconnect attempts."
@@ -116,7 +114,7 @@ backoff value."
      (oref ws reconnect-count)))
 
 (cl-defmethod slack-ws-reconnect-backoff ((ws slack-team-ws))
-  "Apply exponential backoff to reconnect delay and return the new delay.
+  "Apply exponential backoff and return WS's preceding reconnect delay.
 WS is the ws argument."
   (let* ((current (oref ws reconnect-after-sec))
          (doubled (min (* current 2) (oref ws reconnect-after-sec-max))))

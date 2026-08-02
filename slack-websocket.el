@@ -535,13 +535,15 @@ TEAM is one of `slack-teams'.
 WS is the ws argument."
   (unless (or (oref ws inhibit-reconnection)
               (null (slack-team-id team)))
-    (let ((delay (slack-ws-reconnect-backoff ws)))
+    (let ((delay (oref ws reconnect-after-sec)))
       (slack-log (format "Scheduling reconnect in %s seconds" delay)
                  team :level 'info)
       (slack-ws-set-reconnect-timer ws
-                                    delay
                                     #'slack-ws--reconnect
-                                    (slack-team-id team)))))
+                                    (slack-team-id team))
+      ;; Advance only after arming the timer, so the current attempt waits
+      ;; for the delay that was logged and the next attempt gets the backoff.
+      (slack-ws-reconnect-backoff ws))))
 
 ;; Message handler
 

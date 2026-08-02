@@ -439,6 +439,9 @@ Some terminology in the `slack-` functions:
   - reconnection after a long disconnect (laptop sleep) falls back to
     a fresh authorization instead of retrying Slack's expired
     reconnect URL for hours
+  - reconnect timers keep a reload-stable method signature, so rebuilding
+    the package no longer leaves an older method that schedules the numeric
+    backoff delay as though it were a callback function
   - typing indicators no longer leak repeating timers when people type
     in different channels in quick succession (the leaked timers
     erased the echo area every second for the rest of the session)

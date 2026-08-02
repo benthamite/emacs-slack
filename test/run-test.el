@@ -4478,6 +4478,32 @@ the operation indexes in terminal callback order."
             (when (timerp timer)
               (cancel-timer timer))))))))
 
+(ert-deftest slack-test-ws-reconnect-timer-keeps-reload-stable-signature ()
+  "Keep reconnect timer method dispatch stable across package reloads."
+  (should
+   (cl-find-method
+    'slack-ws-set-reconnect-timer nil '(slack-team-ws t)))
+  (should-not
+   (cl-find-method
+    'slack-ws-set-reconnect-timer nil '(slack-team-ws t t))))
+
+(ert-deftest slack-test-ws-reconnect-schedules-before-advancing-backoff ()
+  "Schedule the logged reconnect delay before doubling the next delay."
+  (slack-test-setup
+    (let ((ws (make-instance 'slack-team-ws))
+          scheduled)
+      (oset team ws ws)
+      (cl-letf (((symbol-function 'run-at-time)
+                 (lambda (delay repeat function &rest args)
+                   (setq scheduled (list delay repeat function args))
+                   'scheduled-timer))
+                ((symbol-function 'slack-log) #'ignore))
+        (slack-ws-reconnect ws team))
+      (should
+       (equal scheduled
+              (list 2 nil #'slack-ws--reconnect (list "T99999"))))
+      (should (= 4 (oref ws reconnect-after-sec))))))
+
 (ert-deftest slack-test-ws-on-timeout-tolerates-missing-team ()
   (cl-letf (((symbol-function 'slack-team-find) (lambda (_id) nil)))
     (slack-ws-on-timeout "T-GONE")))
