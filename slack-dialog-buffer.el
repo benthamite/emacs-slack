@@ -460,16 +460,18 @@ DIALOG-ID is the dialog-id argument."
                (when (functionp error)
                  (apply error errors)))
          (on-success (&key data &allow-other-keys)
-           (condition-case schema-error
-               (slack-request-handle-error
-                (data "slack-dialog-get" #'fail)
-                (let ((payload (plist-get data :dialog)))
-                  (unless payload
-                    (error "Slack returned no dialog schema"))
-                  (funcall success
-                           (slack-dialog-create payload)
-                           nil nil)))
-             (error (funcall #'fail schema-error)))))
+           (slack-request-handle-error
+            (data "slack-dialog-get" #'fail)
+            (let ((normalized
+                   (slack-request-normalize-response
+                    (lambda ()
+                      (let ((payload (plist-get data :dialog)))
+                        (unless payload
+                          (error "Slack returned no dialog schema"))
+                        (slack-dialog-create payload)))
+                    #'fail)))
+              (when normalized
+                (funcall success (cdr normalized) nil nil))))))
       (slack-request
        (slack-request-create
         url

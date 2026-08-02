@@ -4630,6 +4630,12 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (funcall request-error "transport failure")
         (should (equal '(error hydrated users primary) events))))))
 
+(ert-deftest slack-test-all-threads-now-ts-does-not-assume-float-precision ()
+  "All Threads timestamps remain valid when Emacs prints only three decimals."
+  (cl-letf (((symbol-function 'time-to-seconds)
+             (lambda (&optional _time) 1785703455.607)))
+    (should (equal "1785703455.6070" (slack-all-threads--now-ts)))))
+
 (ert-deftest slack-test-all-threads-primary-renders-uncached-author ()
   "The primary page renders a stable author ID before user hydration."
   (slack-test-setup
@@ -10952,6 +10958,331 @@ USER defaults to the fixture user's id."
                      (slot-boundp object 'buf)
                      (buffer-live-p (oref object buf)))
             (kill-buffer (oref object buf))))))))
+
+(ert-deftest slack-test-initial-page-adapters-route-normalization-errors ()
+  "Malformed successful responses reach each adapter's error continuation."
+  (slack-test-setup
+    (let* ((message-search
+            (make-instance
+             'slack-search-result
+             :query "needle" :sort "timestamp" :sort-dir "desc"
+             :total 0 :matches nil
+             :pagination (slack-test-search-pagination 0 0 0 0)))
+           (file-search
+            (make-instance
+             'slack-file-search-result
+             :query "needle" :sort "timestamp" :sort-dir "desc"
+             :total 0 :matches nil
+             :pagination (slack-test-search-pagination 0 0 0 0)))
+           (cases
+            (list
+             (list
+              'scheduled
+              (lambda (ready error)
+                (funcall
+                 (slack-scheduled-messages-buffer--page-loader team)
+                 1 ready error))
+              '(:ok t :drafts ((:id "D1" :date_scheduled "tomorrow"))))
+             (list
+              'pins
+              (lambda (ready error)
+                (slack-pins-list channel team ready nil error))
+              '(:ok t :items ((:type 7))))
+             (list
+              'message-search
+              (lambda (ready error)
+                (slack-search-request message-search ready team 1 error))
+              (list :ok t :query "needle"
+                    :messages
+                    (list :total 1
+                          :matches
+                          (list (list :channel nil :user user-id
+                                      :text "broken" :ts "1.000"))
+                          :pagination
+                          (list :total_count 1 :page 1 :per_page 20
+                                :page_count 1 :first 1 :last 1))))
+             (list
+              'file-search
+              (lambda (ready error)
+                (slack-search-request file-search ready team 1 error))
+              '(:ok t :query "needle"
+                :files
+                (:total 1 :matches ((:id "F1" :mimetype 4))
+                 :pagination
+                 (:total_count 1 :page 1 :per_page 20
+                  :page_count 1 :first 1 :last 1))))
+             (list
+              'saved-items
+              (lambda (ready error)
+                (slack-stars-list-request team nil ready error))
+              (list :ok t
+                    :saved_items
+                    (list
+                     (list :item_id channel-id :item_type "message"
+                           :message
+                           (list :type "message" :subtype 4
+                                 :user user-id :text "broken"
+                                 :ts "1.000")))
+                    :response_metadata (list :next_cursor "")))
+             (list
+              'replies
+              (lambda (ready error)
+                (slack-conversations-replies
+                 channel "1.000" team
+                 :after-success ready :on-error error))
+              (list :ok t :messages
+                    (list (list :type "message" :subtype 4
+                                :user user-id :text "broken"
+                                :ts "1.000"))))
+             (list
+              'history
+              (lambda (ready error)
+                (slack-conversations-history
+                 channel team :after-success ready :on-error error))
+              (list :ok t :messages
+                    (list (list :type "message" :subtype 4
+                                :user user-id :text "broken"
+                                :ts "1.000"))))))
+           escaped missing-error published no-request)
+      (dolist (case cases)
+        (let ((name (nth 0 case))
+              (start (nth 1 case))
+              (payload (nth 2 case))
+              request errors ready-called)
+          (cl-letf (((symbol-function 'slack-request)
+                     (lambda (created &rest _args)
+                       (setq request created))))
+            (funcall start
+                     (lambda (&rest _args) (setq ready-called t))
+                     (lambda (&rest values) (push values errors)))
+            (if request
+                (let ((raised
+                       (condition-case response-error
+                           (progn
+                             (funcall (oref request success) :data payload)
+                             nil)
+                         (error response-error))))
+                  (when raised (push name escaped)))
+              (push name no-request)))
+          (unless (= 1 (length errors))
+            (push name missing-error))
+          (when ready-called (push name published))))
+      (should-not no-request)
+      (should-not escaped)
+      (should-not missing-error)
+      (should-not published))))
+
+(ert-deftest slack-test-saved-items-normalization-failure-preserves-caches ()
+  "Rejected saved-item responses do not partially publish cache changes."
+  (slack-test-setup
+    (let* ((original-star
+            (make-instance 'slack-star :items nil :cursor "original"))
+           (valid-item
+            (list :item_id channel-id :item_type "message"
+                  :message
+                  (list :type "message" :user user-id :text "valid"
+                        :ts "9.001")))
+           (malformed-item
+            (list :item_id channel-id :item_type "message"
+                  :message
+                  (list :type "message" :subtype 4 :user user-id
+                        :text "broken" :ts "9.002")))
+           request errors)
+      (oset team star original-star)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (created &rest _args) (setq request created))))
+        (slack-stars-list-request
+         team nil #'ignore
+         (lambda (&rest values) (push values errors)))
+        (funcall
+         (oref request success)
+         :data
+         (list :ok t :saved_items (list valid-item malformed-item)
+               :response_metadata (list :next_cursor ""))))
+      (should (= 1 (length errors)))
+      (should (eq original-star (oref team star)))
+      (should-not (slack-room-find-message channel "9.001"))
+      (setq request nil
+            errors nil)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (created &rest _args) (setq request created)))
+                ((symbol-function 'slack-team-missing-user-ids)
+                 (lambda (&rest _args) (error "user normalization failed"))))
+        (slack-stars-list-request
+         team nil #'ignore
+         (lambda (&rest values) (push values errors)))
+        (funcall
+         (oref request success)
+         :data
+         (list :ok t :saved_items (list valid-item)
+               :response_metadata (list :next_cursor ""))))
+      (should (= 1 (length errors)))
+      (should (eq original-star (oref team star)))
+      (should-not (slack-room-find-message channel "9.001")))))
+
+(ert-deftest slack-test-saved-items-cache-publication-prepares-all-rooms ()
+  "Embedded saved messages publish only after every room update is valid."
+  (slack-test-setup
+    (let* ((other-channel
+            (make-instance 'slack-channel :id "C22222" :name "Other"))
+           (original-star
+            (make-instance 'slack-star :items nil :cursor "original"))
+           (first-messages (oref channel messages))
+           (first-revisions (oref channel message-revisions))
+           (second-messages (oref other-channel messages))
+           (second-revisions (oref other-channel message-revisions))
+           (first (make-instance 'slack-message
+                                 :type "message" :channel channel-id
+                                 :ts "9.001" :reactions nil))
+           (second (make-instance 'slack-message
+                                  :type "message" :channel "C22222"
+                                  :ts "9.002" :reactions nil))
+           (original-ts (symbol-function 'slack-ts)))
+      (puthash (oref other-channel id) other-channel (oref team channels))
+      (oset team star original-star)
+      (cl-letf (((symbol-function 'slack-ts)
+                 (lambda (message)
+                   (if (eq message second)
+                       (error "second room publication failed")
+                     (funcall original-ts message)))))
+        (should-error
+         (slack-star-cache-embedded-messages
+          (list (cons channel first) (cons other-channel second)) team)))
+      (should-not (slack-room-find-message channel "9.001"))
+      (should-not (slack-room-find-message other-channel "9.002"))
+      (should (eq first-messages (oref channel messages)))
+      (should (eq first-revisions (oref channel message-revisions)))
+      (should (eq second-messages (oref other-channel messages)))
+      (should (eq second-revisions (oref other-channel message-revisions)))
+      (should (eq original-star (oref team star)))
+      (should-not (oref channel message-ids))
+      (should-not (oref other-channel message-ids))
+      (should (= 0 (oref channel message-revision)))
+      (should (= 0 (oref other-channel message-revision))))))
+
+(ert-deftest slack-test-initial-page-adapters-preserve-consumer-errors ()
+  "Adapter error handlers do not claim errors raised by page consumers."
+  (slack-test-setup
+    (let* ((message-search
+            (make-instance
+             'slack-search-result
+             :query "needle" :sort "timestamp" :sort-dir "desc"
+             :total 0 :matches nil
+             :pagination (slack-test-search-pagination 0 0 0 0)))
+           (state (slack-team-page-state team 'consumer-error-test))
+           (activity-buffer
+            (slack-create-activity-feed-buffer
+             (make-instance 'slack-activity-feed) team))
+           (cases
+            (list
+             (list
+              'scheduled
+              (lambda (consumer error)
+                (funcall
+                 (slack-scheduled-messages-buffer--page-loader team)
+                 1 consumer error))
+              '(:ok t :drafts nil))
+             (list
+              'pins
+              (lambda (consumer error)
+                (slack-pins-list channel team #'ignore consumer error))
+              '(:ok t :items nil))
+             (list
+              'search
+              (lambda (consumer error)
+                (slack-search-request
+                 message-search #'ignore team 1 error consumer))
+              (list :ok t :query "needle"
+                    :messages
+                    (list :total 0 :matches nil
+                          :pagination
+                          (list :total_count 0 :page 1 :per_page 20
+                                :page_count 1 :first 0 :last 0))))
+             (list
+              'saved-items
+              (lambda (consumer error)
+                (slack-stars-list-request
+                 team nil #'ignore error consumer))
+              '(:ok t :saved_items nil
+                :response_metadata (:next_cursor "")))
+             (list
+              'replies
+              (lambda (consumer error)
+                (slack-conversations-replies
+                 channel "1.000" team :after-success #'ignore
+                 :on-primary-page consumer :on-error error))
+              '(:ok t :messages nil))
+             (list
+              'history
+              (lambda (consumer error)
+                (slack-conversations-history
+                 channel team :after-success #'ignore
+                 :on-primary-page consumer :on-error error))
+              '(:ok t :messages nil))
+             (list
+              'all-threads
+              (lambda (consumer error)
+                (slack-subscriptions-thread-get-view
+                 team nil #'ignore consumer error))
+              '(:ok t :threads nil :has_more :json-false))
+             (list
+              'file-list
+              (lambda (consumer error)
+                (slack-file-list-request
+                 team :after-success #'ignore
+                 :on-primary-page consumer :on-error error))
+              '(:ok t :files nil :paging (:page 1 :pages 1)))
+             (list
+              'activity-feed
+              (lambda (consumer error)
+                (funcall
+                 (slack-activity-feed--page-loader
+                  activity-buffer team state nil)
+                 1 consumer error))
+              '(:ok t :items nil :response_metadata (:next_cursor nil)))
+             (list
+              'bookmarks
+              (lambda (consumer error)
+                (funcall
+                 (slack-channel-bookmarks-buffer--page-loader channel-id team)
+                 1 consumer error))
+              '(:ok t :bookmarks nil))
+             (list
+              'dialog
+              (lambda (consumer error)
+                (slack-dialog-get-request "D1" team consumer error))
+              '(:ok t :dialog (:title "Dialog" :elements nil)))))
+           swallowed reclassified no-request)
+      (unwind-protect
+          (dolist (case cases)
+            (let ((name (nth 0 case))
+                  (start (nth 1 case))
+                  (payload (nth 2 case))
+                  request errors)
+              (cl-letf (((symbol-function 'slack-request)
+                         (lambda (created &rest _args)
+                           (setq request created)))
+                        ((symbol-function 'slack-team-missing-user-ids)
+                         (lambda (&rest _args) nil)))
+                (funcall start
+                         (lambda (&rest _args) (error "consumer boom"))
+                         (lambda (&rest values) (push values errors)))
+                (if request
+                    (unless
+                        (condition-case nil
+                            (progn
+                              (funcall (oref request success) :data payload)
+                              nil)
+                          (error t))
+                      (push name swallowed))
+                  (push name no-request)))
+              (when errors (push name reclassified))))
+        (when (and (slot-boundp activity-buffer 'buf)
+                   (buffer-live-p (oref activity-buffer buf)))
+          (kill-buffer (oref activity-buffer buf))))
+      (should-not no-request)
+      (should-not swallowed)
+      (should-not reclassified))))
 
 (if noninteractive
     (ert-run-tests-batch-and-exit)

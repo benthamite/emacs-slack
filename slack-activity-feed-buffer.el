@@ -1676,30 +1676,36 @@ Call AFTER-HYDRATION before finishing the current generation."
                               team event-token))))))
                (release-events)))
            (on-data (data)
-             (condition-case page-error
-                 (let* ((activities
-                         (slack-activity-feed--filter-mode-activities
-                          (slack-activity-feed--apply-event-activities
-                           (mapcar #'slack-activity-feed--parse-item
-                                   (plist-get data :items))
-                           (slack-activity-feed--event-journal-events-since
-                            team event-token))))
-                        (pagination
-                         (plist-get (plist-get data :response_metadata)
-                                    :next_cursor))
-                        (snapshot (list :activities activities
-                                        :pagination pagination
-                                        :updated-at (current-time))))
-                   (if (funcall success
-                                snapshot pagination
-                                (and pagination
-                                     (not (string-empty-p pagination)))
-                                t)
+             (let ((normalized
+                    (slack-request-normalize-response
+                     (lambda ()
+                       (let* ((activities
+                               (slack-activity-feed--filter-mode-activities
+                                (slack-activity-feed--apply-event-activities
+                                 (mapcar #'slack-activity-feed--parse-item
+                                         (plist-get data :items))
+                                 (slack-activity-feed--event-journal-events-since
+                                  team event-token))))
+                              (pagination
+                               (plist-get
+                                (plist-get data :response_metadata)
+                                :next_cursor))
+                              (snapshot
+                               (list :activities activities
+                                     :pagination pagination
+                                     :updated-at (current-time))))
+                         (list snapshot pagination
+                               (and pagination
+                                    (not (string-empty-p pagination))))))
+                     #'fail)))
+               (when normalized
+                 (pcase-let ((`(,snapshot ,pagination ,has-more)
+                              (cdr normalized)))
+                   (if (funcall success snapshot pagination has-more t)
                        (slack-activity-feed--hydrate-page
                         buffer team state generation mode snapshot
                         (lambda () (finish-hydration snapshot)))
-                     (release-events)))
-               (error (fail page-error)))))
+                     (release-events)))))))
         (condition-case request-error
             (slack-activity-feed-request team #'on-data nil #'fail)
           (error

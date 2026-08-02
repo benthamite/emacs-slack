@@ -247,12 +247,12 @@ If QUERY is non-nil, use it as the search query without prompting."
     ((this slack-search-result) after-success team
      &optional (page 1) on-error on-primary-page)
   "Issue the search request for THIS, fetching PAGE (1 by default) from TEAM.
-AFTER-SUCCESS is called once the result (and any missing users) are
-merged into THIS.  ON-ERROR is invoked on API or transport failure so
-callers can clear their in-flight state — the search API is
-aggressively rate limited.  ON-PRIMARY-PAGE receives THIS after the
-result and pagination are merged, before missing-user hydration.  The
-first five positional arguments remain compatible with existing callers."
+AFTER-SUCCESS is called once the result (and any missing users) are merged into
+THIS.  ON-ERROR is invoked on API, transport, or response-normalization failure
+so callers can clear their in-flight state — the search API is aggressively rate
+limited.  ON-PRIMARY-PAGE receives THIS after the result and pagination are
+merged, before missing-user hydration.  The first five positional arguments
+remain compatible with existing callers."
   (cl-labels
       ((callback ()
          (funcall after-success))
@@ -263,24 +263,31 @@ first five positional arguments remain compatible with existing callers."
          (&key data &allow-other-keys)
          (slack-request-handle-error
           (data "slack-search-request" #'fail)
-          (let* ((search-result (if (slack-file-search-result-p this)
-                                    (slack-search-create-file-result data
-                                                                     (oref this sort)
-                                                                     (oref this sort-dir))
-                                  (slack-search-create-result data
-                                                              (oref this sort)
-                                                              (oref this sort-dir)
-                                                              team)))
-                 (user-ids (slack-team-missing-user-ids
-                            team (cl-loop for match in (oref search-result matches)
-                                          nconc (slack-message-user-ids match)))))
-            (slack-merge this search-result)
-            (when (functionp on-primary-page)
-              (funcall on-primary-page this))
-            (if (< 0 (length user-ids))
-                (slack-users-info-request
-                 user-ids team :after-success #'(lambda () (callback)))
-              (callback))))))
+          (let ((normalized
+                 (slack-request-normalize-response
+                  (lambda ()
+                    (let* ((search-result
+                            (if (slack-file-search-result-p this)
+                                (slack-search-create-file-result
+                                 data (oref this sort) (oref this sort-dir))
+                              (slack-search-create-result
+                               data (oref this sort) (oref this sort-dir) team)))
+                           (user-ids
+                            (slack-team-missing-user-ids
+                             team
+                             (cl-loop for match in (oref search-result matches)
+                                      nconc (slack-message-user-ids match)))))
+                      (slack-merge this search-result)
+                      user-ids))
+                  #'fail)))
+            (when normalized
+              (let ((user-ids (cdr normalized)))
+                (when (functionp on-primary-page)
+                  (funcall on-primary-page this))
+                (if (< 0 (length user-ids))
+                    (slack-users-info-request
+                     user-ids team :after-success (lambda () (callback)))
+                  (callback))))))))
     (with-slots (query sort sort-dir) this
       (if (< 0 (length query))
           (slack-request

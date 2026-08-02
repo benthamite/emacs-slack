@@ -108,11 +108,13 @@
     (slack-bookmarks-request
      channel-id team
      (lambda (data)
-       (condition-case normalization-error
-           (funcall success
-                    (slack-seq-to-list (plist-get data :bookmarks))
-                    nil nil)
-         (error (funcall error normalization-error))))
+       (let ((normalized
+              (slack-request-normalize-response
+               (lambda ()
+                 (slack-seq-to-list (plist-get data :bookmarks)))
+               error)))
+         (when normalized
+           (funcall success (cdr normalized) nil nil))))
      (lambda (&rest errors)
        (apply error errors)))))
 

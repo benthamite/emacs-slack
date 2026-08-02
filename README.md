@@ -161,8 +161,9 @@ threads, scheduled messages, pinned items, and remote dialogs. Primary results
 appear before supplemental user or message hydration finishes. Failures are
 shown in the same buffer with a retry action, duplicate opens share one request,
 stale replies cannot replace newer state, and late replies do not recreate a
-killed buffer. First-page and load-more pagination state is retained across
-buffer recreation.
+killed buffer. Malformed successful responses enter the same retryable failure
+state instead of leaving the buffer stuck loading. First-page and load-more
+pagination state is retained across buffer recreation.
 
 Direct and multi-person conversations still resolve their stable room id first
 when necessary. Member selection likewise waits until the target user is known;

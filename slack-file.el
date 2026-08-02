@@ -638,30 +638,36 @@ and normalization failures."
        (success (&key data &allow-other-keys)
          (slack-request-handle-error
           (data "slack-file-list" #'fail)
-          (condition-case normalization-error
-              (let* ((files (mapcar #'slack-file-create
-                                    (plist-get data :files)))
-                     (paging (plist-get data :paging))
-                     (page-number (plist-get paging :page))
-                     (pages (plist-get paging :pages))
-                     (user-ids
-                      (slack-team-missing-user-ids
-                       team (cl-loop for file in files
-                                     nconc
-                                     (slack-message-user-ids file)))))
-                (unless (and (integerp page-number)
-                             (integerp pages)
-                             (<= 1 page-number)
-                             (<= page-number pages))
-                  (error "Malformed files.list pagination: %S" paging))
+          (let ((normalized
+                 (slack-request-normalize-response
+                  (lambda ()
+                    (let* ((files (mapcar #'slack-file-create
+                                          (plist-get data :files)))
+                           (paging (plist-get data :paging))
+                           (page-number (plist-get paging :page))
+                           (pages (plist-get paging :pages))
+                           (user-ids
+                            (slack-team-missing-user-ids
+                             team
+                             (cl-loop for file in files
+                                      nconc (slack-message-user-ids file)))))
+                      (unless (and (integerp page-number)
+                                   (integerp pages)
+                                   (<= 1 page-number)
+                                   (<= page-number pages))
+                        (error "Malformed files.list pagination: %S" paging))
+                      (list paging page-number pages files user-ids)))
+                  #'fail)))
+            (when normalized
+              (pcase-let ((`(,paging ,page-number ,pages ,files ,user-ids)
+                           (cdr normalized)))
                 (when (functionp on-primary-page)
                   (funcall on-primary-page page-number pages files))
                 (if (< 0 (length user-ids))
                     (slack-users-info-request
                      user-ids team
                      :after-success (lambda () (callback paging)))
-                  (callback paging)))
-            (error (funcall #'fail normalization-error))))))
+                  (callback paging))))))))
       (slack-request
        (slack-request-create
         slack-file-list-url

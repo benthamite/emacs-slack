@@ -348,6 +348,16 @@ BODY is the body argument."
      (progn
        ,@body)))
 
+(defun slack-request-normalize-response (normalizer on-error)
+  "Run NORMALIZER and return a tagged result.
+Call ON-ERROR with any normalization or cache error and return nil.  The tag
+distinguishes a successful nil result from failure."
+  (condition-case normalization-error
+      (cons t (funcall normalizer))
+    (error
+     (funcall on-error normalization-error)
+     nil)))
+
 ;; Request Worker
 
 (defcustom slack-request-worker-max-request-limit 30

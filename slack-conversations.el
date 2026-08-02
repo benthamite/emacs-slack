@@ -477,22 +477,35 @@ failures."
             (data "slack-conversations-replies"
                   #'(lambda (err)
                       (fail err)))
-            (let* ((messages (mapcar #'create-message
-                                     (plist-get data :messages)))
-                   (meta (plist-get data :response_metadata))
-                   (next-cursor (and meta (plist-get meta :next_cursor)))
-                   (has-more (eq t (plist-get data :has_more)))
-                   (user-ids (slack-team-missing-user-ids
-                              team (cl-loop for m in messages
-                                            nconc (slack-message-user-ids m)))))
-              (when (functionp on-primary-page)
-                (funcall on-primary-page messages next-cursor has-more))
-              (if (< 0 (length user-ids))
-                  (slack-users-info-request
-                   user-ids team
-                   :after-success #'(lambda ()
-                                      (callback messages next-cursor has-more)))
-                (callback messages next-cursor has-more))))))
+            (let ((normalized
+                   (slack-request-normalize-response
+                    (lambda ()
+                      (let* ((messages
+                              (mapcar #'create-message
+                                      (plist-get data :messages)))
+                             (meta (plist-get data :response_metadata))
+                             (next-cursor
+                              (and meta (plist-get meta :next_cursor)))
+                             (has-more (eq t (plist-get data :has_more)))
+                             (user-ids
+                              (slack-team-missing-user-ids
+                               team
+                               (cl-loop for m in messages
+                                        nconc (slack-message-user-ids m)))))
+                        (list messages next-cursor has-more user-ids)))
+                    #'fail)))
+              (when normalized
+                (pcase-let ((`(,messages ,next-cursor ,has-more ,user-ids)
+                             (cdr normalized)))
+                  (when (functionp on-primary-page)
+                    (funcall on-primary-page messages next-cursor has-more))
+                  (if (< 0 (length user-ids))
+                      (slack-users-info-request
+                       user-ids team
+                       :after-success
+                       (lambda ()
+                         (callback messages next-cursor has-more)))
+                    (callback messages next-cursor has-more))))))))
       (slack-request
        (slack-request-create
         slack-conversations-replies-url
@@ -569,21 +582,34 @@ ON-ERROR handles failures."
             (data "slack-conversations-history"
                   #'(lambda (err)
                       (fail err)))
-            (let* ((meta (plist-get data :response_metadata))
-                   (next-cursor (or (plist-get meta :next_cursor) ""))
-                   (messages (cl-loop for e in (plist-get data :messages)
-                                      collect (slack-message-create e team room)))
-                   (user-ids (slack-team-missing-user-ids
-                              team (cl-loop for m in messages
-                                            nconc (slack-message-user-ids m)))))
-              (when (functionp on-primary-page)
-                (funcall on-primary-page messages next-cursor))
-              (if (< 0 (length user-ids))
-                  (slack-user-info-request
-                   user-ids team
-                   :after-success #'(lambda ()
-                                      (callback messages next-cursor)))
-                (callback messages next-cursor))))))
+            (let ((normalized
+                   (slack-request-normalize-response
+                    (lambda ()
+                      (let* ((meta (plist-get data :response_metadata))
+                             (next-cursor
+                              (or (plist-get meta :next_cursor) ""))
+                             (messages
+                              (cl-loop for e in (plist-get data :messages)
+                                       collect
+                                       (slack-message-create e team room)))
+                             (user-ids
+                              (slack-team-missing-user-ids
+                               team
+                               (cl-loop for m in messages
+                                        nconc (slack-message-user-ids m)))))
+                        (list messages next-cursor user-ids)))
+                    #'fail)))
+              (when normalized
+                (pcase-let ((`(,messages ,next-cursor ,user-ids)
+                             (cdr normalized)))
+                  (when (functionp on-primary-page)
+                    (funcall on-primary-page messages next-cursor))
+                  (if (< 0 (length user-ids))
+                      (slack-user-info-request
+                       user-ids team
+                       :after-success
+                       (lambda () (callback messages next-cursor)))
+                    (callback messages next-cursor))))))))
       (slack-request
        (slack-request-create
         slack-conversations-history-url

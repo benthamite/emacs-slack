@@ -77,10 +77,13 @@ TEAM is the team argument."
     (room team after-success &optional on-primary-page on-error)
   "Fetch pinned items in ROOM on TEAM.
 Call ON-PRIMARY-PAGE with parsed items before missing-user hydration, then call
-AFTER-SUCCESS with the same items after hydration.  ON-ERROR receives API or
-transport failures."
+AFTER-SUCCESS with the same items after hydration.  ON-ERROR receives API,
+transport, or response-normalization failures."
   (cl-labels
-      ((callback (items)
+      ((fail (&rest errors)
+         (when (functionp on-error)
+           (apply on-error errors)))
+       (callback (items)
                  (funcall after-success items))
        (primary (items)
                 (when (functionp on-primary-page)
@@ -88,34 +91,38 @@ transport failures."
        (success
         (&key data &allow-other-keys)
         (slack-request-handle-error
-         (data "slack-pins-list"
-               (lambda (api-error)
-                 (when (functionp on-error)
-                   (funcall on-error api-error))))
-         (let* ((items (delq nil
-                             (mapcar #'(lambda (item)
-                                         (slack-pinned-item-create item
-                                                                   room
-                                                                   team))
-                                     (plist-get data :items))))
-                (user-ids (slack-team-missing-user-ids
-                           team (cl-loop for item in items
-                                         nconc (slack-message-user-ids item)))))
-           (primary items)
-           (if (< 0 (length user-ids))
-               (slack-users-info-request
-                user-ids team
-                :after-success #'(lambda () (callback items)))
-             (callback items))))))
+         (data "slack-pins-list" #'fail)
+         (let ((normalized
+                (slack-request-normalize-response
+                 (lambda ()
+                   (let* ((items
+                           (delq nil
+                                 (mapcar
+                                  (lambda (item)
+                                    (slack-pinned-item-create item room team))
+                                  (plist-get data :items))))
+                          (user-ids
+                           (slack-team-missing-user-ids
+                            team
+                            (cl-loop for item in items
+                                     nconc (slack-message-user-ids item)))))
+                     (list items user-ids)))
+                 #'fail)))
+           (when normalized
+             (pcase-let ((`(,items ,user-ids) (cdr normalized)))
+               (primary items)
+               (if (< 0 (length user-ids))
+                   (slack-users-info-request
+                    user-ids team
+                    :after-success (lambda () (callback items)))
+                 (callback items))))))))
     (slack-request
      (slack-request-create
       slack-room-pins-list-url
       team
       :params (list (cons "channel" (oref room id)))
       :success #'success
-      :error (lambda (&rest errors)
-               (when (functionp on-error)
-                 (apply on-error errors)))))))
+      :error #'fail))))
 
 (provide 'slack-pinned-item)
 ;;; slack-pinned-item.el ends here

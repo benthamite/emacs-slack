@@ -157,7 +157,7 @@ the zero timestamp.  Existing live buffers retain their identity."
 
 (defun slack-all-threads--now-ts ()
   "Return the timestamp format expected by the All Threads API."
-  (substring (number-to-string (time-to-seconds (current-time))) 0 15))
+  (format "%.4f" (time-to-seconds (current-time))))
 
 (defun slack-subscriptions-thread-get-view
     (team &optional current-ts after-success on-primary-page on-error)
@@ -165,8 +165,8 @@ the zero timestamp.  Existing live buffers retain their identity."
 ON-PRIMARY-PAGE receives the same four page values as
 AFTER-SUCCESS, but runs immediately after parsing and before missing
 users are hydrated.  AFTER-SUCCESS retains its post-hydration timing.
-ON-ERROR receives API or transport failures.  The first three
-argument positions remain compatible with existing callers."
+ON-ERROR receives API, transport, or response-normalization failures.
+The first three argument positions remain compatible with existing callers."
   (let ((current-ts (or current-ts
                         (slack-all-threads--now-ts)))
         primary-called-p
@@ -190,44 +190,54 @@ argument positions remain compatible with existing callers."
          (success (&key data &allow-other-keys)
                   (slack-request-handle-error
                    (data "slack-subscriptions-thread-get-view" #'fail)
-                   (condition-case normalization-error
-                       (let* ((total-unread-replies
-                               (or (plist-get data :total_unread_replies) 0))
-                              (new-threads-count
-                               (or (plist-get data :new_threads_count) 0))
-                              (threads
-                               (mapcar
-                                (lambda (payload)
-                                  (slack-create-thread-view payload team))
-                                (plist-get data :threads)))
-                              (has-more (eq (plist-get data :has_more) t))
-                              (user-ids
-                               (slack-team-missing-user-ids
-                                team
-                                (cl-loop for thread in threads
-                                         nconc
-                                         (slack-message-user-ids thread)))))
+                   (let ((normalized
+                          (slack-request-normalize-response
+                           (lambda ()
+                             (let* ((total-unread-replies
+                                     (or (plist-get
+                                          data :total_unread_replies)
+                                         0))
+                                    (new-threads-count
+                                     (or (plist-get data :new_threads_count)
+                                         0))
+                                    (threads
+                                     (mapcar
+                                      (lambda (payload)
+                                        (slack-create-thread-view
+                                         payload team))
+                                      (plist-get data :threads)))
+                                    (has-more
+                                     (eq (plist-get data :has_more) t))
+                                    (user-ids
+                                     (slack-team-missing-user-ids
+                                      team
+                                      (cl-loop
+                                       for thread in threads
+                                       nconc
+                                       (slack-message-user-ids thread)))))
+                               (list total-unread-replies new-threads-count
+                                     threads has-more user-ids)))
+                           #'fail)))
+                     (when normalized
+                       (pcase-let
+                           ((`(,total-unread-replies ,new-threads-count
+                               ,threads ,has-more ,user-ids)
+                             (cdr normalized)))
                          (when (and (not primary-called-p)
                                     (functionp on-primary-page))
                            (setq primary-called-p t)
                            (funcall on-primary-page
-                                    total-unread-replies
-                                    new-threads-count
-                                    threads
-                                    has-more))
+                                    total-unread-replies new-threads-count
+                                    threads has-more))
                          (if (< 0 (length user-ids))
                              (slack-users-info-request
                               user-ids team :after-success
-                              #'(lambda ()
-                                  (callback total-unread-replies
-                                            new-threads-count
-                                            threads
-                                            has-more)))
-                           (callback total-unread-replies
-                                     new-threads-count
-                                     threads
-                                     has-more)))
-                     (error (fail normalization-error))))))
+                              (lambda ()
+                                (callback total-unread-replies
+                                          new-threads-count
+                                          threads has-more)))
+                           (callback total-unread-replies new-threads-count
+                                     threads has-more))))))))
       (slack-request
        (slack-request-create
         slack-subscriptions-thread-get-view-url
@@ -598,9 +608,7 @@ TS is the ts argument."
 
 (defun slack-subscriptions-thread-clear-all (team)
   "Clear all thread subscription unread state for TEAM via the Slack API."
-  (let ((current-ts (substring
-                     (number-to-string (time-to-seconds (current-time)))
-                     0 15)))
+  (let ((current-ts (slack-all-threads--now-ts)))
     (cl-labels
         ((success (&key data &allow-other-keys)
                   (slack-request-handle-error

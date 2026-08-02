@@ -298,20 +298,66 @@ duplicating live additions already present in the combined cache."
           (push item result))))
     (nreverse result)))
 
-(defun slack-star-cache-embedded-messages (payload team)
-  "Cache message objects embedded in saved-list PAYLOAD for TEAM."
-  (dolist (item (plist-get payload :saved_items))
-    (when-let* ((message-payload (plist-get item :message))
-                (room-id (or (plist-get item :item_id)
-                             (plist-get item :channel)
-                             (plist-get message-payload :channel)))
-                (room (slack-room-find room-id team))
-                (message (slack-message-create
-                          (copy-sequence message-payload) team room)))
-      (slack-room-set-messages room (list message) team))))
+(defun slack-star-create-embedded-messages (payload team)
+  "Create saved-list message candidates from PAYLOAD for TEAM.
+Return `(ROOM . MESSAGE)' pairs without mutating either cache."
+  (cl-loop
+   for item in (plist-get payload :saved_items)
+   for candidate =
+   (when-let* ((message-payload (plist-get item :message))
+               (room-id (or (plist-get item :item_id)
+                            (plist-get item :channel)
+                            (plist-get message-payload :channel)))
+               (room (slack-room-find room-id team))
+               (message (slack-message-create
+                         (copy-sequence message-payload) team room)))
+     (cons room message))
+   when candidate collect candidate))
 
-(defun slack-star-user-ids (star team)
-  "Return user IDs referenced by saved STAR's renderable items on TEAM."
+(defun slack-star-cache-embedded-messages (candidates team)
+  "Atomically publish saved-list message CANDIDATES to TEAM's room caches.
+These are historical cache fills, so they do not advance TEAM's unread-count
+latest markers.  Build every replacement cache before changing any room."
+  (ignore team)
+  (let (updates)
+    (dolist (candidate candidates)
+      (let* ((room (car candidate))
+             (message (cdr candidate))
+             (update
+              (or (cl-find-if
+                   (lambda (value) (eq room (plist-get value :room)))
+                   updates)
+                  (let ((value
+                         (list
+                          :room room
+                          :messages (copy-hash-table (oref room messages))
+                          :message-ids (copy-sequence (oref room message-ids))
+                          :message-revision (oref room message-revision)
+                          :message-revisions
+                          (copy-hash-table (oref room message-revisions)))))
+                    (push value updates)
+                    value)))
+             (ts (slack-ts message))
+             (revision (1+ (plist-get update :message-revision))))
+        (puthash ts message (plist-get update :messages))
+        (cl-pushnew ts (plist-get update :message-ids) :test #'string=)
+        (setf (plist-get update :message-revision) revision)
+        (puthash ts revision (plist-get update :message-revisions))))
+    (dolist (update updates)
+      (setf (plist-get update :message-ids)
+            (cl-sort (plist-get update :message-ids) #'string<)))
+    (dolist (update updates)
+      (let ((room (plist-get update :room)))
+        (oset room messages (plist-get update :messages))
+        (oset room message-ids (plist-get update :message-ids))
+        (oset room message-revision
+              (plist-get update :message-revision))
+        (oset room message-revisions
+              (plist-get update :message-revisions))))))
+
+(defun slack-star-user-ids (star team &optional candidates)
+  "Return user IDs referenced by saved STAR's renderable items on TEAM.
+CANDIDATES are unpublished `(ROOM . MESSAGE)' pairs from the same response."
   (cl-remove-if-not
    #'stringp
    (cl-loop
@@ -322,17 +368,26 @@ duplicating live additions already present in the combined cache."
       (slack-message-user-ids (oref item file)))
      (t
       (when-let* ((room (slack-room-find (oref item item-id) team))
-                  (message (slack-room-find-message room (slack-ts item))))
+                  (message
+                   (or
+                    (cdr
+                     (cl-find-if
+                      (lambda (candidate)
+                        (and (eq room (car candidate))
+                             (string= (slack-ts item)
+                                      (slack-ts (cdr candidate)))))
+                      candidates))
+                    (slack-room-find-message room (slack-ts item)))))
         (slack-message-user-ids message)))))))
 
 (defun slack-stars-list-request
     (team &optional cursor after-success on-error on-primary-page)
   "Fetch TEAM's saved items from CURSOR.
 AFTER-SUCCESS runs after supplemental user hydration.  ON-ERROR
-runs for API or transport failures.  ON-PRIMARY-PAGE receives the
-response's `slack-star' page and TEAM's stored, combined star cache
-after embedded messages and that cache are stored, but before user
-hydration begins.
+runs for API, transport, response-normalization, or cache failures.
+ON-PRIMARY-PAGE receives the response's `slack-star' page and TEAM's stored,
+combined star cache after embedded messages and that cache are stored, but
+before user hydration begins.
 The first four argument positions remain compatible with older callers."
   (let ((primary-called-p nil)
         (journal-token (slack-star-mutation-journal-register team)))
@@ -352,38 +407,54 @@ The first four argument positions remain compatible with older callers."
          (unwind-protect
              (slack-request-handle-error
               (data "slack-stars-list-request" #'fail)
-              (let* ((star (slack-create-star data))
-                     (current-star (oref team star))
-                     (mutations
-                      (slack-star-mutation-journal-entries-since
-                       team journal-token)))
-                (slack-star-cache-embedded-messages data team)
-                (if cursor
-                    (progn
-                      (slack-star--apply-mutations star mutations t)
-                      (oset team star
-                            (make-instance
-                             'slack-star
-                             :items
-                             (slack-star--append-unique-items
-                              (and current-star
-                                   (slack-star-items current-star))
-                              (slack-star-items star))
-                             :cursor (oref star cursor))))
-                  (slack-star--apply-mutations star mutations)
-                  (oset team star star))
-                (when (and (not primary-called-p)
-                           (functionp on-primary-page))
-                  (setq primary-called-p t)
-                  (funcall on-primary-page star (oref team star)))
-                (let ((user-ids
-                       (slack-team-missing-user-ids
-                        team (slack-star-user-ids (oref team star) team))))
-                  (if (< 0 (length user-ids))
-                      (slack-users-info-request
-                       user-ids team
-                       :after-success #'(lambda () (callback)))
-                    (callback)))))
+              (let ((normalized
+                     (slack-request-normalize-response
+                      (lambda ()
+                        (let* ((star (slack-create-star data))
+                               (current-star (oref team star))
+                               (candidates
+                                (slack-star-create-embedded-messages data team))
+                               (mutations
+                                (slack-star-mutation-journal-entries-since
+                                 team journal-token))
+                               stored-star)
+                          (if cursor
+                              (progn
+                                (slack-star--apply-mutations star mutations t)
+                                (setq stored-star
+                                      (make-instance
+                                       'slack-star
+                                       :items
+                                       (slack-star--append-unique-items
+                                        (and current-star
+                                             (slack-star-items current-star))
+                                        (slack-star-items star))
+                                       :cursor (oref star cursor))))
+                            (slack-star--apply-mutations star mutations)
+                            (setq stored-star star))
+                          (let ((user-ids
+                                 (slack-team-missing-user-ids
+                                  team
+                                  (slack-star-user-ids
+                                   stored-star team candidates))))
+                            ;; Publish only after the complete response and its
+                            ;; supplemental identity set have normalized.
+                            (slack-star-cache-embedded-messages candidates team)
+                            (oset team star stored-star)
+                            (list star stored-star user-ids))))
+                      #'fail)))
+                (when normalized
+                  (pcase-let ((`(,page ,stored-star ,user-ids)
+                               (cdr normalized)))
+                    (when (and (not primary-called-p)
+                               (functionp on-primary-page))
+                      (setq primary-called-p t)
+                      (funcall on-primary-page page stored-star))
+                    (if (< 0 (length user-ids))
+                        (slack-users-info-request
+                         user-ids team
+                         :after-success (lambda () (callback)))
+                      (callback))))))
            (release-journal))))
     (condition-case request-error
         (slack-request

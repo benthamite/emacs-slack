@@ -299,9 +299,12 @@ buffer.")
          (slack-request-handle-error
           (payload "slack-scheduled-messages-show"
                    (lambda (api-error) (funcall error api-error)))
-          (funcall success
-                   (slack-scheduled-messages-parse payload)
-                   nil nil))))
+          (let ((normalized
+                 (slack-request-normalize-response
+                  (lambda () (slack-scheduled-messages-parse payload))
+                  error)))
+            (when normalized
+              (funcall success (cdr normalized) nil nil))))))
      (lambda (&rest errors)
        (apply error errors)))))
 
