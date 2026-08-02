@@ -32,6 +32,10 @@
 (require 'slack-bot-message)
 (require 'slack-attachment)
 
+(declare-function slack-star-pending-intent
+                  "slack-star"
+                  (team ts &optional item-type item-id))
+
 (defun slack-reaction-create (payload)
   "Create and return a new `slack-reaction' from PAYLOAD."
   (apply #'make-instance 'slack-reaction
@@ -136,7 +140,25 @@ PAYLOAD lacks one."
                 (mapcar #'slack-reaction-create (plist-get payload :reactions)))
           (slack-message-set-file message payload)
           (slack-message-set-blocks message payload)
-          message)))))
+          (slack-message-apply-pending-saved-intent message team))))))
+
+(defun slack-message-apply-pending-saved-intent (message team)
+  "Apply TEAM's pending saved-item authority to MESSAGE.
+Remote message payloads may predate an unacknowledged local save or unsave.
+The authority is scoped by timestamp, message type, and channel so equal
+timestamps in other conversations remain independent."
+  (let ((ts (slack-ts message))
+        (channel (oref message channel)))
+    (when (and (fboundp 'slack-star-pending-intent)
+               (stringp ts)
+               (stringp channel))
+      (when-let ((intent
+                  (slack-star-pending-intent
+                   team ts "message" channel)))
+        (if (cdr intent)
+            (slack-message-star-added message)
+          (slack-message-star-removed message))))
+    message))
 
 (provide 'slack-create-message)
 ;;; slack-create-message.el ends here

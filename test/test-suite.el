@@ -20,6 +20,7 @@
 (require 'slack-bot-message)
 (require 'slack-create-message)
 (require 'slack-star)
+(require 'slack-stars-buffer)
 (require 'slack-attachment)
 (require 'slack-reaction)
 (require 'slack-counts)
@@ -375,6 +376,205 @@
       (let ((message (slack-room-find-message channel "1710000000.000100")))
         (should message)
         (should (string= "saved body" (oref message text)))))))
+
+(ert-deftest slack-test-acked-save-rejects-older-room-history-message ()
+  "Keep acknowledged saved state when older room history completes later."
+  (slack-test-setup
+    (let* ((ts "1710000000.000100")
+           (message
+            (slack-message-create
+             (list :type "message" :user user-id :channel channel-id
+                   :text "current body" :ts ts :is_starred nil)
+             team channel))
+           snapshot
+           history-request
+           save-request)
+      (slack-room-set-messages channel (list message) team)
+      (setq snapshot (slack-room-history-start-snapshot channel))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (cond
+                    ((string= (oref request url)
+                              slack-conversations-history-url)
+                     (setq history-request request))
+                    ((string= (oref request url)
+                              slack-message-stars-add-url)
+                     (setq save-request request)))
+                   request)))
+        (slack-conversations-history
+         channel team
+         :on-primary-page
+         (lambda (messages &rest _)
+           (slack-room-merge-history-page
+            channel messages team snapshot)))
+        (slack-star-api-request
+         slack-message-stars-add-url
+         (list (cons "item_id" channel-id)
+               (cons "item_type" "message")
+               (cons "ts" ts))
+         team
+         (lambda ()
+           (slack-message-star-added message)
+           (slack-team-mark-saved team channel-id ts)))
+        (funcall (oref save-request success) :data (list :ok t))
+        (funcall
+         (oref history-request success)
+         :data
+         (list :ok t
+               :messages
+               (list (list :type "message" :user user-id
+                           :channel channel-id :text "stale body"
+                           :ts ts :is_starred nil))
+               :response_metadata (list :next_cursor "")))
+        (should
+         (slack-message-starred-p
+          (slack-room-find-message channel ts)))
+        (slack-room-history-release-snapshot channel snapshot)))))
+
+(ert-deftest slack-test-acked-unsave-overrides-older-saved-list-message ()
+  "Keep acknowledged unsaved state when older saved.list completes later."
+  (slack-test-setup
+    (let* ((ts "1710000000.000100")
+           (item (make-instance 'slack-star-item
+                                :item-id channel-id
+                                :item-type "message"
+                                :ts ts))
+           (message
+            (slack-message-create
+             (list :type "message" :user user-id :channel channel-id
+                   :text "current body" :ts ts :is_starred t)
+             team channel))
+           saved-list-request
+           remove-request)
+      (oset team star (make-instance 'slack-star :items (list item)))
+      (slack-room-set-messages channel (list message) team)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (cond
+                    ((string= (oref request url) slack-stars-list-url)
+                     (setq saved-list-request request))
+                    ((string= (oref request url)
+                              slack-message-stars-remove-url)
+                     (setq remove-request request)))
+                   request)))
+        (slack-stars-list-request team)
+        (slack-star-api-request
+         slack-message-stars-remove-url
+         (list (cons "item_id" channel-id)
+               (cons "item_type" "message")
+               (cons "ts" ts))
+         team
+         (lambda ()
+           (slack-message-star-removed message)
+           (slack-team-mark-unsaved team ts "message" channel-id)))
+        (funcall (oref remove-request success) :data (list :ok t))
+        (funcall
+         (oref saved-list-request success)
+         :data
+         (list :ok t
+               :saved_items
+               (list
+                (list :item_id channel-id :item_type "message" :ts ts
+                      :message
+                      (list :type "message" :user user-id
+                            :channel channel-id :text "stale body"
+                            :ts ts :is_starred t)))
+               :response_metadata (list :next_cursor "")))
+        (should-not (slack-ts-saved-p team ts "message" channel-id))
+        (should-not
+         (slack-message-starred-p
+          (slack-room-find-message channel ts)))))))
+
+(ert-deftest slack-test-pending-save-intent-governs-created-messages ()
+  "Apply each pending saved intent to newly created matching messages."
+  (slack-test-setup
+    (let ((ts "1710000000.000100")
+          requests)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (setq requests (append requests (list request)))
+                   request)))
+        (slack-star-api-request
+         slack-message-stars-add-url nil team
+         (lambda ()
+           (slack-team-mark-saved team channel-id ts)))
+        (should
+         (slack-message-starred-p
+          (slack-message-create
+           (list :type "message" :user user-id :channel channel-id
+                 :ts ts :is_starred nil)
+           team channel)))
+        (should-not
+         (slack-message-starred-p
+          (slack-message-create
+           (list :type "message" :user user-id :channel "C22222"
+                 :ts ts :is_starred nil)
+           team "C22222")))
+        (funcall (oref (car requests) success) :data (list :ok t))
+        (slack-star-api-request
+         slack-message-stars-remove-url nil team
+         (lambda ()
+           (slack-team-mark-unsaved team ts "message" channel-id)))
+        (should-not
+         (slack-message-starred-p
+          (slack-message-create
+           (list :type "message" :user user-id :channel channel-id
+                 :ts ts :is_starred t)
+           team channel)))
+        (should
+         (slack-message-starred-p
+          (slack-message-create
+           (list :type "message" :user user-id :channel "C22222"
+                 :ts ts :is_starred t)
+           team "C22222")))
+        (funcall (oref (cadr requests) success) :data (list :ok t))))))
+
+(ert-deftest slack-test-saved-items-failed-remove-rerenders-live-row ()
+  "Rerender the same Saved Items buffer after a failed optimistic remove."
+  (slack-test-setup
+    (let* ((ts "1710000000.000100")
+           (item (make-instance 'slack-star-item
+                                :item-id channel-id
+                                :item-type "message"
+                                :ts ts))
+           (star (make-instance 'slack-star :items (list item)))
+           (message
+            (slack-message-create
+             (list :type "message" :user user-id :channel channel-id
+                   :text "saved body" :ts ts :is_starred t)
+             team channel))
+           (state (slack-team-page-state team 'saved-items))
+           (object (slack-create-stars-buffer team))
+           (emacs-buffer (slack-buffer-buffer object))
+           remove-request)
+      (oset team star star)
+      (slack-room-set-messages channel (list message) team)
+      (slack-page-state-store state star nil nil)
+      (unwind-protect
+          (progn
+            (slack-stars-buffer-render-page-state object state)
+            (with-current-buffer emacs-buffer
+              (goto-char
+               (slack-buffer-ts-eq (point-min) (point-max) ts))
+              (cl-letf (((symbol-function 'slack-request)
+                         (lambda (request)
+                           (setq remove-request request)
+                           request)))
+                (slack-buffer-remove-star object ts)))
+            (with-current-buffer emacs-buffer
+              (should-not
+               (slack-buffer-ts-eq (point-min) (point-max) ts)))
+            (funcall (oref remove-request error) 'network-error)
+            (should (eq object
+                        (slack-buffer-find 'slack-stars-buffer team)))
+            (should (eq state (slack-team-page-state team 'saved-items)))
+            (should (eq star (slack-page-state-value state)))
+            (should (eq emacs-buffer (oref object buf)))
+            (with-current-buffer emacs-buffer
+              (should
+               (slack-buffer-ts-eq (point-min) (point-max) ts))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
 
 (ert-deftest slack-test-room-push-maintains-sort-order ()
   (slack-test-setup

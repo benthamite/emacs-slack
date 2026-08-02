@@ -389,6 +389,22 @@ latest markers.  Build every replacement cache before changing any room."
         (oset room message-revisions
               (plist-get update :message-revisions))))))
 
+(defun slack-star-apply-embedded-message-state (candidates star)
+  "Apply authoritative saved STAR membership to message CANDIDATES."
+  (dolist (candidate candidates)
+    (let* ((room (car candidate))
+           (message (cdr candidate))
+           (saved-p
+            (cl-some
+             (lambda (item)
+               (slack-star-item-matches-p
+                item (slack-ts message) "message" (oref room id)))
+             (slack-star-items star))))
+      (if saved-p
+          (slack-message-star-added message)
+        (slack-message-star-removed message))))
+  candidates)
+
 (defun slack-star-user-ids (star team &optional candidates)
   "Return user IDs referenced by saved STAR's renderable items on TEAM.
 CANDIDATES are unpublished `(ROOM . MESSAGE)' pairs from the same response."
@@ -473,6 +489,8 @@ The first four argument positions remain compatible with older callers."
                                    stored-star team candidates))))
                             ;; Publish only after the complete response and its
                             ;; supplemental identity set have normalized.
+                            (slack-star-apply-embedded-message-state
+                             candidates stored-star)
                             (slack-star-cache-embedded-messages candidates team)
                             (oset team star stored-star)
                             (list star stored-star user-ids))))
@@ -623,6 +641,8 @@ cannot erase it."
        team slack-star--current-pending-write entry items))
     (oset star items
           (slack-star--add-item items item))
+    (slack-star-touch-message-revision
+     team (slack-ts item) (oref item item-type) (oref item item-id))
     entry))
 
 (defun slack-team-mark-unsaved (team ts &optional item-type item-id)
@@ -645,7 +665,17 @@ timestamp-wide match."
              (lambda (item)
                (slack-star-item-matches-p item ts item-type item-id))
              items)))
+    (slack-star-touch-message-revision team ts item-type item-id)
     entry))
+
+(defun slack-star-touch-message-revision (team ts item-type item-id)
+  "Advance TEAM's room revision for an exact saved message identity.
+TS, ITEM-TYPE, and ITEM-ID identify the saved item mutation."
+  (when (and (stringp item-type)
+             (string= item-type "message")
+             (stringp item-id))
+    (when-let ((room (slack-room-find item-id team)))
+      (slack-room-touch-message-revision room ts))))
 
 (defun slack-star-pending-write-start (team)
   "Create and retain an unacknowledged saved-item write for TEAM."

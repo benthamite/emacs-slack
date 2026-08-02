@@ -541,28 +541,35 @@ TEAM is the team argument."
          (message (and room (slack-room-find-message room ts)))
          (file (and file-id (slack-file-find file-id team))))
     (with-slots (star) team
-      (slack-star-remove-star
-       star ts team item-type item-id
-       (lambda ()
-         (slack-team-mark-unsaved team ts item-type item-id)
-         (when message
-           (slack-message-star-removed message))
-         (when file
-           (slack-message-star-removed file))
-         (when (or message file)
+      (let ((state (slack-team-page-state
+                    team slack-stars-buffer--page-key)))
+        (slack-star-remove-star
+         star ts team item-type item-id
+         (lambda ()
+           (slack-team-mark-unsaved team ts item-type item-id)
+           (when message
+             (slack-message-star-removed message))
+           (when file
+             (slack-message-star-removed file))
            (lambda ()
              (let ((saved-p
                     (slack-ts-saved-p team ts item-type item-id)))
                (dolist (object (delq nil (list message file)))
                  (if saved-p
                      (slack-message-star-added object)
-                   (slack-message-star-removed object))))))))
-      (let ((state (slack-team-page-state
-                    team slack-stars-buffer--page-key)))
-        (if (and (slack-page-state-loaded-p state)
-                 (eq (slack-page-state-value state) star))
-            (slack-stars-buffer-render-page-state this state)
+                   (slack-message-star-removed object))))
+             (slack-stars-buffer--render-owned-state
+              this state star))))
+        (if (slack-stars-buffer--render-owned-state this state star)
+            t
           (slack-buffer-message-delete this ts))))))
+
+(defun slack-stars-buffer--render-owned-state (buffer state star)
+  "Render BUFFER when durable saved-items STATE still owns STAR."
+  (when (and (slack-page-state-loaded-p state)
+             (eq (slack-page-state-value state) star))
+    (slack-stars-buffer-render-page-state buffer state)
+    t))
 
 (cl-defmethod slack-buffer-message-delete ((this slack-stars-buffer) ts)
   "Delete the message at point from THIS buffer.
