@@ -145,11 +145,17 @@ page, so only a non-empty cursor means another page exists."
                           (copy-sequence message-payload) team room)))
       (slack-room-set-messages room (list message) team))))
 
-(defun slack-stars-list-request (team &optional cursor after-success on-error)
-  "Fetch starred items for TEAM starting at CURSOR, calling AFTER-SUCCESS when done.
-ON-ERROR is invoked when the request fails at the API or transport
-level, so callers can clear their in-flight state."
-  (cl-labels
+(defun slack-stars-list-request
+    (team &optional cursor after-success on-error on-primary-page)
+  "Fetch TEAM's saved items from CURSOR.
+AFTER-SUCCESS runs after supplemental user hydration.  ON-ERROR
+runs for API or transport failures.  ON-PRIMARY-PAGE receives the
+response's `slack-star' page and TEAM's stored, combined star cache
+after embedded messages and that cache are stored, but before user
+hydration begins.
+The first four argument positions remain compatible with older callers."
+  (let ((primary-called-p nil))
+    (cl-labels
       ((callback ()
          (when (functionp after-success)
            (funcall after-success)))
@@ -165,9 +171,20 @@ level, so callers can clear their in-flight state."
             (slack-star-cache-embedded-messages data team)
             (if (oref team star)
                 (if cursor
-                    (slack-merge (oref team star) star)
+                    (oset team star
+                          (make-instance
+                           'slack-star
+                           :items (append
+                                   (copy-sequence
+                                    (slack-star-items (oref team star)))
+                                   (slack-star-items star))
+                           :cursor (oref star cursor)))
                   (oset team star star))
               (oset team star star))
+            (when (and (not primary-called-p)
+                       (functionp on-primary-page))
+              (setq primary-called-p t)
+              (funcall on-primary-page star (oref team star)))
             (if (< 0 (length user-ids))
                 (slack-users-info-request
                  user-ids team
@@ -180,7 +197,7 @@ level, so callers can clear their in-flight state."
       :type "POST"
       :data (list (when cursor (cons "cursor" cursor)))
       :success #'on-success
-      :error (lambda (&rest args) (apply #'fail args))))))
+      :error (lambda (&rest args) (apply #'fail args)))))))
 
 (defun slack-star-api-request (url params team)
   "Send a star add/remove request to URL with PARAMS for TEAM."

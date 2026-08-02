@@ -272,6 +272,8 @@ Some terminology in the `slack-` functions:
 - `slack-saved-items`
   - show saved messages and cache message data returned by Slack so the buffer
     can render newly fetched saved items immediately
+  - displays a stable buffer before Slack returns the saved index, keeps rows
+    visible while message content loads, and refreshes or retries in place
   - selecting a team that has not connected yet starts it before saved items
     are fetched, instead of opening an empty buffer
   - saved files render as entries (previously every file-type saved item was

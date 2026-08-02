@@ -63,6 +63,13 @@
                                :usergroups (list usergroup))))
      ,@body))
 
+(defun slack-test-star-item (ts room-id)
+  "Return a saved message item at TS in ROOM-ID."
+  (make-instance 'slack-star-item
+                 :item-id room-id
+                 :item-type "message"
+                 :ts ts))
+
 (ert-deftest slack-test-image-path ()
   (let* ((url "http://example.com/image.jpg?crop=1:2;3:4")
          (splitted (split-string url "?"))
@@ -2443,6 +2450,134 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
            (setq called t))))
       (should called))))
 
+(ert-deftest slack-test-stars-prefetch-settles-each-child-once ()
+  (slack-test-setup
+    (let ((items (list (slack-test-star-item "1.000" channel-id)
+                       (slack-test-star-item "2.000" channel-id)))
+          callbacks
+          (completed 0))
+      (cl-letf (((symbol-function 'slack-conversations-history)
+                 (lambda (_room _team &rest args)
+                   (push (cons (plist-get args :latest)
+                               (cons (plist-get args :after-success)
+                                     (plist-get args :on-error)))
+                         callbacks))))
+        (slack-stars--prefetch-messages
+         items team (lambda () (cl-incf completed))))
+      (let* ((first (assoc "1.000" callbacks))
+             (second (assoc "2.000" callbacks))
+             (first-success (cadr first))
+             (first-error (cddr first))
+             (second-error (cddr second)))
+        (funcall first-success nil)
+        (funcall first-success nil)
+        (funcall first-error "duplicate terminal callback")
+        (should (= 0 completed))
+        (funcall second-error "transport failure")
+        (funcall second-error "duplicate transport failure")
+        (should (= 1 completed))))))
+
+(ert-deftest slack-test-stars-prefetch-settles-synchronous-error ()
+  (slack-test-setup
+    (let ((item (slack-test-star-item "1.000" channel-id))
+          (completed 0))
+      (cl-letf (((symbol-function 'slack-conversations-history)
+                 (lambda (&rest _args)
+                   (error "synchronous history failure"))))
+        (slack-stars--prefetch-messages
+         (list item) team (lambda () (cl-incf completed))))
+      (should (= 1 completed)))))
+
+(ert-deftest slack-test-stars-prefetch-settles-nested-synchronous-error ()
+  (slack-test-setup
+    (let ((item (slack-test-star-item "1.000" channel-id))
+          history-success
+          (completed 0))
+      (cl-letf (((symbol-function 'slack-conversations-history)
+                 (lambda (_room _team &rest args)
+                   (setq history-success
+                         (plist-get args :after-success))))
+                ((symbol-function 'slack-stars--permalink-thread-ts)
+                 (lambda (&rest _args)
+                   (error "synchronous permalink failure"))))
+        (slack-stars--prefetch-messages
+         (list item) team (lambda () (cl-incf completed)))
+        (funcall
+         history-success
+         (list (slack-message-create
+                (list :type "message"
+                      :ts "2.000"
+                      :text "wrong history row"
+                      :user user-id
+                      :channel channel-id)
+                team channel))))
+      (should (= 1 completed)))))
+
+(ert-deftest slack-test-stars-list-primary-precedes-user-hydration ()
+  (slack-test-setup
+    (let (request-success
+          users-success
+          primary-star
+          events)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (setq request-success (oref request success))))
+                ((symbol-function 'slack-team-missing-user-ids)
+                 (lambda (&rest _args) '("U-missing")))
+                ((symbol-function 'slack-users-info-request)
+                 (lambda (_ids _team &rest args)
+                   (setq users-success (plist-get args :after-success))
+                   (push 'users events))))
+        (slack-stars-list-request
+         team nil
+         (lambda () (push 'ready events))
+         (lambda (&rest _args) (push 'error events))
+         (lambda (page stored-star)
+           (should (eq page stored-star))
+           (setq primary-star stored-star)
+           (push 'primary events)))
+        (funcall request-success
+                 :data
+                 (list :ok t
+                       :saved_items
+                       (list
+                        (list :item_id channel-id
+                              :item_type "message"
+                              :message
+                              (list :type "message"
+                                    :user user-id
+                                    :text "saved body"
+                                    :ts "1.000")))
+                       :response_metadata
+                       (list :next_cursor "cursor-1"))))
+      (should (eq primary-star (oref team star)))
+      (should (slack-room-find-message channel "1.000"))
+      (should (equal '(users primary) events))
+      (should (functionp users-success))
+      (funcall users-success)
+      (should (equal '(ready users primary) events)))))
+
+(ert-deftest slack-test-stars-list-four-argument-call-remains-compatible ()
+  (slack-test-setup
+    (let (request-success
+          events)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (setq request-success (oref request success))))
+                ((symbol-function 'slack-team-missing-user-ids)
+                 (lambda (&rest _args) nil)))
+        (slack-stars-list-request
+         team "cursor-1"
+         (lambda () (push 'ready events))
+         (lambda (&rest _args) (push 'error events)))
+        (funcall request-success
+                 :data
+                 (list :ok t
+                       :saved_items nil
+                       :response_metadata (list :next_cursor ""))))
+      (should (equal '(ready) events))
+      (should (equal "" (oref (oref team star) cursor))))))
+
 (ert-deftest slack-test-scheduled-message-blocks-json-escapes-text ()
   (let* ((text "hello \"team\"\npath\\value")
          (payload (json-parse-string
@@ -3913,16 +4048,21 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
     (let ((buf-obj (make-instance 'slack-stars-buffer
                                   :team-id (oref team id)))
           (buffer (generate-new-buffer " *slack-test-stars-lm*"))
-          (captured-error nil))
+          (captured-error nil)
+          star)
       (slack-buffer-cache-team buf-obj team)
       (oset buf-obj buf buffer)
-      (oset team star (slack-create-star
-                       (list :saved_items nil
-                             :response_metadata (list :next_cursor "cur"))))
+      (setq star (slack-create-star
+                  (list :saved_items nil
+                        :response_metadata (list :next_cursor "cur"))))
+      (oset team star star)
+      (slack-page-state-store
+       (slack-team-page-state team 'saved-items) star "cur" t)
       (unwind-protect
           (progn
             (cl-letf (((symbol-function 'slack-stars-list-request)
-                       (lambda (_team _cursor _success &optional on-error)
+                       (lambda (_team _cursor _success &optional on-error
+                                _on-primary-page)
                          (setq captured-error on-error))))
               (with-current-buffer buffer
                 (slack-buffer-load-more buf-obj)
@@ -3932,6 +4072,214 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
             (with-current-buffer buffer
               (should-not slack-buffer--loading-more-p)))
         (kill-buffer buffer)))))
+
+(ert-deftest slack-test-stars-load-more-commits-and-rejects-stale-page ()
+  (slack-test-setup
+    (let* ((old-item (slack-test-star-item "2.000" channel-id))
+           (next-item (slack-test-star-item "1.000" channel-id))
+           (stale-item (slack-test-star-item "0.000" channel-id))
+           (old-star (make-instance 'slack-star
+                                    :items (list old-item)
+                                    :cursor "cursor-1"))
+           (next-page (make-instance 'slack-star
+                                     :items (list next-item)
+                                     :cursor "cursor-2"))
+           (stale-page (make-instance 'slack-star
+                                      :items (list stale-item)
+                                      :cursor "cursor-3"))
+           (newer-star (make-instance 'slack-star
+                                      :items (list old-item)
+                                      :cursor "newer-cursor"))
+           (state (slack-team-page-state team 'saved-items))
+           (object (slack-create-stars-buffer team))
+           buffer
+           request-primary
+           request-hydrated
+           requested-cursor
+           appended
+           request-stored)
+      (oset team star old-star)
+      (slack-page-state-store state old-star "cursor-1" t)
+      (setq buffer (slack-buffer-buffer object))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-stars-list-request)
+                     (lambda (_team cursor after-success _on-error
+                              on-primary-page)
+                       (setq requested-cursor cursor
+                             request-primary on-primary-page
+                             request-hydrated after-success)))
+                    ((symbol-function 'slack-stars--prefetch-messages)
+                     (lambda (_items _team callback)
+                       (funcall callback)))
+                    ((symbol-function 'slack-stars-buffer--append-items)
+                     (lambda (_object items _state)
+                       (setq appended (append appended items)))))
+            (with-current-buffer buffer
+              (slack-buffer-load-more object)
+              (should slack-buffer--loading-more-p))
+            (should (equal "cursor-1" requested-cursor))
+            (setq request-stored
+                  (make-instance 'slack-star
+                                 :items (list old-item next-item)
+                                 :cursor "cursor-2"))
+            (oset team star request-stored)
+            (funcall request-primary next-page request-stored)
+            (let ((stored (slack-page-state-value state)))
+              (should (equal (list old-item next-item)
+                             (slack-star-items stored)))
+              (should (equal "cursor-2" (oref stored cursor)))
+              (should (eq stored (oref team star))))
+            (funcall request-hydrated)
+            (should (equal (list next-item) appended))
+            (with-current-buffer buffer
+              (should-not slack-buffer--loading-more-p)
+              (slack-buffer-load-more object)
+              (should slack-buffer--loading-more-p))
+            (should (equal "cursor-2" requested-cursor))
+            (slack-page-state-store state newer-star "newer-cursor" t)
+            (oset team star newer-star)
+            (setq request-stored
+                  (make-instance 'slack-star
+                                 :items (list old-item stale-item)
+                                 :cursor "cursor-3"))
+            (oset team star request-stored)
+            (funcall request-primary stale-page request-stored)
+            (funcall request-hydrated)
+            (should (eq newer-star (slack-page-state-value state)))
+            (should (eq newer-star (oref team star)))
+            (should (equal "newer-cursor"
+                           (slack-page-state-continuation state)))
+            (should (equal (list next-item) appended))
+            (with-current-buffer buffer
+              (should-not slack-buffer--loading-more-p)))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
+(ert-deftest slack-test-stars-load-more-preserves-newer-event-state ()
+  (slack-test-setup
+    (let* ((old-item (slack-test-star-item "2.000" channel-id))
+           (event-item (slack-test-star-item "3.000" channel-id))
+           (page-item (slack-test-star-item "1.000" channel-id))
+           (old-star (make-instance 'slack-star
+                                    :items (list old-item)
+                                    :cursor "cursor-1"))
+           (page (make-instance 'slack-star
+                                :items (list page-item)
+                                :cursor ""))
+           (request-star (make-instance 'slack-star
+                                        :items (list event-item old-item
+                                                     page-item)
+                                        :cursor ""))
+           (state (slack-team-page-state team 'saved-items))
+           (object (slack-create-stars-buffer team))
+           (buffer (slack-buffer-buffer object))
+           request-primary
+           request-hydrated
+           appended)
+      (oset team star old-star)
+      (slack-page-state-store state old-star "cursor-1" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-stars-list-request)
+                     (lambda (_team _cursor after-success _on-error
+                              on-primary-page)
+                       (setq request-primary on-primary-page
+                             request-hydrated after-success)))
+                    ((symbol-function 'slack-stars-buffer--append-items)
+                     (lambda (&rest _args)
+                       (setq appended t))))
+            (with-current-buffer buffer
+              (slack-buffer-load-more object))
+            (push event-item (oref old-star items))
+            (oset team star request-star)
+            (funcall request-primary page request-star)
+            (funcall request-hydrated)
+            (should (eq old-star (slack-page-state-value state)))
+            (should (eq old-star (oref team star)))
+            (should (equal (list event-item old-item)
+                           (slack-star-items old-star)))
+            (should (equal "cursor-1"
+                           (slack-page-state-continuation state)))
+            (should-not appended)
+            (with-current-buffer buffer
+              (should-not slack-buffer--loading-more-p)))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
+(ert-deftest slack-test-stars-load-more-resets-flag-on-sync-error ()
+  (slack-test-setup
+    (let* ((star (make-instance 'slack-star :cursor "cursor-1"))
+           (state (slack-team-page-state team 'saved-items))
+           (object (slack-create-stars-buffer team))
+           buffer)
+      (oset team star star)
+      (slack-page-state-store state star "cursor-1" t)
+      (setq buffer (slack-buffer-buffer object))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-stars-list-request)
+                     (lambda (&rest _args)
+                       (error "synchronous saved page failure"))))
+            (with-current-buffer buffer
+              (should-error (slack-buffer-load-more object))
+              (should-not slack-buffer--loading-more-p)))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
+(ert-deftest slack-test-stars-load-more-does-not-write-replacement-buffer ()
+  (slack-test-setup
+    (let* ((old-item (slack-test-star-item "2.000" channel-id))
+           (next-item (slack-test-star-item "1.000" channel-id))
+           (old-star (make-instance 'slack-star
+                                    :items (list old-item)
+                                    :cursor "cursor-1"))
+           (next-page (make-instance 'slack-star
+                                     :items (list next-item)
+                                     :cursor ""))
+           (request-star (make-instance 'slack-star
+                                        :items (list old-item next-item)
+                                        :cursor ""))
+           (state (slack-team-page-state team 'saved-items))
+           (object (slack-create-stars-buffer team))
+           (original (slack-buffer-buffer object))
+           (replacement (generate-new-buffer
+                         " *slack-test-stars-replacement*"))
+           request-primary
+           request-hydrated
+           appended)
+      (oset team star old-star)
+      (slack-page-state-store state old-star "cursor-1" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-stars-list-request)
+                     (lambda (_team _cursor after-success _on-error
+                              on-primary-page)
+                       (setq request-primary on-primary-page
+                             request-hydrated after-success)))
+                    ((symbol-function 'slack-stars--prefetch-messages)
+                     (lambda (_items _team callback)
+                       (funcall callback)))
+                    ((symbol-function 'slack-stars-buffer--append-items)
+                     (lambda (&rest _args)
+                       (setq appended t))))
+            (with-current-buffer original
+              (slack-buffer-load-more object)
+              (should slack-buffer--loading-more-p))
+            (oset object buf replacement)
+            (with-current-buffer replacement
+              (insert "replacement sentinel"))
+            (oset team star request-star)
+            (funcall request-primary next-page request-star)
+            (funcall request-hydrated)
+            (should-not appended)
+            (should (equal (list old-item next-item)
+                           (slack-star-items
+                            (slack-page-state-value state))))
+            (with-current-buffer original
+              (should-not slack-buffer--loading-more-p))
+            (with-current-buffer replacement
+              (should (equal "replacement sentinel" (buffer-string)))))
+        (when (buffer-live-p original)
+          (kill-buffer original))
+        (when (buffer-live-p replacement)
+          (kill-buffer replacement))))))
 
 (ert-deftest slack-test-users-info-error-keeps-continuation ()
   (slack-test-setup
@@ -4993,6 +5341,284 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
       (should (eq team started))
       (should-not buffer-lookup)
       (should-not requested))))
+
+(ert-deftest slack-test-saved-items-cold-open-displays-before-index ()
+  (slack-test-setup
+    (let (primary events)
+      (cl-letf (((symbol-function 'slack-team-select) (lambda () team))
+                ((symbol-function 'slack-team-ensure-conversations-loaded)
+                 #'ignore)
+                ((symbol-function 'slack-buffer-display)
+                 (lambda (_buffer) (push 'display events)))
+                ((symbol-function 'slack-stars-list-request)
+                 (lambda (_team _cursor _ready _error on-primary-page)
+                   (setq primary on-primary-page)
+                   (push 'request events))))
+        (slack-saved-items)
+        (should (equal '(request display) events))
+        (should (functionp primary))))))
+
+(ert-deftest slack-test-saved-items-empty-index-reaches-ready ()
+  (slack-test-setup
+    (let ((empty-star (make-instance 'slack-star :items nil :cursor ""))
+          request-primary
+          request-hydrated
+          object
+          emacs-buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select) (lambda () team))
+                    ((symbol-function
+                      'slack-team-ensure-conversations-loaded)
+                     #'ignore)
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (displayed)
+                       (setq object displayed
+                             emacs-buffer (oref displayed buf))))
+                    ((symbol-function 'slack-stars-list-request)
+                     (lambda (_team _cursor after-success _on-error
+                              on-primary-page)
+                       (setq request-primary on-primary-page
+                             request-hydrated after-success))))
+            (slack-saved-items)
+            (oset team star empty-star)
+            (funcall request-primary empty-star empty-star)
+            (should (eq 'loading
+                        (slack-page-state-status
+                         (slack-team-page-state team 'saved-items))))
+            (funcall request-hydrated)
+            (should (eq 'ready
+                        (slack-page-state-status
+                         (slack-team-page-state team 'saved-items))))
+            (should (eq object
+                        (slack-buffer-find 'slack-stars-buffer team)))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "(no more items)" nil t))
+              (goto-char (point-min))
+              (should-not (search-forward "Loading Slack data" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-saved-items-failure-retries-in-place ()
+  (slack-test-setup
+    (let* ((item (slack-test-star-item "1.000" channel-id))
+           (stale-star (make-instance 'slack-star
+                                      :items (list item)
+                                      :cursor "cursor-1"))
+           (empty-star (make-instance 'slack-star :items nil :cursor ""))
+           (state (slack-team-page-state team 'saved-items))
+           (object (slack-create-stars-buffer team))
+           (emacs-buffer (slack-buffer-buffer object))
+           request-primary
+           request-hydrated
+           request-error
+           retry
+           (request-count 0))
+      (slack-page-state-store state stale-star "cursor-1" t)
+      (oset team star stale-star)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-stars-list-request)
+                     (lambda (_team _cursor after-success on-error
+                              on-primary-page)
+                       (cl-incf request-count)
+                       (setq request-primary on-primary-page
+                             request-hydrated after-success
+                             request-error on-error))))
+            (should (eq object (slack-stars-buffer--present team t)))
+            (setq retry
+                  (buffer-local-value
+                   'slack-buffer-page-retry-function emacs-buffer))
+            (funcall request-error "rate_limited")
+            (should (eq 'failed (slack-page-state-status state)))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "Saved message unavailable." nil t))
+              (goto-char (point-min))
+              (should (search-forward "Slack request failed: rate_limited"
+                                      nil t))
+              (should (search-forward "Retry" nil t)))
+            (funcall retry)
+            (should (= 2 request-count))
+            (should (eq emacs-buffer (oref object buf)))
+            (oset team star empty-star)
+            (funcall request-primary empty-star empty-star)
+            (funcall request-hydrated)
+            (should (eq 'ready (slack-page-state-status state)))
+            (should (eq empty-star (slack-page-state-value state)))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "(no more items)" nil t))
+              (goto-char (point-min))
+              (should-not (search-forward "Slack request failed" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-saved-items-reopen-renders-durable-page ()
+  (slack-test-setup
+    (let* ((item (slack-test-star-item "1.000" channel-id))
+           (star (make-instance 'slack-star
+                                :items (list item)
+                                :cursor "cursor-1"))
+           (state (slack-team-page-state team 'saved-items))
+           (object (slack-create-stars-buffer team))
+           (old-buffer (slack-buffer-buffer object))
+           new-buffer
+           requested)
+      (slack-page-state-store state star "cursor-1" t)
+      (oset team star star)
+      (kill-buffer old-buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-stars-list-request)
+                     (lambda (&rest _args)
+                       (setq requested t))))
+            (setq object (slack-stars-buffer--present team t)
+                  new-buffer (oref object buf))
+            (should requested)
+            (should (buffer-live-p new-buffer))
+            (should-not (eq old-buffer new-buffer))
+            (with-current-buffer new-buffer
+              (goto-char (point-min))
+              (should (search-forward "Loading saved message" nil t))
+              (goto-char (point-min))
+              (should (search-forward "Refreshing Slack data" nil t))))
+        (when (buffer-live-p new-buffer)
+          (kill-buffer new-buffer))))))
+
+(ert-deftest slack-test-saved-items-refresh-keeps-buffer-alive ()
+  (slack-test-setup
+    (oset team star (make-instance 'slack-star))
+    (let* ((buffer (slack-create-stars-buffer team))
+           (emacs-buffer (slack-buffer-buffer buffer)))
+      (unwind-protect
+          (with-current-buffer emacs-buffer
+            (cl-letf (((symbol-function 'slack-saved-items) #'ignore)
+                      ((symbol-function 'slack-stars-buffer--present) #'ignore))
+              (slack-saved-items-refresh-buffer))
+            (should (buffer-live-p emacs-buffer))
+            (should (eq emacs-buffer (oref buffer buf))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-saved-items-primary-precedes-mixed-child-hydration ()
+  (slack-test-setup
+    (let* ((first (slack-test-star-item "1.000" channel-id))
+           (second (slack-test-star-item "2.000" channel-id))
+           (star (make-instance 'slack-star
+                                :items (list first second)
+                                :cursor "cursor-1"))
+           (state (slack-team-page-state team 'saved-items))
+           request-primary
+           request-hydrated
+           object
+           emacs-buffer
+           callbacks)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select) (lambda () team))
+                    ((symbol-function
+                      'slack-team-ensure-conversations-loaded)
+                     #'ignore)
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (displayed)
+                       (setq object displayed
+                             emacs-buffer (oref displayed buf))))
+                    ((symbol-function 'slack-stars-list-request)
+                     (lambda (_team _cursor after-success _on-error
+                              on-primary-page)
+                       (setq request-primary on-primary-page
+                             request-hydrated after-success)))
+                    ((symbol-function 'slack-conversations-history)
+                     (lambda (_room _team &rest args)
+                       (push (cons (plist-get args :latest)
+                                   (cons (plist-get args :after-success)
+                                         (plist-get args :on-error)))
+                             callbacks))))
+            (slack-saved-items)
+            (should (buffer-live-p emacs-buffer))
+            (oset team star star)
+            (funcall request-primary star star)
+            (should (eq star (slack-page-state-value state)))
+            (should (eq 'loading (slack-page-state-status state)))
+            (should (eq object
+                        (slack-buffer-find 'slack-stars-buffer team)))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "Loading saved message" nil t)))
+            (funcall request-hydrated)
+            (let* ((first-request (assoc "1.000" callbacks))
+                   (second-request (assoc "2.000" callbacks))
+                   (message
+                    (slack-message-create
+                     (list :type "message"
+                           :ts "1.000"
+                           :text "hydrated saved body"
+                           :user user-id
+                           :channel channel-id)
+                     team channel)))
+              (funcall (cadr first-request) (list message))
+              (should (eq 'loading (slack-page-state-status state)))
+              (funcall (cddr second-request) "message unavailable"))
+            (should (eq 'ready (slack-page-state-status state)))
+            (should (eq object
+                        (slack-buffer-find 'slack-stars-buffer team)))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "hydrated saved body" nil t))
+              (goto-char (point-min))
+              (should (search-forward "Saved message unavailable." nil t))
+              (goto-char (point-min))
+              (should-not (search-forward "Loading saved message" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-saved-items-hydration-skips-replaced-buffer ()
+  (slack-test-setup
+    (let* ((item (slack-test-star-item "1.000" channel-id))
+           (star (make-instance 'slack-star :items (list item) :cursor ""))
+           (state (slack-team-page-state team 'saved-items))
+           request-primary
+           request-hydrated
+           hydration-done
+           object
+           old-buffer
+           replacement)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select) (lambda () team))
+                    ((symbol-function
+                      'slack-team-ensure-conversations-loaded)
+                     #'ignore)
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (displayed)
+                       (setq object displayed
+                             old-buffer (oref displayed buf))))
+                    ((symbol-function 'slack-stars-list-request)
+                     (lambda (_team _cursor after-success _on-error
+                              on-primary-page)
+                       (setq request-primary on-primary-page
+                             request-hydrated after-success)))
+                    ((symbol-function 'slack-stars--prefetch-messages)
+                     (lambda (_items _team callback)
+                       (setq hydration-done callback))))
+            (slack-saved-items)
+            (oset team star star)
+            (funcall request-primary star star)
+            (funcall request-hydrated)
+            (kill-buffer old-buffer)
+            (setq replacement (generate-new-buffer
+                               " *slack-test-saved-replacement*"))
+            (oset object buf replacement)
+            (with-current-buffer replacement
+              (insert "replacement sentinel"))
+            (funcall hydration-done)
+            (should (eq 'ready (slack-page-state-status state)))
+            (should-not (buffer-live-p old-buffer))
+            (with-current-buffer replacement
+              (should (equal "replacement sentinel" (buffer-string)))))
+        (when (buffer-live-p old-buffer)
+          (kill-buffer old-buffer))
+        (when (buffer-live-p replacement)
+          (kill-buffer replacement))))))
 
 (ert-deftest slack-test-feed-goto-prev-lands-on-entry-starts ()
   (with-temp-buffer

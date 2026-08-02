@@ -47,6 +47,9 @@ Buffer-wide bindings:
 (defclass slack-stars-buffer (slack-room-buffer)
   ())
 
+(defconst slack-stars-buffer--page-key 'saved-items
+  "Durable page-state key for the saved-items index.")
+
 (cl-defmethod slack-buffer-room ((this slack-stars-buffer))
   "Return the room for THIS message at point.
 Each saved item may belong to a different room, so the room is
@@ -62,95 +65,118 @@ Fires async API requests for all messages not already in cache,
 and invokes CALLBACK (with no arguments) once every request has
 completed (or immediately if all messages are cached).
 TEAM is the team argument."
-  (let ((pending (list 0)))
-    (dolist (item star-items)
-      (let* ((ts (oref item ts))
-             (room-id (oref item item-id))
-             (room (slack-room-find room-id team)))
-        (when (and room (not (slack-room-find-message room ts)))
-          (cl-incf (car pending)))))
-    (if (= 0 (car pending))
-        (funcall callback)
-      (dolist (item star-items)
-        (slack-stars--prefetch-single item team pending callback)))))
+  (let* ((tasks
+          (cl-remove-if-not
+           (lambda (item)
+             (let* ((ts (oref item ts))
+                    (room (slack-room-find (oref item item-id) team)))
+               (and room (not (slack-room-find-message room ts)))))
+           star-items))
+         (barrier (slack-async-barrier-create (length tasks) callback)))
+    (dolist (item tasks)
+      (slack-stars--prefetch-single item team barrier))))
 
-(defun slack-stars--prefetch-single (item team pending callback)
-  "Prefetch a single ITEM for TEAM, decrementing PENDING and calling CALLBACK."
+(defun slack-stars--prefetch-single (item team barrier)
+  "Prefetch one saved ITEM for TEAM and settle BARRIER exactly once."
   (let* ((ts (oref item ts))
          (thread-ts (oref item thread-ts))
          (room-id (oref item item-id))
          (room (slack-room-find room-id team))
-         (is-reply (and thread-ts (not (string-equal ts thread-ts)))))
-    (when (and room (not (slack-room-find-message room ts)))
+         (is-reply (and thread-ts (not (string-equal ts thread-ts))))
+         settled-p)
+    (cl-labels
+        ((done (&rest _ignored)
+           (unless settled-p
+             (setq settled-p t)
+             (slack-async-barrier-done barrier))))
       (condition-case err
-          (let ((fail (lambda (&rest _)
-                        (when (= 0 (cl-decf (car pending)))
-                          (funcall callback)))))
-            (if is-reply
-                (slack-stars--prefetch-reply room ts thread-ts team pending callback fail)
-              (slack-stars--prefetch-from-history room ts team pending callback fail)))
+          (if is-reply
+              (slack-stars--prefetch-reply room ts thread-ts team #'done)
+            (slack-stars--prefetch-from-history room ts team #'done))
         (error
          (message "slack-stars: prefetch error for %s: %S" ts err)
-         (when (= 0 (cl-decf (car pending)))
-           (funcall callback)))))))
+         (done))))))
 
-(defun slack-stars--prefetch-done (room team pending callback)
-  "Return a callback that stores MESSAGES in ROOM for TEAM.
-Calls CALLBACK when PENDING reaches zero."
+(defun slack-stars--prefetch-done (room team done)
+  "Return a callback that stores MESSAGES in ROOM for TEAM, then calls DONE."
   (lambda (messages &rest _)
-    (when messages
-      (slack-room-set-messages room messages team))
-    (when (= 0 (cl-decf (car pending)))
-      (funcall callback))))
+    (condition-case cache-error
+        (when messages
+          (slack-room-set-messages room messages team))
+      (error
+       (message "slack-stars: message cache error: %S" cache-error)))
+    (funcall done)))
 
-(defun slack-stars--prefetch-reply (room ts thread-ts team pending callback fail)
+(defun slack-stars--prefetch-reply (room ts thread-ts team done)
   "Prefetch reply at TS in thread THREAD-TS from ROOM for TEAM.
-Decrement PENDING and call CALLBACK when done, or FAIL on error."
-  (slack-conversations-replies
-   room thread-ts team
-   :oldest ts
-   :inclusive "true"
-   :limit "1"
-   :after-success (slack-stars--prefetch-done room team pending callback)
-   :on-error fail))
+Call DONE exactly once for this saved item on success or failure."
+  (condition-case request-error
+      (slack-conversations-replies
+       room thread-ts team
+       :oldest ts
+       :inclusive "true"
+       :limit "1"
+       :after-success (slack-stars--prefetch-done room team done)
+       :on-error done)
+    (error
+     (message "slack-stars: reply prefetch error for %s: %S"
+              ts request-error)
+     (funcall done))))
 
-(defun slack-stars--prefetch-from-history (room ts team pending callback fail)
+(defun slack-stars--prefetch-from-history (room ts team done)
   "Prefetch message at TS from ROOM history for TEAM.
 If the returned message has a different timestamp, the saved item
 is a thread reply whose thread-ts was not provided by the API.
 In that case, resolve the real thread parent via
 `chat.getPermalink' and retry with `conversations.replies'.
-Decrement PENDING and call CALLBACK when done, or FAIL on error."
-  (slack-conversations-history
-   room team
-   :latest ts
-   :inclusive "true"
-   :limit "1"
-   :after-success
-   (lambda (messages &rest _)
-     (let ((got (and messages (car messages))))
-       (if (or (null got) (string-equal ts (slack-ts got)))
-           (progn
-             (when messages
-               (slack-room-set-messages room messages team))
-             (when (= 0 (cl-decf (car pending)))
-               (funcall callback)))
-         (slack-stars--resolve-thread-and-prefetch
-          room ts team pending callback fail))))
-   :on-error fail))
+Call DONE exactly once for this saved item on success or failure."
+  (condition-case request-error
+      (slack-conversations-history
+       room team
+       :latest ts
+       :inclusive "true"
+       :limit "1"
+       :after-success
+       (lambda (messages &rest _)
+         (condition-case callback-error
+             (let ((got (and messages (car messages))))
+               (if (or (null got) (string-equal ts (slack-ts got)))
+                   (progn
+                     (condition-case cache-error
+                         (when messages
+                           (slack-room-set-messages room messages team))
+                       (error
+                        (message "slack-stars: message cache error: %S"
+                                 cache-error)))
+                     (funcall done))
+                 (slack-stars--resolve-thread-and-prefetch
+                  room ts team done)))
+           (error
+            (message "slack-stars: history callback error for %s: %S"
+                     ts callback-error)
+            (funcall done))))
+       :on-error done)
+    (error
+     (message "slack-stars: history prefetch error for %s: %S"
+              ts request-error)
+     (funcall done))))
 
 (defconst slack-stars--permalink-url "https://slack.com/api/chat.getPermalink")
 
-(defun slack-stars--resolve-thread-and-prefetch (room ts team pending callback fail)
+(defun slack-stars--resolve-thread-and-prefetch (room ts team done)
   "Resolve the thread parent of reply TS in ROOM via permalink, then prefetch.
 Uses a synchronous permalink request because chained async
 requests do not complete reliably in the `request' library.
-TEAM, PENDING, CALLBACK, and FAIL are forwarded to the prefetch."
-  (let ((thread-ts (slack-stars--permalink-thread-ts room ts team)))
-    (if thread-ts
-        (slack-stars--prefetch-reply
-         room ts thread-ts team pending callback fail)
-      (funcall fail))))
+TEAM and DONE are forwarded to the reply prefetch."
+  (condition-case request-error
+      (let ((thread-ts (slack-stars--permalink-thread-ts room ts team)))
+        (if thread-ts
+            (slack-stars--prefetch-reply room ts thread-ts team done)
+          (funcall done)))
+    (error
+     (message "slack-stars: thread resolution error for %s: %S"
+              ts request-error)
+     (funcall done))))
 
 (defun slack-stars--permalink-thread-ts (room ts team)
   "Return the thread-ts for message TS in ROOM for TEAM, or nil.
@@ -222,16 +248,23 @@ MESSAGE is the message argument."
 
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-stars-buffer))
   "Return non-nil when THIS buffer has more history to load."
-  (let ((team (slack-buffer-team this)))
-    (slack-star-has-next-page-p (oref team star))))
+  (let* ((team (slack-buffer-team this))
+         (state (slack-team-page-state team slack-stars-buffer--page-key))
+         (cursor (slack-page-state-continuation state)))
+    (and (slack-page-state-has-more state)
+         cursor
+         (not (string-empty-p cursor)))))
 
 (cl-defmethod slack-buffer-delete-load-more-string ((_this slack-stars-buffer))
   "Remove the \"load more\" marker from the buffer for the stars buffer.")
 
-(cl-defmethod slack-stars--insert-items ((this slack-stars-buffer) star-items)
+(cl-defmethod slack-stars--insert-items
+    ((this slack-stars-buffer) star-items &optional missing-label)
   "Insert messages for STAR-ITEMS into THIS buffer.
 File-type items carry the file id in `item-id', never a room, so
-they get their own insert path instead of being silently dropped."
+they get their own insert path instead of being silently dropped.
+When MISSING-LABEL is non-nil, insert a placeholder for an
+uncached message instead of dropping its saved-index row."
   (let ((team (slack-buffer-team this)))
     (cl-loop for i in star-items
              for file = (oref i file)
@@ -239,7 +272,23 @@ they get their own insert path instead of being silently dropped."
                              (slack-room-find (oref i item-id) team))
              for m = (and room (slack-room-find-message room (oref i ts)))
              do (cond (file (slack-stars--insert-file-item this i file))
-                      (m (slack-buffer-insert this m))))))
+                      (m (slack-buffer-insert this m))
+                      (missing-label
+                       (slack-stars--insert-missing-item
+                        this i missing-label))))))
+
+(defun slack-stars--insert-missing-item (buffer item label)
+  "Insert saved ITEM's missing-message LABEL into BUFFER."
+  (let ((lui-time-stamp-format "[%Y-%m-%d %H:%M] ")
+        (lui-time-stamp-time
+         (seconds-to-time (string-to-number (oref item ts)))))
+    (lui-insert-with-text-properties
+     label
+     'ts (oref item ts)
+     'team-id (oref (slack-buffer-team buffer) id)
+     'room-id (oref item item-id)
+     'thread-ts (oref item thread-ts))
+    (lui-insert "" t)))
 
 (cl-defmethod slack-stars--insert-file-item ((this slack-stars-buffer) item file)
   "Insert a saved FILE entry for ITEM into THIS buffer."
@@ -259,57 +308,160 @@ THIS is the slack-stars-buffer instance."
     (let ((lui-time-stamp-position nil))
       (lui-insert "(no more items)\n" t))))
 
+(defun slack-stars-buffer--missing-label (state)
+  "Return the missing saved-message label appropriate for STATE."
+  (if (slack-page-state-in-flight-p state)
+      "Loading saved message…"
+    "Saved message unavailable."))
+
+(defun slack-stars-buffer--replace-live-contents (buffer state)
+  "Replace BUFFER's live output with its durable saved-items STATE."
+  (when (buffer-live-p (oref buffer buf))
+    (with-current-buffer (oref buffer buf)
+      (slack-buffer-widen
+       (let ((inhibit-read-only t))
+         (delete-region (point-min) lui-output-marker)
+         (goto-char (point-min))
+         (when (slack-page-state-loaded-p state)
+           (let ((star (slack-page-state-value state)))
+             (slack-stars--insert-items
+              buffer (slack-star-items star)
+              (slack-stars-buffer--missing-label state))
+             (slack-stars--insert-tail buffer)))
+         (goto-char (point-min))
+         (slack-buffer-insert-page-status buffer state)
+         (goto-char (point-min)))))))
+
+(defun slack-stars-buffer-render-page-state (buffer state)
+  "Render exact BUFFER from durable saved-items STATE."
+  (when (slack-page-state-loaded-p state)
+    (oset (slack-buffer-team buffer) star
+          (slack-page-state-value state)))
+  (slack-stars-buffer--replace-live-contents buffer state))
+
+(defun slack-stars-buffer--append-items (buffer items state)
+  "Append saved ITEMS to exact BUFFER using durable STATE."
+  (when (buffer-live-p (oref buffer buf))
+    (with-current-buffer (oref buffer buf)
+      (let ((inhibit-read-only t))
+        (slack-stars--insert-items
+         buffer items (slack-stars-buffer--missing-label state))
+        (slack-stars--insert-tail buffer)))))
+
+(defun slack-stars-buffer--commit-extension
+    (state generation expected-cursor value cursor has-more)
+  "Commit a saved-items page extension to ready STATE.
+GENERATION and EXPECTED-CURSOR must still identify the captured
+page.  VALUE, CURSOR, and HAS-MORE become its new durable data
+without starting a new page lifecycle generation."
+  (when (and (= generation (slack-page-state-generation state))
+             (= generation (slack-page-state-committed-generation state))
+             (= generation (slack-page-state-ready-generation state))
+             (eq 'ready (slack-page-state-status state))
+             (slack-page-state-loaded-p state)
+             (equal expected-cursor
+                    (slack-page-state-continuation state)))
+    (setf (slack-page-state-value state) value
+          (slack-page-state-continuation state) cursor
+          (slack-page-state-has-more state) has-more
+          (slack-page-state-error state) nil
+          (slack-page-state-updated-at state) (current-time))
+    t))
+
 (cl-defmethod slack-buffer-load-more ((this slack-stars-buffer))
   "Load the next page of saved items and append at the bottom.
 THIS is the slack-stars-buffer instance.  The in-flight flag is reset
 on request failure too, and a buffer killed while the request is in
 flight stays dead instead of being re-created."
-  (when (and (slack-buffer-has-next-page-p this)
-             (not slack-buffer--loading-more-p))
-    (setq slack-buffer--loading-more-p t)
-    (let* ((team (slack-buffer-team this))
-           (star (oref team star))
-           (old-count (length (slack-star-items star)))
-           (buffer (current-buffer)))
-      (cl-labels
-          ((reset-loading-flag ()
-             (when (buffer-live-p buffer)
-               (with-current-buffer buffer
-                 (setq slack-buffer--loading-more-p nil)))))
-        (slack-stars-list-request
-         team (oref star cursor)
-         (lambda ()
-           (let ((new-items (nthcdr old-count (slack-star-items star))))
-             (slack-stars--prefetch-messages
-              new-items team
-              (lambda ()
-                (unwind-protect
-                    (when (buffer-live-p buffer)
-                      (with-current-buffer buffer
-                        (let ((inhibit-read-only t))
-                          (slack-stars--insert-items this new-items)
-                          (slack-stars--insert-tail this))))
-                  (reset-loading-flag))))))
-         (lambda (&rest _args)
-           (reset-loading-flag)))))))
+  (let* ((team (slack-buffer-team this))
+         (state (slack-team-page-state team slack-stars-buffer--page-key)))
+    (when (and (slack-buffer-has-next-page-p this)
+               (not slack-buffer--loading-more-p)
+               (eq 'ready (slack-page-state-status state))
+               (eq (current-buffer) (oref this buf)))
+      (setq slack-buffer--loading-more-p t)
+      (let* ((source-star (slack-page-state-value state))
+             (old-items (copy-sequence (slack-star-items source-star)))
+             (generation (slack-page-state-generation state))
+             (requested-cursor (slack-page-state-continuation state))
+             (buffer (current-buffer))
+             primary-seen-p
+             accepted-star
+             new-items)
+        (cl-labels
+            ((reset-loading-flag ()
+               (when (buffer-live-p buffer)
+                 (with-current-buffer buffer
+                   (setq slack-buffer--loading-more-p nil))))
+             (state-current-p ()
+               (and (= generation (slack-page-state-generation state))
+                    (eq 'ready (slack-page-state-status state))
+                    (eq source-star (slack-page-state-value state))
+                    (equal old-items (slack-star-items source-star))
+                    (equal requested-cursor
+                           (slack-page-state-continuation state))))
+             (presentation-current-p ()
+               (and (buffer-live-p buffer)
+                    (eq buffer (oref this buf))))
+             (accepted-current-p ()
+               (and accepted-star
+                    (= generation (slack-page-state-generation state))
+                    (eq accepted-star (slack-page-state-value state))
+                    (equal (oref accepted-star cursor)
+                           (slack-page-state-continuation state))))
+             (primary (page stored-star)
+               (unless primary-seen-p
+                 (setq primary-seen-p t)
+                 (condition-case primary-error
+                     (if (state-current-p)
+                         (let* ((page-items (slack-star-items page))
+                                (all-items (append old-items page-items))
+                                (candidate
+                                 (make-instance
+                                  'slack-star
+                                  :items all-items
+                                  :cursor (oref page cursor))))
+                           (when (slack-stars-buffer--commit-extension
+                                  state generation requested-cursor
+                                  candidate (oref page cursor)
+                                  (slack-star-has-next-page-p page))
+                             (setq new-items page-items
+                                   accepted-star candidate)
+                             (oset team star candidate)))
+                       (when (eq (oref team star) stored-star)
+                         (oset team star (slack-page-state-value state)))
+                       (reset-loading-flag))
+                   (error
+                    (reset-loading-flag)
+                    (message "slack-stars: saved page error: %S"
+                             primary-error)))))
+             (hydrated ()
+               (if (accepted-current-p)
+                   (slack-stars--prefetch-messages
+                    new-items team
+                    (lambda ()
+                      (unwind-protect
+                          (when (and (accepted-current-p)
+                                     (presentation-current-p))
+                            (slack-stars-buffer--append-items
+                             this new-items state))
+                        (reset-loading-flag))))
+                 (reset-loading-flag)))
+             (failed (&rest _args)
+               (reset-loading-flag)))
+          (condition-case request-error
+              (slack-stars-list-request
+               team requested-cursor #'hydrated #'failed #'primary)
+            (error
+             (reset-loading-flag)
+             (signal (car request-error) (cdr request-error)))))))))
 
 (cl-defmethod slack-buffer-init-buffer ((this slack-stars-buffer))
   "Initialize and return the display buffer for THIS buffer."
-  (let* ((buf (cl-call-next-method))
-         (team (slack-buffer-team this))
-         (star (oref team star))
-         (items (slack-star-items star)))
+  (let ((buf (cl-call-next-method)))
     (with-current-buffer buf
       (slack-stars-buffer-mode)
       (slack-buffer-set-current-buffer this))
-    (slack-stars--prefetch-messages
-     items team
-     (lambda ()
-       (with-current-buffer buf
-         (let ((inhibit-read-only t))
-           (slack-stars--insert-items this items)
-           (slack-stars--insert-tail this))
-         (goto-char (point-min)))))
     buf))
 
 (defun slack-create-stars-buffer (team)
@@ -322,6 +474,50 @@ TEAM is the team argument."
                               :room-id "__saved-items__")))
       (slack-buffer-cache-team buf team)
       buf)))
+
+(defun slack-stars-buffer--page-loader (team state)
+  "Return a saved-items loader for TEAM's durable STATE."
+  (lambda (generation success error)
+    (let (primary-star hydration-started-p)
+      (cl-labels
+          ((current-p ()
+             (and (= generation (slack-page-state-generation state))
+                  (slack-page-state-in-flight-p state)))
+           (primary (_page stored-star)
+             (when (current-p)
+               (setq primary-star stored-star)
+               (funcall success
+                        primary-star
+                        (oref primary-star cursor)
+                        (slack-star-has-next-page-p primary-star)
+                        t)))
+           (hydrated ()
+             (when (and (not hydration-started-p)
+                        (current-p)
+                        (= generation
+                           (slack-page-state-committed-generation state)))
+               (setq hydration-started-p t)
+               (slack-stars--prefetch-messages
+                (slack-star-items primary-star) team
+                (lambda ()
+                  (when (current-p)
+                    (slack-page-state-ready state generation))))))
+           (failed (&rest errors)
+             (when (current-p)
+               (apply error errors))))
+        (slack-stars-list-request
+         team nil #'hydrated #'failed #'primary)))))
+
+(defun slack-stars-buffer--present (team refresh)
+  "Present TEAM's saved-items page, reloading it when REFRESH is non-nil."
+  (let* ((state (slack-team-page-state team slack-stars-buffer--page-key))
+         (buffer (slack-create-stars-buffer team)))
+    (slack-buffer-present-page
+     buffer state
+     (slack-stars-buffer--page-loader team state)
+     #'slack-stars-buffer-render-page-state
+     refresh)
+    buffer))
 
 (cl-defmethod slack-buffer-remove-star ((this slack-stars-buffer) ts)
   "Remove THIS star at TS."
@@ -369,12 +565,8 @@ lines inserted by `slack-buffer-insert'."
   "Show the saved items buffer."
   (interactive)
   (let* ((team (slack-team-select))
-         (_ (slack-team-ensure-conversations-loaded team))
-         (buf (slack-buffer-find 'slack-stars-buffer team)))
-    (if buf (slack-buffer-display buf)
-      (slack-stars-list-request
-       team nil
-       #'(lambda () (slack-buffer-display (slack-create-stars-buffer team)))))))
+         (_ (slack-team-ensure-conversations-loaded team)))
+    (slack-stars-buffer--present team t)))
 
 ;;;###autoload
 (defalias 'slack-stars-list 'slack-saved-items)
@@ -419,10 +611,12 @@ since each saved item may belong to a different room."
 (define-key slack-stars-buffer-mode-map (kbd "K") 'slack-message-remove-from-saved)
 
 (defun slack-saved-items-refresh-buffer ()
-  "Close and reopen saved items buffer to refresh contents."
+  "Refresh the current saved-items buffer without replacing it."
   (interactive)
-  (kill-buffer)
-  (slack-saved-items))
+  (if (cl-typep slack-current-buffer 'slack-stars-buffer)
+      (slack-stars-buffer--present
+       (slack-buffer-team slack-current-buffer) t)
+    (user-error "Current buffer is not a Slack saved-items buffer")))
 
 (defalias 'slack-stars-refresh-buffer 'slack-saved-items-refresh-buffer)
 (define-key slack-stars-buffer-mode-map (kbd "G") 'slack-saved-items-refresh-buffer)

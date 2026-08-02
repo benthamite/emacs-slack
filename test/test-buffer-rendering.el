@@ -495,6 +495,29 @@ produces a newline with `not-tracked-p'."
       (should (string= (slack-buffer-name stars-buf)
                        "*slack: TestTeam : Saved items*")))))
 
+(ert-deftest slack-test-stars-page-render-keeps-missing-item-visible ()
+  "A ready saved index retains a row whose message hydration failed."
+  (slack-test-setup
+    (let* ((item (make-instance 'slack-star-item
+                                :item-id channel-id
+                                :item-type "message"
+                                :ts "1710000000.000100"))
+           (star (make-instance 'slack-star :items (list item) :cursor ""))
+           (state (slack-team-page-state team 'saved-items))
+           (stars-buf (slack-create-stars-buffer team))
+           emacs-buffer)
+      (oset team star star)
+      (slack-page-state-store state star "" nil)
+      (setq emacs-buffer (slack-buffer-buffer stars-buf))
+      (unwind-protect
+          (with-current-buffer emacs-buffer
+            (slack-stars-buffer-render-page-state stars-buf state)
+            (goto-char (point-min))
+            (should (search-forward "Saved message unavailable." nil t))
+            (should (slack-test--find-ts-position "1710000000.000100")))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
 ;;; ---- 5. Lui-insert basic behavior ----
 
 (ert-deftest slack-test-lui-insert-adds-text ()
