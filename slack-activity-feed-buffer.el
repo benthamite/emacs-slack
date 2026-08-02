@@ -1108,16 +1108,20 @@ relying on buffer text properties."
   (when-let ((buffer (slack-buffer-find 'slack-activity-feed-buffer team)))
     (slack-activity-feed--replace-buffer-messages buffer messages)))
 
-(defun slack-activity-feed--replace-buffer-unavailable (buffer activity)
-  "Mark ACTIVITY's source message unavailable in live BUFFER."
+(defun slack-activity-feed--mark-message-unavailable (activity)
+  "Mark ACTIVITY's durable source message as unavailable."
   (let ((activity-message (oref (oref activity item) message)))
-    (oset activity-message source-message-unavailable t))
+    (oset activity-message source-message-unavailable t)))
+
+(defun slack-activity-feed--replace-buffer-unavailable (buffer activity)
+  "Replace unavailable ACTIVITY's row in live BUFFER."
   (when (buffer-live-p (oref buffer buf))
     (with-current-buffer (oref buffer buf)
       (slack-activity-feed--replace-activity buffer activity))))
 
 (defun slack-activity-feed--replace-unavailable-message (team activity)
   "Mark ACTIVITY's source message unavailable in TEAM's visible feed."
+  (slack-activity-feed--mark-message-unavailable activity)
   (when-let ((buffer (slack-buffer-find 'slack-activity-feed-buffer team)))
     (slack-activity-feed--replace-buffer-unavailable buffer activity)))
 
@@ -1246,9 +1250,14 @@ ACTIVITY is the activity argument."
 
 (cl-defmethod slack-buffer-has-next-page-p ((this slack-activity-feed-buffer))
   "Tell if there is another page of results for THIS SLACK-ACTIVITY-FEED-BUFFER."
-  (with-slots (activity-feed) this
-    (let ((pagination (oref activity-feed pagination)))
-      (and pagination (not (string-empty-p pagination))))))
+  (let* ((team (slack-buffer-team this))
+         (key (or (oref this page-key)
+                  (slack-activity-feed--page-key)))
+         (state (slack-team-page-state team key))
+         (continuation (slack-page-state-continuation state)))
+    (and (slack-page-state-has-more state)
+         continuation
+         (not (string-empty-p continuation)))))
 
 (cl-defmethod slack-buffer-insert-history ((this slack-activity-feed-buffer))
   "Insert historical messages into the buffer for THIS buffer."
@@ -1267,15 +1276,16 @@ AFTER-SUCCESS receives non-nil only when the requested mode remains visible.
 ON-ERROR is the failure callback."
   (with-slots (activity-feed) this
     (let* ((source-feed activity-feed)
-           (old-activities (copy-sequence (oref source-feed activities)))
            (team (slack-buffer-team this))
            (key (or (oref this page-key)
                     (slack-activity-feed--page-key)))
            (mode (cadr key))
            (state (slack-team-page-state team key))
+           (snapshot (slack-page-state-value state))
+           (old-activities
+            (copy-sequence (plist-get snapshot :activities)))
            (generation (slack-page-state-generation state))
-           (cursor (or (slack-page-state-continuation state)
-                       (oref source-feed pagination)))
+           (cursor (slack-page-state-continuation state))
            (slack-activity-feed-mode-show-only-unread mode))
       (slack-activity-feed-request
        team
@@ -1467,9 +1477,12 @@ THIS is the slack-activity-feed-buffer instance."
                       hydration-error))))
                 (lambda (activity)
                   (condition-case hydration-error
-                      (when (slack-activity-feed--active-page-p buffer state)
-                        (slack-activity-feed--replace-buffer-unavailable
-                         buffer activity))
+                      (progn
+                        (slack-activity-feed--mark-message-unavailable
+                         activity)
+                        (when (slack-activity-feed--active-page-p buffer state)
+                          (slack-activity-feed--replace-buffer-unavailable
+                           buffer activity)))
                     (error
                      (message
                       "slack-activity-feed: unavailable row hydration error: %S"
