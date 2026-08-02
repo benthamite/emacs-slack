@@ -384,6 +384,7 @@ would be stale once history is inserted above it."
              (team (slack-buffer-team this))
              (requested-cursor (oref this cursor))
              (requested-generation (slack-page-state-generation state))
+             (start-snapshot (slack-room-history-start-snapshot room))
              (active-cursor requested-cursor)
              (primary-committed-p nil)
              (finished-p nil)
@@ -401,9 +402,14 @@ would be stale once history is inserted above it."
                     (equal active-cursor
                            (slack-page-state-continuation state))
                     (equal active-cursor (oref this cursor))))
+             (release-snapshot ()
+               (when start-snapshot
+                 (slack-room-history-release-snapshot room start-snapshot)
+                 (setq start-snapshot nil)))
              (finish ()
                (unless finished-p
                  (setq finished-p t)
+                 (release-snapshot)
                  (when (buffer-live-p buffer)
                    (with-current-buffer buffer
                      (setq slack-buffer--loading-more-p nil)))))
@@ -439,27 +445,30 @@ would be stale once history is inserted above it."
                    (when current-ts
                      (slack-buffer-goto current-ts)))))
              (primary (messages next-cursor)
-               (when (and (not finished-p)
-                          (not primary-committed-p)
-                          (request-current-p))
-                 (condition-case pagination-error
-                     (let ((merged-messages
-                            (slack-message-buffer--merge-history-values
-                             (slack-room-sorted-messages room) messages)))
-                       ;; No asynchronous work occurs between this currentness
-                       ;; check and the state commit.  Mutate the room first so
-                       ;; a cache error cannot publish a value it never stored.
-                       (slack-room-set-messages room messages team)
-                       (when (slack-page-state-commit-extension
-                              state requested-generation requested-cursor
-                              merged-messages next-cursor
-                              (and next-cursor
-                                   (< 0 (length next-cursor))))
-                         (setq primary-committed-p t)
-                         (setq active-cursor next-cursor)
-                         (oset this cursor next-cursor)
-                         (update-buffer merged-messages)))
-                   (error (funcall #'fail pagination-error)))))
+               (unwind-protect
+                   (when (and (not finished-p)
+                              (not primary-committed-p)
+                              (request-current-p))
+                     (condition-case pagination-error
+                         (progn
+                           ;; No asynchronous work occurs between this currentness
+                           ;; check and the state commit.  Mutate the room first so
+                           ;; a cache error cannot publish a value it never stored.
+                           (slack-room-merge-history-extension
+                            room messages team start-snapshot)
+                           (let ((merged-messages
+                                  (slack-room-sorted-messages room)))
+                             (when (slack-page-state-commit-extension
+                                    state requested-generation requested-cursor
+                                    merged-messages next-cursor
+                                    (and next-cursor
+                                         (< 0 (length next-cursor))))
+                               (setq primary-committed-p t)
+                               (setq active-cursor next-cursor)
+                               (oset this cursor next-cursor)
+                               (update-buffer merged-messages))))
+                       (error (funcall #'fail pagination-error))))
+                 (release-snapshot)))
              (hydrated (&rest _ignored)
                (unless finished-p
                  (unwind-protect
@@ -477,18 +486,6 @@ would be stale once history is inserted above it."
                :after-success #'hydrated
                :on-error #'fail)
             (error (funcall #'fail request-error))))))))
-
-(defun slack-message-buffer--merge-history-values (cached fetched)
-  "Return the timestamp-deduplicated chronological union of CACHED and FETCHED.
-When both contain a timestamp, the freshly FETCHED message wins."
-  (let ((by-timestamp (make-hash-table :test 'equal))
-        merged)
-    (dolist (message cached)
-      (puthash (slack-ts message) message by-timestamp))
-    (dolist (message fetched)
-      (puthash (slack-ts message) message by-timestamp))
-    (maphash (lambda (_timestamp message) (push message merged)) by-timestamp)
-    (slack-room-sort-messages merged)))
 
 (cl-defmethod slack-buffer-display-pins-list ((this slack-message-buffer))
   "Open the pinned-items buffer for THIS buffer."
@@ -857,6 +854,7 @@ Call SUCCESS-CALLBACK after supplemental identity hydration."
                   current-room
                   (or (slack-page-state-continuation state) "")
                   team)))
+    (slack-room-cancel-history-prefetch current-room)
     (slack-buffer-present-page
      buffer state
      (lambda (generation success error)
@@ -875,24 +873,32 @@ Call SUCCESS-CALLBACK after supplemental identity hydration."
         ((current-p ()
            (and (= generation (slack-page-state-generation state))
                 (slack-page-state-in-flight-p state)))
+         (release-snapshot ()
+           (when start-snapshot
+             (slack-room-history-release-snapshot room start-snapshot)
+             (setq start-snapshot nil)))
          (fail (&rest errors)
+           (release-snapshot)
            (when (current-p)
              (apply error errors)))
          (ready (&rest _ignored)
+           (release-snapshot)
            (when (current-p)
              (slack-page-state-ready state generation)))
          (primary (messages cursor)
-           (when (current-p)
-             (condition-case merge-error
-                 (progn
-                   (slack-room-merge-history-page
-                    room messages team start-snapshot)
-                   (funcall success
-                            (slack-room-sorted-messages room)
-                            cursor
-                            (and cursor (< 0 (length cursor)))
-                            t))
-               (error (funcall error merge-error)))))
+           (unwind-protect
+               (when (current-p)
+                 (condition-case merge-error
+                     (progn
+                       (slack-room-merge-history-page
+                        room messages team start-snapshot)
+                       (funcall success
+                                (slack-room-sorted-messages room)
+                                cursor
+                                (and cursor (< 0 (length cursor)))
+                                t))
+                   (error (fail merge-error))))
+             (release-snapshot)))
          (request-history ()
            (when (current-p)
              (setq start-snapshot
@@ -903,7 +909,7 @@ Call SUCCESS-CALLBACK after supplemental identity hydration."
                   :on-primary-page #'primary
                   :after-success #'ready
                   :on-error #'fail)
-               (error (funcall error request-error)))))
+               (error (fail request-error)))))
          (opened (&rest _ignored)
            (request-history)))
       (if (slack-im-p room)
@@ -913,7 +919,7 @@ Call SUCCESS-CALLBACK after supplemental identity hydration."
                :room room
                :on-success #'opened
                :on-error #'fail)
-            (error (funcall error open-error)))
+            (error (fail open-error)))
         (request-history)))))
 
 (cl-defmethod slack-room-update-buffer ((this slack-room) team message replace)

@@ -52,6 +52,8 @@
    (message-ids :initform '() :type list)
    (messages :initform (make-hash-table :test 'equal :size 300)) ;; pre-sized for typical active-channel history
    (history-state :initform (slack-page-state-create))
+   (history-prefetch-schedule :initform nil)
+   (history-snapshots :initform nil)
    (message-revision :initform 0)
    (message-revisions :initform (make-hash-table :test 'equal))
    (last-read :initarg :last_read :type string :initform "0") ;; "0" = Slack API sentinel for "no messages read"
@@ -262,7 +264,8 @@ Defaults to 100. Used to reduce memory after closing buffers."
         (slack-if-let* ((m (gethash ts messages)))
             (puthash ts m new-ht)))
       (oset room messages new-ht)
-      (oset room message-ids (cl-sort keep-ids #'string<)))))
+      (oset room message-ids (cl-sort keep-ids #'string<))
+      (slack-room-prune-message-revisions room))))
 
 (cl-defmethod slack-room-set-messages ((room slack-room) messages team)
   "Store MESSAGES on ROOM for TEAM and refresh the latest-ts cache."
@@ -292,7 +295,36 @@ Defaults to 100. Used to reduce memory after closing buffers."
   (let ((snapshot (make-hash-table :test 'equal)))
     (maphash (lambda (ts revision) (puthash ts revision snapshot))
              (oref room message-revisions))
+    (push snapshot (oref room history-snapshots))
     snapshot))
+
+(defun slack-room-history-release-snapshot (room snapshot)
+  "Release ROOM's active history SNAPSHOT and prune obsolete revisions."
+  (when (memq snapshot (oref room history-snapshots))
+    (oset room history-snapshots
+          (delq snapshot (oref room history-snapshots)))
+    (slack-room-prune-message-revisions room)
+    t))
+
+(defun slack-room-prune-message-revisions (room)
+  "Remove revisions from ROOM that no live message or request needs."
+  (unless (oref room history-snapshots)
+    (let (obsolete)
+      (maphash
+       (lambda (ts _revision)
+         (unless (gethash ts (oref room messages))
+           (push ts obsolete)))
+       (oref room message-revisions))
+      (dolist (ts obsolete)
+        (remhash ts (oref room message-revisions))))))
+
+(defun slack-room-cancel-history-prefetch (room)
+  "Cancel scheduled background history prefetch for ROOM."
+  (when-let* ((schedule (oref room history-prefetch-schedule)))
+    (oset room history-prefetch-schedule nil)
+    (when (car schedule)
+      (cancel-timer (car schedule)))
+    t))
 
 (defun slack-room-merge-history-page (room messages team start-snapshot)
   "Merge history MESSAGES into ROOM without overwriting concurrent events.
@@ -309,17 +341,32 @@ the room caches."
                           (gethash ts (oref room message-revisions))))
           (slack-room-delete-message room ts)))))
   (dolist (message messages)
-    (let* ((ts (slack-ts message))
-           (start-revision (gethash ts start-snapshot))
-           (current-revision
-            (gethash ts (oref room message-revisions))))
-      (when (or (null current-revision)
-                (equal current-revision start-revision))
+    (let ((ts (slack-ts message)))
+      (when (slack-room-history-message-mergeable-p
+             room ts start-snapshot)
         (slack-room-set-messages room (list message) team))))
   (oset room message-ids (cl-sort (oref room message-ids) #'string<))
   (when-let* ((counts (oref team counts))
               (latest (car (last (oref room message-ids)))))
     (slack-room--update-latest room counts latest)))
+
+(defun slack-room-merge-history-extension (room messages team start-snapshot)
+  "Append history MESSAGES to ROOM without overwriting concurrent events.
+START-SNAPSHOT maps timestamps to cache revisions at request start; TEAM owns
+the room caches."
+  (dolist (message messages)
+    (let ((ts (slack-ts message)))
+      (when (slack-room-history-message-mergeable-p
+             room ts start-snapshot)
+        (slack-room-set-messages room (list message) team)))))
+
+(defun slack-room-history-message-mergeable-p (room ts start-snapshot)
+  "Return non-nil when HTTP may merge TS into ROOM from START-SNAPSHOT."
+  (let ((current-revision
+         (gethash ts (oref room message-revisions))))
+    (or (null current-revision)
+        (and (slack-room-find-message room ts)
+             (equal current-revision (gethash ts start-snapshot))))))
 
 (cl-defmethod slack-room-update-mark ((room slack-room) team ts)
   "Update the read mark for ROOM in TEAM to timestamp TS."

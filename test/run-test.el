@@ -3949,7 +3949,9 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
             (slack-room-display
              channel team
              (lambda () (setq events (append events '(ready)))))
+            (should (= 1 (length (oref channel history-snapshots))))
             (funcall primary (list (slack-test-room-message "1.000" "page")) "")
+            (should-not (oref channel history-snapshots))
             (setq events (append events '(hydrated)))
             (funcall hydrated nil "")
             (should (equal '(display request page hydrated ready) events)))
@@ -4084,6 +4086,81 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                          (oref channel history-state)))))
         (slack-test-kill-room-buffer channel team)))))
 
+(ert-deftest slack-test-room-display-takes-over-delayed-prefetch ()
+  "Opening a room cancels its delayed prefetch and starts history immediately."
+  (slack-test-setup
+    (oset team counts t)
+    (oset team mark-as-read-immediately nil)
+    (let ((timer (timer-create))
+          scheduled-function
+          scheduled-args
+          canceled-timer
+          (request-count 0)
+          primary
+          hydrated)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-room-has-unread-p)
+                     (lambda (&rest _args) t))
+                    ((symbol-function 'slack-room-muted-p)
+                     (lambda (&rest _args) nil))
+                    ((symbol-function 'slack-room--update-latest) #'ignore)
+                    ((symbol-function 'run-at-time)
+                     (lambda (_delay _repeat function &rest args)
+                       (setq scheduled-function function
+                             scheduled-args args)
+                       timer))
+                    ((symbol-function 'cancel-timer)
+                     (lambda (candidate) (setq canceled-timer candidate)))
+                    ((symbol-function 'slack-conversations-history)
+                     (lambda (_room _team &rest args)
+                       (cl-incf request-count)
+                       (setq primary (plist-get args :on-primary-page)
+                             hydrated (plist-get args :after-success))))
+                    ((symbol-function 'slack-buffer-display) #'ignore))
+            (slack-prefetch-unread-channels team)
+            (should (eq 'unloaded
+                        (slack-page-state-status
+                         (oref channel history-state))))
+            (should (= 0 request-count))
+            (slack-room-display channel team)
+            (should (eq timer canceled-timer))
+            (should (= 1 request-count))
+            (apply scheduled-function scheduled-args)
+            (should (= 1 request-count))
+            (funcall primary
+                     (list (slack-test-room-message "3.000" "interactive"))
+                     "cursor-i")
+            (funcall hydrated nil "cursor-i")
+            (should-not (slack-page-state-error
+                         (oref channel history-state)))
+            (should (eq 'ready
+                        (slack-page-state-status
+                         (oref channel history-state)))))
+        (slack-test-kill-room-buffer channel team)))))
+
+(ert-deftest slack-test-canceled-room-prefetch-does-not-start-page-state ()
+  "Canceling scheduled room prefetch leaves its page state unloaded."
+  (slack-test-setup
+    (oset team counts t)
+    (let ((timer (timer-create))
+          canceled-timer)
+      (cl-letf (((symbol-function 'slack-room-has-unread-p)
+                 (lambda (&rest _args) t))
+                ((symbol-function 'slack-room-muted-p)
+                 (lambda (&rest _args) nil))
+                ((symbol-function 'run-at-time)
+                 (lambda (&rest _args) timer))
+                ((symbol-function 'cancel-timer)
+                 (lambda (candidate) (setq canceled-timer candidate))))
+        (slack-prefetch-unread-channels team)
+        (slack-room-cancel-history-prefetch channel)
+        (should (eq timer canceled-timer))
+        (should (eq 'unloaded
+                    (slack-page-state-status
+                     (oref channel history-state))))
+        (should-not (slack-page-state-in-flight-p
+                     (oref channel history-state)))))))
+
 (ert-deftest slack-test-prefetch-skips-loaded-and-in-flight-room-history ()
   "Unread prefetch does not duplicate loaded or in-flight room requests."
   (slack-test-setup
@@ -4116,11 +4193,13 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                  (lambda (_room _team &rest args)
                    (setq on-error (plist-get args :on-error)))))
         (slack-prefetch-room-history channel team generation)
+        (should (= 1 (length (oref channel history-snapshots))))
         (funcall on-error
                  :error-thrown '(error "offline")
                  :symbol-status 'error)
         (should (eq 'failed (slack-page-state-status state)))
-        (should (equal "offline" (slack-page-state-error state)))))))
+        (should (equal "offline" (slack-page-state-error state)))
+        (should-not (oref channel history-snapshots))))))
 
 (ert-deftest slack-test-room-load-more-updates-shared-continuation-on-primary-page ()
   "Pagination publishes its next cursor and messages before user hydration."
@@ -4158,6 +4237,99 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
             (with-current-buffer buffer
               (should-not slack-buffer--loading-more-p)
               (should (equal "2.000" (get-text-property (point) 'ts)))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(ert-deftest slack-test-room-load-more-keeps-concurrent-websocket-edit ()
+  "A WebSocket edit wins over an overlapping stale pagination message."
+  (slack-test-setup
+    (oset team mark-as-read-immediately nil)
+    (let* ((original (slack-test-room-message "2.000" "original"))
+           (stale (slack-test-room-message "2.000" "stale HTTP"))
+           (edited (slack-test-room-message "2.000" "WebSocket edit"))
+           (older (slack-test-room-message "1.000" "older"))
+           (state (oref channel history-state))
+           (object (slack-create-message-buffer channel "cursor-1" team))
+           buffer
+           primary
+           hydrated)
+      (slack-room-set-messages channel (list original) team)
+      (slack-page-state-store state (list original) "cursor-1" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-conversations-history)
+                     (lambda (_room _team &rest args)
+                       (setq primary (plist-get args :on-primary-page)
+                             hydrated (plist-get args :after-success)))))
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (slack-buffer-load-more object))
+            (should (= 1 (length (oref channel history-snapshots))))
+            (slack-room-push-message channel edited team)
+            (funcall primary (list older stale) "cursor-2")
+            (should-not (oref channel history-snapshots))
+            (should (eq edited
+                        (slack-room-find-message channel "2.000")))
+            (should (equal (list older edited)
+                           (slack-page-state-value state)))
+            (funcall hydrated nil "cursor-2"))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(ert-deftest slack-test-room-load-more-keeps-concurrent-websocket-delete ()
+  "A WebSocket delete prevents pagination from resurrecting its message."
+  (slack-test-setup
+    (oset team mark-as-read-immediately nil)
+    (let* ((original (slack-test-room-message "2.000" "original"))
+           (stale (slack-test-room-message "2.000" "stale HTTP"))
+           (older (slack-test-room-message "1.000" "older"))
+           (state (oref channel history-state))
+           (object (slack-create-message-buffer channel "cursor-1" team))
+           buffer
+           primary
+           hydrated)
+      (slack-room-set-messages channel (list original) team)
+      (slack-page-state-store state (list original) "cursor-1" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-conversations-history)
+                     (lambda (_room _team &rest args)
+                       (setq primary (plist-get args :on-primary-page)
+                             hydrated (plist-get args :after-success)))))
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (slack-buffer-load-more object))
+            (slack-room-delete-message channel "2.000")
+            (funcall primary (list older stale) "cursor-2")
+            (should-not (slack-room-find-message channel "2.000"))
+            (should (equal (list older)
+                           (slack-page-state-value state)))
+            (funcall hydrated nil "cursor-2"))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(ert-deftest slack-test-room-load-more-does-not-delete-http-omissions ()
+  "Pagination keeps cached messages omitted from its append-only HTTP page."
+  (slack-test-setup
+    (oset team mark-as-read-immediately nil)
+    (let* ((initial (slack-test-room-message "2.000" "initial"))
+           (older (slack-test-room-message "1.000" "older"))
+           (state (oref channel history-state))
+           (object (slack-create-message-buffer channel "cursor-1" team))
+           buffer
+           primary
+           hydrated)
+      (slack-room-set-messages channel (list initial) team)
+      (slack-page-state-store state (list initial) "cursor-1" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-conversations-history)
+                     (lambda (_room _team &rest args)
+                       (setq primary (plist-get args :on-primary-page)
+                             hydrated (plist-get args :after-success)))))
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (slack-buffer-load-more object))
+            (funcall primary (list older) "cursor-2")
+            (should (eq initial
+                        (slack-room-find-message channel "2.000")))
+            (should (equal (list older initial)
+                           (slack-page-state-value state)))
+            (funcall hydrated nil "cursor-2"))
         (when (buffer-live-p buffer) (kill-buffer buffer))))))
 
 (ert-deftest slack-test-room-load-more-coalesces-duplicate-invocations ()
@@ -4287,18 +4459,21 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
             (with-current-buffer buffer
               (slack-buffer-load-more object)
               (should slack-buffer--loading-more-p))
+            (should (= 1 (length (oref channel history-snapshots))))
             (funcall on-error
                      :error-thrown '(error "offline")
                      :symbol-status 'error)
             (with-current-buffer buffer
               (should-not slack-buffer--loading-more-p)
               (slack-buffer-load-more object))
+            (should (= 1 (length (oref channel history-snapshots))))
             (should (= 2 request-count))
             (should (string-match-p "offline" reported))
             (funcall on-error "invalid_auth")
             (with-current-buffer buffer
               (should-not slack-buffer--loading-more-p))
             (should (string-match-p "invalid_auth" reported))
+            (should-not (oref channel history-snapshots))
             (should (eq 'ready (slack-page-state-status state)))
             (should (equal "cursor-1"
                            (slack-page-state-continuation state))))

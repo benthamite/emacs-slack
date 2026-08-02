@@ -368,12 +368,7 @@ that have unreads and unloaded history, so opening them is instant."
                               (slack-team-ims team)))
            (unread-rooms
             (cl-remove-if-not
-             (lambda (room)
-               (let ((state (oref room history-state)))
-                 (and (slack-room-has-unread-p room team)
-                      (not (slack-room-muted-p room team))
-                      (not (slack-page-state-loaded-p state))
-                      (not (slack-page-state-in-flight-p state)))))
+             (lambda (room) (slack-prefetch-room-history-eligible-p room team))
              all-rooms))
            (count (length unread-rooms)))
       (when (> count 0)
@@ -381,12 +376,31 @@ that have unreads and unloaded history, so opening them is instant."
                    team :level 'info)
         (cl-loop for room in unread-rooms
                  for delay from 0 by 1.2  ; ~50 req/min (tier 3)
-                 for state = (oref room history-state)
-                 for generation = (slack-page-state-begin state)
-                 when generation
-                 do (run-at-time delay nil
-                                 #'slack-prefetch-room-history
-                                 room team generation))))))
+                 do (let ((schedule (cons nil nil)))
+                      (oset room history-prefetch-schedule schedule)
+                      (setcar schedule
+                              (run-at-time
+                               delay nil #'slack-prefetch-room-history-start
+                               room team schedule))))))))
+
+(defun slack-prefetch-room-history-eligible-p (room team)
+  "Return non-nil when ROOM history can be prefetched for TEAM."
+  (let ((state (oref room history-state)))
+    (and (slack-room-has-unread-p room team)
+         (not (slack-room-muted-p room team))
+         (not (oref room history-prefetch-schedule))
+         (not (slack-page-state-loaded-p state))
+         (not (slack-page-state-in-flight-p state)))))
+
+(defun slack-prefetch-room-history-start (room team schedule)
+  "Start a scheduled ROOM history prefetch for TEAM.
+Do so only while SCHEDULE still owns the room's background work."
+  (when (eq schedule (oref room history-prefetch-schedule))
+    (oset room history-prefetch-schedule nil)
+    (when (slack-prefetch-room-history-eligible-p room team)
+      (when-let* ((generation
+                   (slack-page-state-begin (oref room history-state))))
+        (slack-prefetch-room-history room team generation)))))
 
 (defun slack-prefetch-room-history (room team generation)
   "Prefetch ROOM history for TEAM in page-state GENERATION."
@@ -396,37 +410,46 @@ that have unreads and unloaded history, so opening them is instant."
         ((current-p ()
            (and (= generation (slack-page-state-generation state))
                 (slack-page-state-in-flight-p state)))
+         (release-snapshot ()
+           (when start-snapshot
+             (slack-room-history-release-snapshot room start-snapshot)
+             (setq start-snapshot nil)))
          (fail (&rest errors)
+           (release-snapshot)
            (when (current-p)
              (slack-page-state-fail
               state generation
               (slack-buffer--normalize-page-error errors))))
          (ready (&rest _ignored)
+           (release-snapshot)
            (when (current-p)
              (slack-page-state-ready state generation)))
          (primary (messages cursor)
-           (when (current-p)
-             (condition-case merge-error
-                 (progn
-                   (slack-room-merge-history-page
-                    room messages team start-snapshot)
-                   (slack-page-state-commit
-                    state generation
-                    (slack-room-sorted-messages room)
-                    cursor
-                    (and cursor (< 0 (length cursor)))
-                    t))
-               (error (fail merge-error))))))
+           (unwind-protect
+               (when (current-p)
+                 (condition-case merge-error
+                     (progn
+                       (slack-room-merge-history-page
+                        room messages team start-snapshot)
+                       (slack-page-state-commit
+                        state generation
+                        (slack-room-sorted-messages room)
+                        cursor
+                        (and cursor (< 0 (length cursor)))
+                        t))
+                   (error (fail merge-error))))
+             (release-snapshot))))
       (setq start-snapshot (slack-room-history-start-snapshot room))
-      (condition-case request-error
-          (when (current-p)
+      (if (current-p)
+          (condition-case request-error
             (slack-conversations-history
              room team
              :limit "50"
              :on-primary-page #'primary
              :after-success #'ready
-             :on-error #'fail))
-        (error (fail request-error))))))
+             :on-error #'fail)
+            (error (fail request-error)))
+        (release-snapshot)))))
 
 (defun slack-ws-on-reconnect-open (team-id)
   "Refresh data after websocket reconnection for TEAM-ID.

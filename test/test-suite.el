@@ -450,8 +450,44 @@
     (slack-room-trim-messages channel 3)
     (should (eq 3 (hash-table-count (oref channel messages))))
     (should (eq 3 (length (oref channel message-ids))))
+    (should (eq 3 (hash-table-count (oref channel message-revisions))))
     (should (equal '("7.0" "8.0" "9.0")
-                   (oref channel message-ids)))))
+                   (oref channel message-ids)))
+    (should-not (gethash "6.0" (oref channel message-revisions)))))
+
+(ert-deftest slack-test-room-trim-retains-active-delete-tombstone ()
+  (slack-test-setup
+    (let ((message (make-instance 'slack-message
+                                  :type "message"
+                                  :ts "1.0")))
+      (slack-room-push-message channel message team)
+      (let ((snapshot (slack-room-history-start-snapshot channel)))
+        (slack-room-delete-message channel "1.0")
+        (slack-room-trim-messages channel 0)
+        (should (gethash "1.0" (oref channel message-revisions)))
+        (should (= 1 (length (oref channel history-snapshots))))
+        (slack-room-history-release-snapshot channel snapshot)
+        (should-not (gethash "1.0" (oref channel message-revisions)))
+        (should-not (oref channel history-snapshots))))))
+
+(ert-deftest slack-test-room-active-snapshot-keeps-preexisting-tombstone ()
+  (slack-test-setup
+    (dolist (merge-function '(slack-room-merge-history-page
+                              slack-room-merge-history-extension))
+      (let* ((room (make-instance 'slack-channel
+                                  :id "C22222"
+                                  :name "History"))
+             (message (make-instance 'slack-message
+                                     :type "message"
+                                     :ts "1.0")))
+        (slack-room-push-message room message team)
+        (slack-room-delete-message room "1.0")
+        (let ((snapshot (slack-room-history-start-snapshot room)))
+          (slack-room-trim-messages room 0)
+          (should (gethash "1.0" (oref room message-revisions)))
+          (funcall merge-function room (list message) team snapshot)
+          (should-not (slack-room-find-message room "1.0"))
+          (slack-room-history-release-snapshot room snapshot))))))
 
 (ert-deftest slack-test-room-trim-noop-when-under-limit ()
   (slack-test-setup
