@@ -2454,6 +2454,125 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (should (eq 1 (cl-count "oldest" captured-params
                                 :key #'car-safe :test #'equal)))))))
 
+(ert-deftest slack-test-conversations-history-commits-primary-before-users ()
+  (slack-test-setup
+    (let (request hydration-success primary-args ready-args events)
+      (cl-letf (((symbol-function 'slack-team-missing-user-ids)
+                 (lambda (&rest _) '("U-MISSING")))
+                ((symbol-function 'slack-user-info-request)
+                 (lambda (_ids _team &rest args)
+                   (push 'hydration-request events)
+                   (setq hydration-success
+                         (plist-get args :after-success))))
+                ((symbol-function 'slack-request)
+                 (lambda (req &rest _)
+                   (setq request req))))
+        (slack-conversations-history
+         channel team
+         :on-primary-page
+         (lambda (messages cursor)
+           (setq primary-args (list messages cursor))
+           (push 'primary events))
+         :after-success
+         (lambda (messages cursor)
+           (setq ready-args (list messages cursor))
+           (push 'ready events)))
+        (funcall
+         (oref request success)
+         :data '(:ok t
+                 :messages ((:type "message" :ts "1.0"
+                             :user "U-MISSING" :text "body"))
+                 :response_metadata (:next_cursor "CURSOR")))
+        (should (equal '(hydration-request primary) events))
+        (should (functionp hydration-success))
+        (should (equal "CURSOR" (cadr primary-args)))
+        (funcall hydration-success)
+        (should (equal '(ready hydration-request primary) events))
+        (should (eq (car primary-args) (car ready-args)))
+        (should (equal (cdr primary-args) (cdr ready-args)))))))
+
+(ert-deftest slack-test-conversations-replies-commits-primary-before-users ()
+  (slack-test-setup
+    (let (request hydration-success primary-args ready-args events)
+      (cl-letf (((symbol-function 'slack-team-missing-user-ids)
+                 (lambda (&rest _) '("U-MISSING")))
+                ((symbol-function 'slack-users-info-request)
+                 (lambda (_ids _team &rest args)
+                   (push 'hydration-request events)
+                   (setq hydration-success
+                         (plist-get args :after-success))))
+                ((symbol-function 'slack-request)
+                 (lambda (req &rest _)
+                   (setq request req))))
+        (slack-conversations-replies
+         channel "1.0" team
+         :on-primary-page
+         (lambda (messages cursor has-more)
+           (setq primary-args (list messages cursor has-more))
+           (push 'primary events))
+         :after-success
+         (lambda (messages cursor has-more)
+           (setq ready-args (list messages cursor has-more))
+           (push 'ready events)))
+        (funcall
+         (oref request success)
+         :data '(:ok t :has_more t
+                 :messages ((:type "message" :ts "1.0"
+                             :user "U-MISSING" :text "body"))
+                 :response_metadata (:next_cursor "REPLIES-CURSOR")))
+        (should (equal '(hydration-request primary) events))
+        (should (functionp hydration-success))
+        (should (equal "REPLIES-CURSOR" (cadr primary-args)))
+        (should (eq t (nth 2 primary-args)))
+        (funcall hydration-success)
+        (should (equal '(ready hydration-request primary) events))
+        (should (eq (car primary-args) (car ready-args)))
+        (should (equal (cdr primary-args) (cdr ready-args)))))))
+
+(ert-deftest slack-test-conversations-failures-skip-success ()
+  (slack-test-setup
+    (let ((starters
+           (list
+            (lambda (primary ready error)
+              (slack-conversations-history
+               channel team
+               :on-primary-page primary
+               :after-success ready
+               :on-error error))
+            (lambda (primary ready error)
+              (slack-conversations-replies
+               channel "1.0" team
+               :on-primary-page primary
+               :after-success ready
+               :on-error error)))))
+      (dolist (start starters)
+        (dolist (failure '(api transport))
+          (let (request reported-errors primary-called ready-called
+                       (expected-error
+                        (if (eq failure 'api)
+                            '("invalid_auth")
+                          '(:error-thrown (error "timeout")
+                            :symbol-status timeout :response nil :data nil))))
+            (cl-letf (((symbol-function 'slack-request)
+                       (lambda (req &rest _)
+                         (setq request req))))
+              (funcall
+               start
+               (lambda (&rest _) (setq primary-called t))
+               (lambda (&rest _) (setq ready-called t))
+               (lambda (&rest args) (push args reported-errors)))
+              (if (eq failure 'api)
+                  (funcall (oref request success)
+                           :data '(:ok :json-false :error "invalid_auth"))
+                (funcall (oref request error)
+                         :error-thrown '(error "timeout")
+                         :symbol-status 'timeout
+                         :response nil
+                         :data nil))
+              (should (equal (list expected-error) reported-errors))
+              (should-not primary-called)
+              (should-not ready-called))))))))
+
 (ert-deftest slack-test-set-replies-merges-partial-fetches ()
   (slack-test-setup
     (let* ((parent (make-instance 'slack-message :type "message"

@@ -447,11 +447,16 @@ AFTER-SUCCESS runs after the room is stored; ON-ERROR runs on failure."
      :success #'success
      :error #'fail)))
 
-(cl-defun slack-conversations-replies (room ts team &key after-success on-error (cursor nil) (oldest nil) (limit "200") (latest nil) (inclusive nil) (sync nil))
+(cl-defun slack-conversations-replies
+    (room ts team &key after-success (on-primary-page nil) on-error
+          (cursor nil) (oldest nil) (limit "200") (latest nil)
+          (inclusive nil) (sync nil))
   "Fetch the thread replies for TS in ROOM of TEAM.
 CURSOR, OLDEST, LIMIT, LATEST, INCLUSIVE, and SYNC map to the
-conversations.replies API params. AFTER-SUCCESS receives the parsed
-messages, next cursor, and has-more flag; ON-ERROR handles failures."
+conversations.replies API params.  ON-PRIMARY-PAGE receives the parsed
+messages, next cursor, and has-more flag before user hydration.
+AFTER-SUCCESS receives the same values after hydration; ON-ERROR handles
+failures."
   (let ((channel (oref room id)))
     (cl-labels
         ((fail (&rest args)
@@ -480,7 +485,8 @@ messages, next cursor, and has-more flag; ON-ERROR handles failures."
                    (user-ids (slack-team-missing-user-ids
                               team (cl-loop for m in messages
                                             nconc (slack-message-user-ids m)))))
-
+              (when (functionp on-primary-page)
+                (funcall on-primary-page messages next-cursor has-more))
               (if (< 0 (length user-ids))
                   (slack-users-info-request
                    user-ids team
@@ -535,6 +541,7 @@ IS-PRIVATE is the string \"true\" or \"false\"; when nil, the user is asked."
 
 (cl-defun slack-conversations-history (room team &key
                                             (after-success nil)
+                                            (on-primary-page nil)
                                             (on-error nil)
                                             (cursor nil)
                                             (latest nil)
@@ -544,8 +551,9 @@ IS-PRIVATE is the string \"true\" or \"false\"; when nil, the user is asked."
                                             (sync nil))
   "Fetch message history for ROOM in TEAM via conversations.history.
 CURSOR, LATEST, OLDEST, INCLUSIVE, LIMIT, and SYNC map to API params.
-AFTER-SUCCESS receives the parsed messages and next cursor; ON-ERROR
-handles failures."
+ON-PRIMARY-PAGE receives the parsed messages and next cursor before user
+hydration.  AFTER-SUCCESS receives the same values after hydration;
+ON-ERROR handles failures."
   (let ((channel (oref room id)))
     (cl-labels
         ((fail (&rest args)
@@ -568,6 +576,8 @@ handles failures."
                    (user-ids (slack-team-missing-user-ids
                               team (cl-loop for m in messages
                                             nconc (slack-message-user-ids m)))))
+              (when (functionp on-primary-page)
+                (funcall on-primary-page messages next-cursor))
               (if (< 0 (length user-ids))
                   (slack-user-info-request
                    user-ids team
