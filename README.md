@@ -361,9 +361,12 @@ Some terminology in the `slack-` functions:
     an in-buffer retry action
   - accepted file-list pages merge into the shared cache without evicting
     unrelated files or replacing richer cached objects with list summaries
-  - live file-create, deletion, and unshare events are reconciled with refresh
-    and pagination responses, so an older response cannot erase a new file or
+  - live file-create and deletion events are reconciled with refresh and
+    pagination responses, so an older response cannot erase a new file or
     resurrect a removed one
+  - live file-unshare events refresh the file through `files.info`; accessible
+    files retain their cache and list identity, while explicit not-found or
+    inaccessible responses remove them
   - opening file info creates and displays its stable buffer immediately;
     cached metadata remains visible while complete details load in the
     background

@@ -45,6 +45,7 @@
 (declare-function slack-buffer--normalize-page-error "slack-buffer")
 (declare-function slack-file-list-handle-created "slack-file-list-buffer")
 (declare-function slack-file-list-handle-deleted "slack-file-list-buffer")
+(declare-function slack-file-list-handle-unshared "slack-file-list-buffer")
 (require 'slack-star)
 (require 'slack-message-notification)
 (require 'slack-room-buffer)
@@ -642,9 +643,10 @@ WS is the ws argument."
           (slack-ws-handle-bot decoded-payload team))
          ((string= type "file_created")
           (slack-ws-handle-file-created decoded-payload team))
-         ((or (string= type "file_deleted")
-              (string= type "file_unshared"))
+         ((string= type "file_deleted")
           (slack-ws-handle-file-deleted decoded-payload team))
+         ((string= type "file_unshared")
+          (slack-ws-handle-file-unshared decoded-payload team))
          ((or (string= type "im_marked")
               (string= type "channel_marked")
               (string= type "group_marked")
@@ -925,6 +927,11 @@ TEAM is the team argument."
   "Handle the Slack websocket `file deleted' event with PAYLOAD for TEAM."
   (let ((file-id (plist-get payload :file_id)))
     (slack-file-list-handle-deleted team file-id)))
+
+(defun slack-ws-handle-file-unshared (payload team)
+  "Handle the Slack websocket `file unshared' event with PAYLOAD for TEAM."
+  (let ((file-id (plist-get payload :file_id)))
+    (slack-file-list-handle-unshared team file-id)))
 
 (defun slack-ws-handle-room-marked (payload team)
   "Handle the Slack websocket `room marked' event with PAYLOAD for TEAM."

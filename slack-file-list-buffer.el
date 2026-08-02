@@ -262,40 +262,68 @@
 
 (defun slack-file-list-handle-created (team file-id)
   "Fetch and publish FILE-ID created by a live event on TEAM."
-  (when-let ((buffer (slack-buffer-find 'slack-file-list-buffer team)))
-    (let* ((snapshot (slack-file-list--start-mutation-snapshot team))
-           (revision
-            (slack-file-list--record-mutation team file-id 'upsert nil))
-           released-p)
-      (cl-labels
-          ((release ()
-             (unless released-p
-               (setq released-p t)
-               (slack-file-list--release-mutation-snapshot team snapshot)))
-           (current-p ()
-             (slack-file-list--mutation-current-p
-              team file-id revision 'upsert))
-           (accepted (_file &rest _ignored)
-             (let ((accepted-p (current-p)))
-               (unless accepted-p (release))
-               accepted-p))
-           (succeeded (file &rest _ignored)
-             (unwind-protect
-                 (when (current-p)
-                   (slack-file-list--complete-upsert-mutation
-                    team file-id revision file)
-                   (slack-buffer-update buffer file))
-               (release)))
-           (failed (&rest errors)
-             (unwind-protect
-                 (message "Slack: failed to load created file %s: %s"
-                          file-id
-                          (slack-buffer--normalize-page-error errors))
-               (release))))
-        (condition-case request-error
-            (slack-file-request-info
-             file-id 1 team #'succeeded #'failed #'accepted)
-          (error (funcall #'failed request-error)))))))
+  (when (slack-buffer-find 'slack-file-list-buffer team)
+    (slack-file-list--refresh-event-file team file-id t "created")))
+
+(defun slack-file-list-handle-unshared (team file-id)
+  "Refresh FILE-ID after a live unshare event on TEAM."
+  (slack-file-list--refresh-event-file team file-id nil "unshared" t))
+
+(defun slack-file-list--refresh-event-file
+    (team file-id insert event-label &optional remove-if-inaccessible)
+  "Refresh FILE-ID from a live file event on TEAM.
+INSERT means add a file absent from loaded list state.  EVENT-LABEL names the
+event in request failures.  With REMOVE-IF-INACCESSIBLE, remove the file only
+when `files.info' explicitly reports that it cannot be accessed."
+  (let* ((snapshot (slack-file-list--start-mutation-snapshot team))
+         (revision
+          (slack-file-list--record-mutation team file-id 'upsert nil))
+         released-p)
+    (cl-labels
+        ((release ()
+           (unless released-p
+             (setq released-p t)
+             (slack-file-list--release-mutation-snapshot team snapshot)))
+         (current-p ()
+           (slack-file-list--mutation-current-p
+            team file-id revision 'upsert))
+         (accepted (_file &rest _ignored)
+           (let ((accepted-p (current-p)))
+             (unless accepted-p (release))
+             accepted-p))
+         (succeeded (file &rest _ignored)
+           (unwind-protect
+               (when (current-p)
+                 (slack-file-list--complete-upsert-mutation
+                  team file-id revision file)
+                 (if-let ((buffer
+                           (slack-buffer-find
+                            'slack-file-list-buffer team)))
+                     (slack-buffer-update buffer file :replace (not insert))
+                   (slack-file-list--upsert-state-file
+                    (slack-team-page-state team 'file-list) file insert)))
+             (release)))
+         (failed (&rest errors)
+           (unwind-protect
+               (if (and remove-if-inaccessible
+                        (current-p)
+                        (slack-file-list--inaccessible-error-p errors))
+                   (slack-file-list-handle-deleted team file-id)
+                 (message "Slack: failed to load %s file %s: %s"
+                          event-label file-id
+                          (slack-buffer--normalize-page-error errors)))
+             (release))))
+      (condition-case request-error
+          (slack-file-request-info
+           file-id 1 team #'succeeded #'failed #'accepted)
+        (error (funcall #'failed request-error))))))
+
+(defun slack-file-list--inaccessible-error-p (errors)
+  "Return non-nil when ERRORS explicitly make a file inaccessible."
+  (and (stringp (car errors))
+       (member (car errors)
+               '("access_denied" "file_deleted"
+                 "file_not_found" "not_visible"))))
 
 (defun slack-file-list-handle-deleted (team file-id)
   "Remove FILE-ID from TEAM's durable file-list state and current view."

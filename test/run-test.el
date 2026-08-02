@@ -10461,6 +10461,118 @@ USER defaults to the fixture user's id."
             (should (= 0 (hash-table-count (oref team file-list-mutations)))))
         (when (buffer-live-p buffer) (kill-buffer buffer))))))
 
+(ert-deftest slack-test-file-unshared-dispatches-to-refresh-handler ()
+  "A file unshare event is not dispatched as a file deletion."
+  (slack-test-setup
+    (let ((ws (make-instance 'slack-team-ws))
+          (frame (make-websocket-frame
+                  :opcode 'text :payload "frame" :completep t))
+          refreshed deleted)
+      (cl-letf (((symbol-function 'slack-request-parse-payload) #'identity)
+                ((symbol-function 'slack-decode)
+                 (lambda (_)
+                   '(:type "file_unshared" :file_id "F1")))
+                ((symbol-function 'slack-team-event-log-enabledp)
+                 (lambda (_) nil))
+                ((symbol-function 'slack-ws-handle-file-unshared)
+                 (lambda (payload request-team)
+                   (setq refreshed (list payload request-team))))
+                ((symbol-function 'slack-ws-handle-file-deleted)
+                 (lambda (&rest _) (setq deleted t))))
+        (slack-ws-on-message ws frame team)
+        (should (equal (car refreshed)
+                       '(:type "file_unshared" :file_id "F1")))
+        (should (eq team (cadr refreshed)))
+        (should-not deleted)))))
+
+(ert-deftest slack-test-file-unshared-refresh-reconciles-stale-list-response ()
+  "An accessible unshared file survives and supersedes a stale list page."
+  (slack-test-setup
+    (let* ((old-payload (slack-test-file-list-payload "F1" 200))
+           (_ (plist-put old-payload :channels '("C1")))
+           (file (slack-file-create old-payload))
+           (state (slack-team-page-state team 'file-list))
+           list-request info-request)
+      (slack-team-set-files team (list file))
+      (slack-page-state-store
+       state (list :files (list file) :page 1 :pages 1) nil nil)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select)
+                     (lambda (&optional _no-default) team))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-request)
+                     (lambda (request &rest _)
+                       (if (string= (oref request url) slack-file-list-url)
+                           (setq list-request request)
+                         (setq info-request request)))))
+            (slack-file-list)
+            (slack-ws-handle-file-unshared '(:file_id "F1") team)
+            (should (eq file (slack-file-find "F1" team)))
+            (let ((fresh-payload (slack-test-file-list-payload "F1" 200)))
+              (plist-put fresh-payload :channels nil)
+              (plist-put fresh-payload :title "Unshared F1")
+              (funcall (oref info-request success)
+                       :data (list :ok t :file fresh-payload :comments nil)))
+            (funcall
+             (oref list-request success)
+             :data
+             (list :ok t
+                   :files (list old-payload)
+                   :paging (list :page 1 :pages 1)))
+            (should (eq file (slack-file-find "F1" team)))
+            (should-not (oref file channels))
+            (should (equal "Unshared F1" (oref file title)))
+            (should (eq file
+                        (car (plist-get (slack-page-state-value state)
+                                        :files))))
+            (should-not (oref team file-list-mutation-snapshots))
+            (should (= 0 (hash-table-count
+                          (oref team file-list-mutations)))))
+        (slack-test-kill-file-list-buffer team)))))
+
+(ert-deftest slack-test-file-unshared-terminal-errors-remove-file ()
+  "Explicit files.info inaccessibility removes an unshared file."
+  (dolist (terminal-error
+           '("access_denied" "file_deleted" "file_not_found" "not_visible"))
+    (slack-test-setup
+      (let* ((file (slack-test-file-list-file "F1" 200))
+             (state (slack-team-page-state team 'file-list))
+             request)
+        (slack-team-set-files team (list file))
+        (slack-page-state-store
+         state (list :files (list file) :page 1 :pages 1) nil nil)
+        (cl-letf (((symbol-function 'slack-request)
+                   (lambda (created &rest _) (setq request created))))
+          (slack-ws-handle-file-unshared '(:file_id "F1") team)
+          (funcall (oref request success)
+                   :data (list :ok :json-false :error terminal-error))
+          (should-not (slack-file-find "F1" team))
+          (should-not (plist-get (slack-page-state-value state) :files))
+          (should-not (oref team file-list-mutation-snapshots))
+          (should (= 0 (hash-table-count
+                        (oref team file-list-mutations)))))))))
+
+(ert-deftest slack-test-file-unshared-nonterminal-failure-preserves-file ()
+  "A non-terminal files.info failure preserves an unshared file."
+  (slack-test-setup
+    (let* ((file (slack-test-file-list-file "F1" 200))
+           (state (slack-team-page-state team 'file-list))
+           request)
+      (slack-team-set-files team (list file))
+      (slack-page-state-store
+       state (list :files (list file) :page 1 :pages 1) nil nil)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (created &rest _) (setq request created))))
+        (slack-ws-handle-file-unshared '(:file_id "F1") team)
+        (funcall (oref request success)
+                 :data '(:ok :json-false :error "invalid_auth"))
+        (should (eq file (slack-file-find "F1" team)))
+        (should (equal (list file)
+                       (plist-get (slack-page-state-value state) :files)))
+        (should-not (oref team file-list-mutation-snapshots))
+        (should (= 0 (hash-table-count
+                      (oref team file-list-mutations))))))))
+
 (ert-deftest slack-test-file-list-mutation-journal-prunes-by-oldest-snapshot ()
   "Mutation entries live exactly as long as an active request needs them."
   (slack-test-setup
