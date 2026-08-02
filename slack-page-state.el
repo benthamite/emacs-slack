@@ -23,6 +23,36 @@
 
 (require 'cl-lib)
 
+(cl-defstruct (slack-async-barrier
+               (:constructor slack-async-barrier--create))
+  remaining
+  callback
+  finished-p)
+
+(defun slack-async-barrier-create (count callback)
+  "Return a barrier for COUNT completions that runs CALLBACK once."
+  (unless (and (integerp count) (>= count 0))
+    (signal 'wrong-type-argument (list 'natnump count)))
+  (let ((barrier (slack-async-barrier--create
+                  :remaining count :callback callback)))
+    (when (= count 0)
+      (slack-async-barrier-finish barrier))
+    barrier))
+
+(defun slack-async-barrier-done (barrier)
+  "Record one success or failure completion on BARRIER."
+  (unless (slack-async-barrier-finished-p barrier)
+    (cl-decf (slack-async-barrier-remaining barrier))
+    (when (<= (slack-async-barrier-remaining barrier) 0)
+      (slack-async-barrier-finish barrier))))
+
+(defun slack-async-barrier-finish (barrier)
+  "Finish BARRIER exactly once."
+  (unless (slack-async-barrier-finished-p barrier)
+    (setf (slack-async-barrier-finished-p barrier) t)
+    (when (functionp (slack-async-barrier-callback barrier))
+      (funcall (slack-async-barrier-callback barrier)))))
+
 (cl-defstruct (slack-page-state (:constructor slack-page-state-create))
   (status 'unloaded)
   (generation 0)

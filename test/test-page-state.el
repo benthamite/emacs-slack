@@ -18,6 +18,37 @@
   "Return the test page's team buffer key."
   'slack-message-buffer)
 
+(ert-deftest slack-test-async-barrier-finishes-zero-work-immediately ()
+  (let ((calls 0))
+    (slack-async-barrier-create 0 (lambda () (cl-incf calls)))
+    (should (= 1 calls))))
+
+(ert-deftest slack-test-async-barrier-counts-success-and-failure-completions ()
+  (let* ((calls 0)
+         (barrier (slack-async-barrier-create
+                   2 (lambda () (cl-incf calls))))
+         (success (lambda () (slack-async-barrier-done barrier)))
+         (failure (lambda () (slack-async-barrier-done barrier))))
+    (funcall failure)
+    (should (= 0 calls))
+    (funcall success)
+    (should (= 1 calls))))
+
+(ert-deftest slack-test-async-barrier-finishes-exactly-once ()
+  (let* ((calls 0)
+         (barrier (slack-async-barrier-create
+                   2 (lambda () (cl-incf calls)))))
+    (slack-async-barrier-done barrier)
+    (should (= 0 calls))
+    (slack-async-barrier-done barrier)
+    (slack-async-barrier-done barrier)
+    (should (= 1 calls))))
+
+(ert-deftest slack-test-async-barrier-rejects-invalid-counts ()
+  (dolist (count '(-1 1.5 nil))
+    (should-error (slack-async-barrier-create count #'ignore)
+                  :type 'wrong-type-argument)))
+
 (ert-deftest slack-test-page-state-commits-an-empty-page ()
   (let* ((state (slack-page-state-create))
          (generation (slack-page-state-begin state)))
