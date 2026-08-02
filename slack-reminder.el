@@ -60,7 +60,19 @@ Prompts for a reminder time and saves via TEAM."
     (slack-star-api-request slack-message-stars-add-url
                             (append (list (cons "channel" (oref message channel)))
                                     (slack-message-star-api-params message due-in-ms))
-                            team)))
+                            team
+                            (lambda ()
+                              (slack-message-star-added message)
+                              (slack-team-mark-saved
+                               team (oref message channel)
+                               (slack-ts message))
+                              (lambda ()
+                                (if (slack-ts-saved-p
+                                     team (slack-ts message) "message"
+                                     (oref message channel))
+                                    (slack-message-star-added message)
+                                  (slack-message-star-removed
+                                   message)))))))
 
 (provide 'slack-reminder)
 ;;; slack-reminder.el ends here

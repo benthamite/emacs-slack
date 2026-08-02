@@ -613,7 +613,23 @@ TS is the ts argument."
                   (file (slack-file-find ts team)))
       (slack-star-api-request slack-message-stars-add-url
                               (slack-message-star-api-params file)
-                              team)))
+                              team
+                              (lambda ()
+                                (slack-message-star-added file)
+                                (slack-team-mark-saved-item
+                                 team
+                                 (slack-create-star-item
+                                  (list :item_id (oref file id)
+                                        :item_type "file"
+                                        :ts (slack-ts file)
+                                        :file file)))
+                                (lambda ()
+                                  (if (slack-ts-saved-p
+                                       team (slack-ts file) "file"
+                                       (oref file id))
+                                      (slack-message-star-added file)
+                                    (slack-message-star-removed
+                                     file)))))))
 
 (cl-defmethod slack-buffer-remove-star ((this slack-file-list-buffer) ts)
   "Remove the star from THIS buffer.
@@ -622,7 +638,19 @@ TS is the ts argument."
                   (file (slack-file-find ts team)))
       (slack-star-api-request slack-message-stars-remove-url
                               (slack-message-star-api-params file)
-                              team)))
+                              team
+                              (lambda ()
+                                (slack-message-star-removed file)
+                                (slack-team-mark-unsaved
+                                 team (slack-ts file) "file"
+                                 (oref file id))
+                                (lambda ()
+                                  (if (slack-ts-saved-p
+                                       team (slack-ts file) "file"
+                                       (oref file id))
+                                      (slack-message-star-added file)
+                                    (slack-message-star-removed
+                                     file)))))))
 
 (provide 'slack-file-list-buffer)
 ;;; slack-file-list-buffer.el ends here

@@ -3371,6 +3371,156 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                      (mapcar #'slack-ts
                              (slack-star-items (oref team star))))))))
 
+(ert-deftest slack-test-stars-list-replays-pending-add-after-ack ()
+  "Keep a pre-request add in an older response even after its write succeeds."
+  (slack-test-setup
+    (let ((ts "3.000")
+          list-requests
+          write-request)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (if (string= (oref request url) slack-stars-list-url)
+                       (push request list-requests)
+                     (setq write-request request))
+                   request))
+                ((symbol-function 'slack-team-missing-user-ids)
+                 (lambda (&rest _args) nil)))
+        (slack-star-api-request
+         slack-message-stars-add-url
+         (list (cons "item_id" channel-id)
+               (cons "item_type" "message")
+               (cons "ts" ts))
+         team
+         (lambda () (slack-team-mark-saved team channel-id ts)))
+        (slack-stars-list-request team)
+        (funcall (oref write-request success) :data (list :ok t))
+        (funcall
+         (oref (car list-requests) success)
+         :data
+         (list :ok t :saved_items nil
+               :response_metadata (list :next_cursor "")))
+        (should (slack-ts-saved-p team ts "message" channel-id))
+        (slack-stars-list-request team)
+        (funcall
+         (oref (car list-requests) success)
+         :data
+         (list :ok t :saved_items nil
+               :response_metadata (list :next_cursor "")))
+        (should-not (slack-ts-saved-p team ts "message" channel-id))))))
+
+(ert-deftest slack-test-stars-list-replays-pending-remove-after-ack ()
+  "Keep a pre-request removal in an older response after its write succeeds."
+  (slack-test-setup
+    (let* ((ts "1.000")
+           (item (slack-test-star-item ts channel-id))
+           list-requests
+           write-request)
+      (oset team star (make-instance 'slack-star :items (list item)))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (if (string= (oref request url) slack-stars-list-url)
+                       (push request list-requests)
+                     (setq write-request request))
+                   request))
+                ((symbol-function 'slack-team-missing-user-ids)
+                 (lambda (&rest _args) nil)))
+        (slack-star-api-request
+         slack-message-stars-remove-url
+         (list (cons "item_id" channel-id)
+               (cons "item_type" "message")
+               (cons "ts" ts))
+         team
+         (lambda ()
+           (slack-team-mark-unsaved team ts "message" channel-id)))
+        (slack-stars-list-request team)
+        (funcall (oref write-request success) :data (list :ok t))
+        (funcall
+         (oref (car list-requests) success)
+         :data
+         (list :ok t
+               :saved_items
+               (list (list :item_id channel-id :item_type "message" :ts ts))
+               :response_metadata (list :next_cursor "")))
+        (should-not (slack-ts-saved-p team ts "message" channel-id))
+        (slack-stars-list-request team)
+        (funcall
+         (oref (car list-requests) success)
+         :data
+         (list :ok t
+               :saved_items
+               (list (list :item_id channel-id :item_type "message" :ts ts))
+               :response_metadata (list :next_cursor "")))
+        (should (slack-ts-saved-p team ts "message" channel-id))))))
+
+(ert-deftest slack-test-stars-list-failed-add-rolls-back-pending-delta ()
+  "Rollback a failed add and exclude it from an active list response."
+  (slack-test-setup
+    (let ((ts "3.000")
+          list-request
+          write-request)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (if (string= (oref request url) slack-stars-list-url)
+                       (setq list-request request)
+                     (setq write-request request))
+                   request))
+                ((symbol-function 'slack-team-missing-user-ids)
+                 (lambda (&rest _args) nil)))
+        (slack-star-api-request
+         slack-message-stars-add-url
+         (list (cons "item_id" channel-id)
+               (cons "item_type" "message")
+               (cons "ts" ts))
+         team
+         (lambda () (slack-team-mark-saved team channel-id ts)))
+        (slack-stars-list-request team)
+        (funcall (oref write-request success)
+                 :data (list :ok :json-false :error "not_allowed"))
+        (should-not (slack-ts-saved-p team ts "message" channel-id))
+        (funcall
+         (oref list-request success)
+         :data
+         (list :ok t :saved_items nil
+               :response_metadata (list :next_cursor "")))
+        (should-not (slack-ts-saved-p team ts "message" channel-id))))))
+
+(ert-deftest slack-test-stars-list-failed-remove-restores-pending-delta ()
+  "Rollback a failed removal and retain the server row in an active response."
+  (slack-test-setup
+    (let* ((ts "1.000")
+           (item (slack-test-star-item ts channel-id))
+           list-request
+           write-request)
+      (oset team star (make-instance 'slack-star :items (list item)))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (if (string= (oref request url) slack-stars-list-url)
+                       (setq list-request request)
+                     (setq write-request request))
+                   request))
+                ((symbol-function 'slack-team-missing-user-ids)
+                 (lambda (&rest _args) nil)))
+        (slack-star-api-request
+         slack-message-stars-remove-url
+         (list (cons "item_id" channel-id)
+               (cons "item_type" "message")
+               (cons "ts" ts))
+         team
+         (lambda ()
+           (slack-team-mark-unsaved team ts "message" channel-id)))
+        (slack-stars-list-request team)
+        (funcall (oref write-request success)
+                 :data (list :ok :json-false :error "not_allowed"))
+        (should (slack-ts-saved-p team ts "message" channel-id))
+        (funcall
+         (oref list-request success)
+         :data
+         (list :ok t
+               :saved_items
+               (list (list :item_id channel-id :item_type "message" :ts ts))
+               :response_metadata (list :next_cursor "")))
+        (should (slack-ts-saved-p team ts "message" channel-id))))))
+
 (ert-deftest slack-test-stars-list-removal-is-scoped-to-item-identity ()
   (slack-test-setup
     (let* ((other-channel-id "C22222")

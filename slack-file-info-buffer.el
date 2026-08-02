@@ -320,16 +320,41 @@ NOT-TRACKED-P is the not-tracked-p argument."
 (cl-defmethod slack-buffer-add-star ((this slack-file-info-buffer) _ts)
   "Star the item at point in THIS buffer."
   (when-let ((file (oref this file)))
-    (slack-star-api-request slack-message-stars-add-url
-                            (slack-message-star-api-params file)
-                            (slack-buffer-team this))))
+    (let ((team (slack-buffer-team this)))
+      (slack-star-api-request
+       slack-message-stars-add-url
+       (slack-message-star-api-params file)
+       team
+       (lambda ()
+         (slack-message-star-added file)
+         (slack-team-mark-saved-item
+          team
+          (slack-create-star-item
+           (list :item_id (oref file id) :item_type "file"
+                 :ts (slack-ts file) :file file)))
+         (lambda ()
+           (if (slack-ts-saved-p
+                team (slack-ts file) "file" (oref file id))
+               (slack-message-star-added file)
+             (slack-message-star-removed file))))))))
 
 (cl-defmethod slack-buffer-remove-star ((this slack-file-info-buffer) _ts)
   "Remove the star from THIS buffer."
   (when-let ((file (oref this file)))
-    (slack-star-api-request slack-message-stars-remove-url
-                            (slack-message-star-api-params file)
-                            (slack-buffer-team this))))
+    (let ((team (slack-buffer-team this)))
+      (slack-star-api-request
+       slack-message-stars-remove-url
+       (slack-message-star-api-params file)
+       team
+       (lambda ()
+         (slack-message-star-removed file)
+         (slack-team-mark-unsaved
+          team (slack-ts file) "file" (oref file id))
+         (lambda ()
+           (if (slack-ts-saved-p
+                team (slack-ts file) "file" (oref file id))
+               (slack-message-star-added file)
+             (slack-message-star-removed file))))))))
 
 (cl-defmethod slack-buffer--replace ((this slack-file-info-buffer) _ts)
   "Replace the rendered message identified by the argument in THIS buffer."

@@ -326,9 +326,18 @@ TS is the ts argument."
         (slack-star-api-request slack-message-stars-add-url
                                 (append (list (cons "channel" (oref room id)))
                                         (slack-message-star-api-params message due-in-ms))
-                                team)
-        (slack-message-star-added message)
-        (slack-team-mark-saved team (oref room id) (slack-ts message)))))
+                                team
+                                (lambda ()
+                                  (slack-message-star-added message)
+                                  (slack-team-mark-saved
+                                   team (oref room id) (slack-ts message))
+                                  (lambda ()
+                                    (if (slack-ts-saved-p
+                                         team (slack-ts message) "message"
+                                         (oref room id))
+                                        (slack-message-star-added message)
+                                      (slack-message-star-removed
+                                       message))))))))
 
 (cl-defmethod slack-buffer-remove-star ((this slack-thread-message-buffer) ts)
   "Remove the star from THIS buffer.
@@ -340,10 +349,19 @@ TS is the ts argument."
         (slack-star-api-request slack-message-stars-remove-url
                                 (append (list (cons "channel" (oref room id)))
                                         (slack-message-star-api-params message))
-                                team)
-        (slack-message-star-removed message)
-        (slack-team-mark-unsaved
-         team (slack-ts message) "message" (oref room id)))))
+                                team
+                                (lambda ()
+                                  (slack-message-star-removed message)
+                                  (slack-team-mark-unsaved
+                                   team (slack-ts message) "message"
+                                   (oref room id))
+                                  (lambda ()
+                                    (if (slack-ts-saved-p
+                                         team (slack-ts message) "message"
+                                         (oref room id))
+                                        (slack-message-star-added message)
+                                      (slack-message-star-removed
+                                       message))))))))
 
 (cl-defmethod slack-buffer-update ((this slack-thread-message-buffer) message &key replace)
   "Update THIS buffer after new data arrives.

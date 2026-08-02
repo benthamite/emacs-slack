@@ -28,7 +28,9 @@
 (require 'slack-util)
 (require 'slack-message)
 
-(declare-function 'slack-star-api-request "slack-star.el")
+(declare-function slack-star-api-request "slack-star.el")
+(declare-function slack-team-mark-saved "slack-star.el")
+(declare-function slack-ts-saved-p "slack-star.el")
 
 (defclass slack-user-message (slack-message)
   ((user :initarg :user :type string)
@@ -105,7 +107,19 @@ DUE-IN-MS is the due-in-ms argument."
       (slack-star-api-request slack-message-stars-add-url
                               (append  (list (cons "channel" (oref this channel)))
                                        (slack-message-star-api-params message due-in-ms))
-                              team)))
+                              team
+                              (lambda ()
+                                (slack-message-star-added message)
+                                (slack-team-mark-saved
+                                 team (oref message channel)
+                                 (slack-ts message))
+                                (lambda ()
+                                  (if (slack-ts-saved-p
+                                       team (slack-ts message) "message"
+                                       (oref message channel))
+                                      (slack-message-star-added message)
+                                    (slack-message-star-removed
+                                     message)))))))
 
 (provide 'slack-user-message)
 ;;; slack-user-message.el ends here

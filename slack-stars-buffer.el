@@ -536,14 +536,27 @@ TEAM is the team argument."
          (room-id (get-text-property (point) 'room-id))
          (file-id (get-text-property (point) 'file-id))
          (item-type (cond (room-id "message") (file-id "file")))
-         (item-id (or room-id file-id)))
+         (item-id (or room-id file-id))
+         (room (and room-id (slack-room-find room-id team)))
+         (message (and room (slack-room-find-message room ts)))
+         (file (and file-id (slack-file-find file-id team))))
     (with-slots (star) team
-      (slack-star-remove-star star ts team item-type item-id)
-      (slack-team-mark-unsaved team ts item-type item-id)
-      (when-let* ((room-id room-id)
-                  (room (slack-room-find room-id team))
-                  (message (slack-room-find-message room ts)))
-        (slack-message-star-removed message))
+      (slack-star-remove-star
+       star ts team item-type item-id
+       (lambda ()
+         (slack-team-mark-unsaved team ts item-type item-id)
+         (when message
+           (slack-message-star-removed message))
+         (when file
+           (slack-message-star-removed file))
+         (when (or message file)
+           (lambda ()
+             (let ((saved-p
+                    (slack-ts-saved-p team ts item-type item-id)))
+               (dolist (object (delq nil (list message file)))
+                 (if saved-p
+                     (slack-message-star-added object)
+                   (slack-message-star-removed object))))))))
       (let ((state (slack-team-page-state
                     team slack-stars-buffer--page-key)))
         (if (and (slack-page-state-loaded-p state)

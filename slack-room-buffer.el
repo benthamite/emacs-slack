@@ -209,10 +209,19 @@ TS is the ts argument."
                                 (list (cons "ts" (slack-ts message))
                                       (cons "item_id" (oref room id))
                                       (cons "item_type" "message"))
-                                team)
-        (slack-message-star-removed message)
-        (slack-team-mark-unsaved
-         team (slack-ts message) "message" (oref room id)))))
+                                team
+                                (lambda ()
+                                  (slack-message-star-removed message)
+                                  (slack-team-mark-unsaved
+                                   team (slack-ts message) "message"
+                                   (oref room id))
+                                  (lambda ()
+                                    (if (slack-ts-saved-p
+                                         team (slack-ts message) "message"
+                                         (oref room id))
+                                        (slack-message-star-added message)
+                                      (slack-message-star-removed
+                                       message))))))))
 
 (cl-defmethod slack-buffer-add-star ((this slack-room-buffer) ts)
   "Star the item at point in THIS buffer.
@@ -225,9 +234,18 @@ TS is the ts argument."
                                 (list (cons "item_id" (oref room id))
                                       (cons "ts" (slack-ts message))
                                       (cons "item_type" "message"))
-                                team)
-        (slack-message-star-added message)
-        (slack-team-mark-saved team (oref room id) (slack-ts message)))))
+                                team
+                                (lambda ()
+                                  (slack-message-star-added message)
+                                  (slack-team-mark-saved
+                                   team (oref room id) (slack-ts message))
+                                  (lambda ()
+                                    (if (slack-ts-saved-p
+                                         team (slack-ts message) "message"
+                                         (oref room id))
+                                        (slack-message-star-added message)
+                                      (slack-message-star-removed
+                                       message))))))))
 
 (cl-defmethod slack-buffer-add-reaction-to-message ((this slack-room-buffer) reaction ts)
   "Add a REACTION to the message selected in THIS buffer."

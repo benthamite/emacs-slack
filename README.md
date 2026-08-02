@@ -302,6 +302,10 @@ Some terminology in the `slack-` functions:
     pagination, including the first load before a saved-item cache exists, and
     removals stay scoped to the matching conversation; missing saved-item
     authors are fetched before hydration ends
+  - optimistic save/unsave actions remain authoritative while their API write
+    is pending and for list requests already in flight when it succeeds; a
+    rejected write rolls the local saved state back instead of leaving a
+    phantom addition or removal
   - selecting a team that has not connected yet starts it before saved items
     are fetched, instead of opening an empty buffer
   - saved files render as entries (previously every file-type saved item was
