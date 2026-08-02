@@ -20,6 +20,7 @@
 (require 'slack-stars-buffer)
 (require 'slack-activity-feed-buffer)
 (require 'slack-search-result-buffer)
+(require 'slack-scheduled-messages-buffer)
 (require 'slack-buffer)
 (require 'slack-room)
 (require 'slack-user)
@@ -1633,6 +1634,37 @@ produces a newline with `not-tracked-p'."
               (should-not (search-forward "nil text/plain" nil t))))
         (when (buffer-live-p emacs-buffer)
           (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-scheduled-messages-page-render-replaces-output ()
+  (slack-test-setup
+    (slack-test--register-team team)
+    (let* ((message (make-instance 'slack-scheduled-message
+                                   :draft-id "D1"
+                                   :channel-id channel-id
+                                   :post-at 10
+                                   :last-updated-ts "10.001"
+                                   :text "scheduled body"))
+           (state (slack-team-page-state team 'scheduled-messages))
+           (object (slack-create-scheduled-messages-buffer team))
+           emacs-buffer)
+      (slack-page-state-store state (list message) nil nil)
+      (unwind-protect
+          (progn
+            (setq emacs-buffer (slack-buffer-buffer object))
+            (with-current-buffer emacs-buffer
+              (slack-scheduled-messages-buffer-render-page-state object state)
+              (goto-char (point-min))
+              (should (search-forward "scheduled body" nil t)))
+            (slack-page-state-store state nil nil nil)
+            (with-current-buffer emacs-buffer
+              (slack-scheduled-messages-buffer-render-page-state object state)
+              (goto-char (point-min))
+              (should-not (search-forward "scheduled body" nil t))
+              (goto-char (point-min))
+              (should (search-forward "(No scheduled messages.)" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))
+        (slack-test--unregister-team team)))))
 
 ;;; ---- Runner ----
 

@@ -93,9 +93,11 @@ VALUE is the value argument."
                (slack-log (format "Error scheduling message: %s" data) team :level 'error))
       ))))
 
-(defun slack-list-scheduled-messages-request (team after-success)
+(defun slack-list-scheduled-messages-request
+    (team after-success &optional on-error)
   "Request a list of scheduled drafts for TEAM.
-AFTER-SUCCESS is the after-success argument."
+AFTER-SUCCESS is the after-success argument.  ON-ERROR receives API
+transport failures."
   (let ((data-parts
          `(("token" . ,(oref team token))
            ("is_active" . "true")
@@ -109,7 +111,10 @@ AFTER-SUCCESS is the after-success argument."
       :type "POST"
       :headers `(("content-type" . ,(format "multipart/form-data; boundary=%s" slack-scheduled-messages--boundary)))
       :data (slack--build-multipart-body data-parts)
-      :success after-success))))
+      :success after-success
+      :error (lambda (&rest args)
+               (when (functionp on-error)
+                 (apply on-error args)))))))
 
 (defun slack-delete-scheduled-message-request (team draft-id last-updated-ts after-success)
   "Delete a scheduled draft with DRAFT-ID in TEAM."
@@ -147,6 +152,9 @@ AFTER-SUCCESS is the after-success argument."
 
 (defclass slack-scheduled-messages-buffer (slack-buffer)
   ((messages :initarg :messages :type list)))
+
+(defconst slack-scheduled-messages-buffer--page-key 'scheduled-messages
+  "Durable page-state key for scheduled drafts.")
 
 (define-derived-mode slack-scheduled-messages-buffer-mode slack-buffer-mode "Slack Scheduled"
   "Major mode for listing scheduled Slack messages (drafts).")
@@ -191,16 +199,22 @@ TEAM is the team argument."
     (lui-insert (slack-scheduled-message-to-string msg team))
     (lui-insert "\n\n")))
 
+(defun slack-create-scheduled-messages-buffer (team)
+  "Return TEAM's stable scheduled-messages buffer object."
+  (let ((buffer
+         (or (slack-buffer-find 'slack-scheduled-messages-buffer team)
+             (make-instance 'slack-scheduled-messages-buffer
+                            :team-id (oref team id)
+                            :messages nil))))
+    (slack-buffer-cache-team buffer team)
+    buffer))
+
 (cl-defmethod slack-buffer-init-buffer ((this slack-scheduled-messages-buffer))
   "Initialize THIS buffer."
   (let ((buffer (cl-call-next-method)))
     (with-current-buffer buffer
       (slack-scheduled-messages-buffer-mode)
       (slack-buffer-set-current-buffer this)
-      (with-slots (messages) this
-        (if messages
-            (cl-loop for msg in messages do (slack-buffer-insert this msg))
-          (lui-insert "(No scheduled messages.)\n")))
       (setq-local mode-line-format
                   '(" "
                     mode-line-buffer-identification "   "
@@ -231,45 +245,122 @@ buffer.")
 (cl-defmethod slack-buffer-insert--history ((_this slack-scheduled-messages-buffer))
   "Insert loaded history items into the buffer for the scheduled messages buffer.")
 
+(defun slack-scheduled-messages-parse (payload)
+  "Parse and sort scheduled messages from list-response PAYLOAD."
+  (let ((messages
+         (cl-loop
+          for draft in (plist-get payload :drafts)
+          for date-scheduled = (plist-get draft :date_scheduled)
+          when (and date-scheduled (> date-scheduled 0))
+          collect
+          (make-instance
+           'slack-scheduled-message
+           :draft-id (plist-get draft :id)
+           :channel-id
+           (or (--> (plist-get draft :destinations)
+                    car (plist-get it :channel_id))
+               "??")
+           :post-at date-scheduled
+           :last-updated-ts (plist-get draft :last_updated_ts)
+           :text
+           (or (--> (plist-get draft :blocks)
+                    car (plist-get it :elements)
+                    car (plist-get it :elements)
+                    car (plist-get it :text))
+               "??")))))
+    (sort messages (lambda (a b) (< (oref a post-at) (oref b post-at))))))
+
+(defun slack-scheduled-messages-buffer-render-page-state (buffer state)
+  "Render exact scheduled BUFFER from durable STATE."
+  (when (and (slot-boundp buffer 'buf)
+             (buffer-live-p (oref buffer buf)))
+    (when (slack-page-state-loaded-p state)
+      (oset buffer messages (slack-page-state-value state)))
+    (with-current-buffer (oref buffer buf)
+      (slack-buffer-widen
+       (let ((inhibit-read-only t))
+         (delete-region (point-min) lui-output-marker)
+         (when (slack-page-state-loaded-p state)
+           (if (oref buffer messages)
+               (dolist (message (oref buffer messages))
+                 (slack-buffer-insert buffer message))
+             (lui-insert "(No scheduled messages.)\n")))
+         (goto-char (point-min))
+         (slack-buffer-insert-page-status buffer state)
+         (goto-char (point-min)))))))
+
+(defun slack-scheduled-messages-buffer--page-loader (team)
+  "Return the immediate-ready scheduled-messages loader for TEAM."
+  (lambda (_generation success error)
+    (slack-list-scheduled-messages-request
+     team
+     (lambda (&rest response)
+       (let ((payload (plist-get response :data)))
+         (slack-request-handle-error
+          (payload "slack-scheduled-messages-show"
+                   (lambda (api-error) (funcall error api-error)))
+          (funcall success
+                   (slack-scheduled-messages-parse payload)
+                   nil nil))))
+     (lambda (&rest errors)
+       (apply error errors)))))
+
+(defun slack-scheduled-messages-buffer--present (team refresh)
+  "Present TEAM's scheduled messages, reloading when REFRESH is non-nil."
+  (let* ((state (slack-team-page-state
+                 team slack-scheduled-messages-buffer--page-key))
+         (buffer (slack-create-scheduled-messages-buffer team)))
+    (slack-buffer-present-page
+     buffer state
+     (slack-scheduled-messages-buffer--page-loader team)
+     #'slack-scheduled-messages-buffer-render-page-state
+     refresh)
+    buffer))
+
+(defun slack-scheduled-messages-buffer--refresh-after-mutation
+    (team buffer emacs-buffer)
+  "Refresh TEAM's exact scheduled BUFFER after a successful mutation.
+EMACS-BUFFER is the display buffer that existed when the mutation completed.
+If a list request is already running, wait for it to finish and then start a
+new request so a stale pre-mutation response cannot become final."
+  (cl-labels
+      ((current-buffer-p ()
+         (and (eq buffer
+                  (slack-buffer-find 'slack-scheduled-messages-buffer team))
+              (slot-boundp buffer 'buf)
+              (eq emacs-buffer (oref buffer buf))
+              (buffer-live-p emacs-buffer))))
+    (when (current-buffer-p)
+      (let ((state (slack-team-page-state
+                    team slack-scheduled-messages-buffer--page-key)))
+        (if (slack-page-state-in-flight-p state)
+            (let ((refreshed nil))
+              (cl-labels
+                  ((refresh (&rest _ignored)
+                     (unless refreshed
+                       (setq refreshed t)
+                       (when (current-buffer-p)
+                         (slack-scheduled-messages-buffer--present team t)))))
+                (slack-page-state-on-ready state #'refresh)
+                (slack-page-state-on-error state #'refresh)))
+          (slack-scheduled-messages-buffer--present team t))))))
+
 
 ;;; Interactive Functions
 
 (defun slack-scheduled-messages-show (&optional team)
   "Show scheduled messages (drafts) for TEAM in a dedicated buffer."
   (interactive)
-  (let ((team (slack-scheduled-messages--team team)))
-    (slack-list-scheduled-messages-request
-     team
-     (lambda (&rest data)
-       (slack-request-handle-error
-        ((plist-get data :data) "slack-scheduled-messages-show")
-       (let* ((all-drafts (plist-get (plist-get data :data) :drafts))
-              (messages (--keep
-                         (let* ((draft-id (plist-get it :id))
-                                (date-scheduled (plist-get it :date_scheduled))
-                                (last-updated-ts (plist-get it :last_updated_ts))
-                                (text (or (--> (plist-get it :blocks) car (plist-get it :elements) car (plist-get it :elements) car (plist-get it :text))
-                                          "??"))
-                                (channel-id (or (--> (plist-get it :destinations) car (plist-get it :channel_id))
-                                                "??")))
-                           ;; Only process drafts that are actually
-                           ;; scheduled for the future; unscheduled
-                           ;; drafts carry no date_scheduled at all.
-                           (when (and date-scheduled (> date-scheduled 0))
-                             (make-instance 'slack-scheduled-message
-                                            :draft-id draft-id
-                                            :channel-id channel-id
-                                            :post-at date-scheduled
-                                            :last-updated-ts last-updated-ts
-                                            :text text)))
-                         all-drafts))
-              (buffer-obj (make-instance 'slack-scheduled-messages-buffer
-                                         :team-id (oref team id)
-                                         :messages (sort messages (lambda (a b) (< (oref a post-at) (oref b post-at)))))))
-         (slack-if-let* ((old-buf (slack-buffer-find 'slack-scheduled-messages-buffer team)))
-             (when (buffer-live-p (oref old-buf buf))
-               (kill-buffer (oref old-buf buf))))
-         (slack-buffer-display buffer-obj)))))))
+  (slack-scheduled-messages-buffer--present
+   (slack-scheduled-messages--team team) t))
+
+(defun slack-scheduled-messages-refresh-buffer ()
+  "Refresh the current scheduled-messages buffer in place."
+  (interactive)
+  (if (cl-typep slack-current-buffer 'slack-scheduled-messages-buffer)
+      (slack-scheduled-messages-buffer--present
+       (slack-buffer-team slack-current-buffer) t)
+    (user-error "Current buffer is not a Slack scheduled-messages buffer")))
 
 
 (defun slack-schedule-message (channel-id text minutes-from-now &optional team)
@@ -296,15 +387,22 @@ buffer.")
        (if (not (plist-get (plist-get data :data) :error))
            (progn
              (message "Message scheduled for %s" (format-time-string "%H:%M:%S" (seconds-to-time (string-to-number post-at))))
-             (when (and (derived-mode-p 'slack-scheduled-messages-buffer-mode)
-                        (y-or-n-p "Refresh scheduled messages list? "))
-               (slack-scheduled-messages-show team)))
+             (let ((buffer
+                    (slack-buffer-find
+                     'slack-scheduled-messages-buffer team)))
+               (when (and buffer (slot-boundp buffer 'buf))
+                 (slack-scheduled-messages-buffer--refresh-after-mutation
+                  team buffer (oref buffer buf)))))
          (message "Failed to schedule message: %S" data))))))
 
 (defun slack-scheduled-messages-delete-at-point ()
   "Delete the scheduled message (draft) at point."
   (interactive)
-  (if-let* ((team-id (get-text-property (point) 'team-id))
+  (if-let* ((buffer (and (cl-typep slack-current-buffer
+                                   'slack-scheduled-messages-buffer)
+                          slack-current-buffer))
+            (emacs-buffer (current-buffer))
+            (team-id (get-text-property (point) 'team-id))
             (draft-id (get-text-property (point) 'draft-id))
             (team (slack-team-find team-id))
             (last-updated-ts (get-text-property (point) 'last-updated-ts)))
@@ -315,12 +413,13 @@ buffer.")
            (if (not (plist-get (plist-get data :data) :error))
                (progn
                  (message "Scheduled message deleted.")
-                 (slack-scheduled-messages-show team))
+                 (slack-scheduled-messages-buffer--refresh-after-mutation
+                  team buffer emacs-buffer))
              (message "Failed to delete message: %S" data)))))
     (message "No scheduled message at point.")))
 
 (define-key slack-scheduled-messages-buffer-mode-map (kbd "d") #'slack-scheduled-messages-delete-at-point)
-(define-key slack-scheduled-messages-buffer-mode-map (kbd "g") #'slack-scheduled-messages-show)
+(define-key slack-scheduled-messages-buffer-mode-map (kbd "g") #'slack-scheduled-messages-refresh-buffer)
 
 (provide 'slack-scheduled-messages-buffer)
 ;;; slack-scheduled-messages-buffer.el ends here

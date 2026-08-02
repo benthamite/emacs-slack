@@ -466,12 +466,13 @@ Some terminology in the `slack-` functions:
   - `slack-file-update` refreshes the file-info buffer it was invoked
     from (it previously sent a malformed request and updated only the
     file-list buffer)
-  - `slack-scheduled-messages-show` reuses one buffer per team instead
-    of accumulating duplicate "Scheduled Msgs<2>", "<3>", … buffers on
-    every show or refresh
+  - `slack-scheduled-messages-show` opens one stable buffer per team
+    before the list request finishes; refreshes and successful create or
+    delete operations update that same buffer, with a fresh list request
+    after any older in-flight response, instead of replacing it
   - the scheduled-messages list tolerates unscheduled drafts in the
-    response and reports API errors instead of showing a misleading
-    "(No scheduled messages.)"
+    response and shows API or transport failures with a retry action
+    instead of a misleading "(No scheduled messages.)"
   - thread replies no longer re-count the parent's @-mention or flag
     the channel unread on every reply, so the modeline mention badge
     stops climbing in active threads

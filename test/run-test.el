@@ -102,6 +102,21 @@
                  :pagination
                  (slack-test-search-pagination page page-count first last)))
 
+(defun slack-test-scheduled-draft (id post-at text &optional channel-id)
+  "Return a scheduled draft payload with ID, POST-AT, TEXT, and CHANNEL-ID."
+  (list :id id
+        :date_scheduled post-at
+        :last_updated_ts (format "%s.001" post-at)
+        :blocks (list (list :elements
+                            (list (list :elements
+                                        (list (list :text text))))))
+        :destinations (list (list :channel_id
+                                  (or channel-id "C11111")))))
+
+(defun slack-test-scheduled-response (&rest drafts)
+  "Return a successful scheduled-list response containing DRAFTS."
+  (list :ok t :drafts drafts))
+
 (ert-deftest slack-test-image-path ()
   (let* ((url "http://example.com/image.jpg?crop=1:2;3:4")
          (splitted (split-string url "?"))
@@ -3356,21 +3371,390 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
          (team2 (slack-create-team '(:id "T2" :name "Two" :token "xoxb-two")))
          (slack-current-team team1)
          captured-buffer)
-    (cl-letf (((symbol-function 'slack-list-scheduled-messages-request)
-               (lambda (_team after-success)
-                 (setq slack-current-team team2)
-                 (funcall after-success
-                          :data
-                          '(:drafts ((:id "D1"
-                                     :date_scheduled 1710000000
-                                     :last_updated_ts "1710000000.001"
-                                     :blocks ((:elements ((:elements ((:text "hello"))))))
-                                     :destinations ((:channel_id "C11111"))))))))
-              ((symbol-function 'slack-buffer-display)
-               (lambda (buffer)
-                 (setq captured-buffer buffer))))
-      (slack-scheduled-messages-show team1))
-    (should (string= "T1" (oref captured-buffer team-id)))))
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'slack-list-scheduled-messages-request)
+                     (lambda (_team after-success &optional _on-error)
+                       (setq slack-current-team team2)
+                       (funcall after-success
+                                :data
+                                '(:ok t
+                                  :drafts ((:id "D1"
+                                            :date_scheduled 1710000000
+                                            :last_updated_ts "1710000000.001"
+                                            :blocks ((:elements ((:elements ((:text "hello"))))))
+                                            :destinations ((:channel_id "C11111"))))))))
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (buffer)
+                       (setq captured-buffer buffer))))
+            (slack-scheduled-messages-show team1))
+          (should (string= "T1" (oref captured-buffer team-id))))
+      (when (and captured-buffer
+                 (buffer-live-p (oref captured-buffer buf)))
+        (kill-buffer (oref captured-buffer buf))))))
+
+(ert-deftest slack-test-scheduled-messages-cold-open-displays-before-request ()
+  (slack-test-setup
+    (let (events object emacs-buffer request-success)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-scheduled-messages--team)
+                     (lambda (&optional _selected) team))
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (displayed)
+                       (setq object displayed
+                             emacs-buffer (oref displayed buf))
+                       (push 'display events)))
+                    ((symbol-function 'slack-list-scheduled-messages-request)
+                     (lambda (_team after-success &optional _on-error)
+                       (setq request-success after-success)
+                       (push 'request events))))
+            (slack-scheduled-messages-show team)
+            (should (equal '(display request) (nreverse events)))
+            (should (eq object
+                        (slack-buffer-find
+                         'slack-scheduled-messages-buffer team)))
+            (should-not (oref object messages))
+            (should (functionp request-success))
+            (should (eq 'loading
+                        (slack-page-state-status
+                         (slack-team-page-state team 'scheduled-messages)))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-scheduled-messages-parse-sorts-and-skips-unscheduled ()
+  (let ((parsed
+         (slack-scheduled-messages-parse
+          (slack-test-scheduled-response
+           (list :id "unscheduled" :last_updated_ts "1")
+           (slack-test-scheduled-draft "later" 30 "later")
+           (slack-test-scheduled-draft "earlier" 10 "earlier")))))
+    (should (equal '("earlier" "later")
+                   (mapcar (lambda (message) (oref message draft-id))
+                           parsed)))
+    (should-not (slack-scheduled-messages-parse
+                 (slack-test-scheduled-response)))))
+
+(ert-deftest slack-test-scheduled-messages-refreshes-same-buffer-in-place ()
+  (slack-test-setup
+    (let (request-success object emacs-buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-scheduled-messages--team)
+                     (lambda (&optional _selected) team))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-list-scheduled-messages-request)
+                     (lambda (_team after-success &optional _on-error)
+                       (setq request-success after-success))))
+            (setq object (slack-scheduled-messages-show team)
+                  emacs-buffer (oref object buf))
+            (funcall request-success
+                     :data
+                     (slack-test-scheduled-response
+                      (slack-test-scheduled-draft "D1" 10 "first")))
+            (should (eq 'ready
+                        (slack-page-state-status
+                         (slack-team-page-state team 'scheduled-messages))))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "first" nil t)))
+            (should (eq object (slack-scheduled-messages-show team)))
+            (should (eq emacs-buffer (oref object buf)))
+            (funcall request-success
+                     :data
+                     (slack-test-scheduled-response
+                      (slack-test-scheduled-draft "D2" 20 "second")))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "second" nil t))
+              (goto-char (point-min))
+              (should-not (search-forward "first" nil t)))
+            (should (eq object (slack-scheduled-messages-show team)))
+            (funcall request-success
+                     :data (slack-test-scheduled-response))
+            (should (eq emacs-buffer (oref object buf)))
+            (should-not (oref object messages))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "(No scheduled messages.)" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-scheduled-messages-failure-retries-in-place ()
+  (slack-test-setup
+    (let ((requests 0)
+          request-success
+          request-error
+          object
+          emacs-buffer
+          retry)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-scheduled-messages--team)
+                     (lambda (&optional _selected) team))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-list-scheduled-messages-request)
+                     (lambda (_team after-success &optional on-error)
+                       (cl-incf requests)
+                       (setq request-success after-success
+                             request-error on-error))))
+            (setq object (slack-scheduled-messages-show team)
+                  emacs-buffer (oref object buf))
+            (funcall request-success
+                     :data (list :ok :json-false :error "invalid_auth"))
+            (should (eq 'failed
+                        (slack-page-state-status
+                         (slack-team-page-state team 'scheduled-messages))))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "Slack request failed: invalid_auth"
+                                      nil t))
+              (setq retry slack-buffer-page-retry-function))
+            (funcall retry)
+            (should (= 2 requests))
+            (funcall request-error :error-thrown "network down")
+            (should (eq 'failed
+                        (slack-page-state-status
+                         (slack-team-page-state team 'scheduled-messages))))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "network down" nil t)))
+            (should (eq emacs-buffer (oref object buf))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-scheduled-list-request-forwards-transport-errors ()
+  (slack-test-setup
+    (let (request reported)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (created) (setq request created))))
+        (slack-list-scheduled-messages-request
+         team #'ignore (lambda (&rest values) (setq reported values))))
+      (should (functionp (oref request error)))
+      (funcall (oref request error) :error-thrown "transport")
+      (should (equal '(:error-thrown "transport") reported)))))
+
+(ert-deftest slack-test-scheduled-messages-mutations-refresh-exact-buffer ()
+  (slack-test-setup
+    (let (request-success
+          create-success
+          delete-success
+          object
+          emacs-buffer)
+      (oset team id "T11111")
+      (oset team token "test-token")
+      (puthash (oref team id) (oref team token) slack-tokens-by-id)
+      (puthash (oref team token) team slack-teams-by-token)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-scheduled-messages--team)
+                     (lambda (&optional _selected) team))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-list-scheduled-messages-request)
+                     (lambda (_team after-success &optional _on-error)
+                       (setq request-success after-success)))
+                    ((symbol-function 'slack-schedule-message-request)
+                     (lambda (_team _channel _text _post-at after-success)
+                       (setq create-success after-success)))
+                    ((symbol-function 'slack-delete-scheduled-message-request)
+                     (lambda (_team _draft-id _updated after-success)
+                       (setq delete-success after-success)))
+                    ((symbol-function 'y-or-n-p) (lambda (&rest _args) t))
+                    ((symbol-function 'message) #'ignore))
+            (setq object (slack-scheduled-messages-show team)
+                  emacs-buffer (oref object buf))
+            (funcall request-success
+                     :data
+                     (slack-test-scheduled-response
+                      (slack-test-scheduled-draft "D1" 10 "first")))
+            (with-current-buffer emacs-buffer
+              (slack-schedule-message channel-id "new draft" 5 team))
+            (funcall create-success :data (list :ok t))
+            (funcall request-success
+                     :data
+                     (slack-test-scheduled-response
+                      (slack-test-scheduled-draft "D2" 20 "created")))
+            (should (eq emacs-buffer (oref object buf)))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "created" nil t))
+              (let ((draft-position
+                     (text-property-not-all
+                      (point-min) (point-max) 'draft-id nil)))
+                (should draft-position)
+                (should (equal "D2"
+                               (get-text-property draft-position 'draft-id)))
+                (goto-char draft-position))
+              (slack-scheduled-messages-delete-at-point))
+            (should (functionp delete-success))
+            (funcall delete-success :data (list :ok t))
+            (funcall request-success
+                     :data (slack-test-scheduled-response))
+            (should (eq emacs-buffer (oref object buf)))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "(No scheduled messages.)" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))
+        (remhash (oref team id) slack-tokens-by-id)
+        (remhash (oref team token) slack-teams-by-token)))))
+
+(ert-deftest slack-test-scheduled-messages-mutation-follows-in-flight-list ()
+  (slack-test-setup
+    (let (request-successes create-success object emacs-buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-scheduled-messages--team)
+                     (lambda (&optional _selected) team))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-list-scheduled-messages-request)
+                     (lambda (_team after-success &optional _on-error)
+                       (push after-success request-successes)))
+                    ((symbol-function 'slack-schedule-message-request)
+                     (lambda (_team _channel _text _post-at after-success)
+                       (setq create-success after-success)))
+                    ((symbol-function 'message) #'ignore))
+            (setq object (slack-scheduled-messages-show team)
+                  emacs-buffer (oref object buf))
+            (with-current-buffer emacs-buffer
+              (slack-schedule-message channel-id "new draft" 5 team))
+            (funcall create-success :data (list :ok t))
+            (should (= 1 (length request-successes)))
+            (funcall (car request-successes)
+                     :data
+                     (slack-test-scheduled-response
+                      (slack-test-scheduled-draft "stale" 10 "stale")))
+            (should (= 2 (length request-successes)))
+            (funcall (car request-successes)
+                     :data
+                     (slack-test-scheduled-response
+                      (slack-test-scheduled-draft "fresh" 20 "fresh")))
+            (should (eq emacs-buffer (oref object buf)))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "fresh" nil t))
+              (goto-char (point-min))
+              (should-not (search-forward "stale" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-scheduled-delete-result-does-not-resurrect-buffer ()
+  (slack-test-setup
+    (let ((requests 0))
+      (oset team id "T11111")
+      (oset team token "test-token")
+      (puthash (oref team id) (oref team token) slack-tokens-by-id)
+      (puthash (oref team token) team slack-teams-by-token)
+      (let (request-success delete-success object emacs-buffer)
+        (unwind-protect
+            (cl-letf (((symbol-function 'slack-scheduled-messages--team)
+                       (lambda (&optional _selected) team))
+                      ((symbol-function 'slack-buffer-display) #'ignore)
+                      ((symbol-function 'slack-list-scheduled-messages-request)
+                       (lambda (_team after-success &optional _on-error)
+                         (cl-incf requests)
+                         (setq request-success after-success)))
+                      ((symbol-function 'slack-delete-scheduled-message-request)
+                       (lambda (_team _draft-id _updated after-success)
+                         (setq delete-success after-success)))
+                      ((symbol-function 'y-or-n-p) (lambda (&rest _args) t))
+                      ((symbol-function 'message) #'ignore))
+              (setq object (slack-scheduled-messages-show team)
+                    emacs-buffer (oref object buf))
+              (funcall request-success
+                       :data
+                       (slack-test-scheduled-response
+                        (slack-test-scheduled-draft "D1" 10 "delete me")))
+              (with-current-buffer emacs-buffer
+                (goto-char
+                 (text-property-not-all
+                  (point-min) (point-max) 'draft-id nil))
+                (slack-scheduled-messages-delete-at-point))
+              (kill-buffer emacs-buffer)
+              (funcall delete-success :data (list :ok t))
+              (should (= 1 requests))
+              (should-not
+               (slack-buffer-find 'slack-scheduled-messages-buffer team)))
+          (let ((cached
+                 (slack-buffer-find 'slack-scheduled-messages-buffer team)))
+            (when (and cached
+                       (slot-boundp cached 'buf)
+                       (buffer-live-p (oref cached buf)))
+              (kill-buffer (oref cached buf))))
+          (when (buffer-live-p emacs-buffer)
+            (kill-buffer emacs-buffer))
+          (remhash (oref team id) slack-tokens-by-id)
+          (remhash (oref team token) slack-teams-by-token))))))
+
+(ert-deftest slack-test-scheduled-messages-rejects-stale-generation ()
+  (slack-test-setup
+    (let (request-success object emacs-buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-scheduled-messages--team)
+                     (lambda (&optional _selected) team))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-list-scheduled-messages-request)
+                     (lambda (_team after-success &optional _on-error)
+                       (setq request-success after-success))))
+            (setq object (slack-scheduled-messages-show team)
+                  emacs-buffer (oref object buf))
+            (let* ((state (slack-team-page-state team 'scheduled-messages))
+                   (new-generation (slack-page-state-restart state)))
+              (funcall request-success
+                       :data
+                       (slack-test-scheduled-response
+                        (slack-test-scheduled-draft "stale" 10 "stale")))
+              (should (= new-generation (slack-page-state-generation state)))
+              (should-not (slack-page-state-loaded-p state))
+              (should-not (slack-page-state-value state))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-scheduled-messages-result-does-not-resurrect-killed-buffer ()
+  (slack-test-setup
+    (let (request-success object emacs-buffer)
+      (cl-letf (((symbol-function 'slack-scheduled-messages--team)
+                 (lambda (&optional _selected) team))
+                ((symbol-function 'slack-buffer-display) #'ignore)
+                ((symbol-function 'slack-list-scheduled-messages-request)
+                 (lambda (_team after-success &optional _on-error)
+                   (setq request-success after-success))))
+        (setq object (slack-scheduled-messages-show team)
+              emacs-buffer (oref object buf))
+        (kill-buffer emacs-buffer)
+        (funcall request-success
+                 :data
+                 (slack-test-scheduled-response
+                  (slack-test-scheduled-draft "D1" 10 "durable")))
+        (should-not (buffer-live-p emacs-buffer))
+        (should (equal "D1"
+                       (oref (car (slack-page-state-value
+                                   (slack-team-page-state
+                                    team 'scheduled-messages)))
+                             draft-id)))))))
+
+(ert-deftest slack-test-scheduled-messages-result-skips-replacement-buffer ()
+  (slack-test-setup
+    (let (request-success object original replacement)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-scheduled-messages--team)
+                     (lambda (&optional _selected) team))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-list-scheduled-messages-request)
+                     (lambda (_team after-success &optional _on-error)
+                       (setq request-success after-success))))
+            (setq object (slack-scheduled-messages-show team)
+                  original (oref object buf)
+                  replacement (generate-new-buffer
+                               " *slack-scheduled-replacement*"))
+            (oset object buf replacement)
+            (with-current-buffer replacement
+              (insert "replacement sentinel"))
+            (funcall request-success
+                     :data
+                     (slack-test-scheduled-response
+                      (slack-test-scheduled-draft "D1" 10 "new")))
+            (with-current-buffer replacement
+              (should (equal "replacement sentinel" (buffer-string)))))
+        (when (buffer-live-p original)
+          (kill-buffer original))
+        (when (buffer-live-p replacement)
+          (kill-buffer replacement))))))
 
 (ert-deftest slack-test-request-retry-respects-max-retries ()
   (let ((req (slack-request-create "https://example.com"
@@ -3993,36 +4377,51 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
 (ert-deftest slack-test-scheduled-messages-tolerate-unscheduled-drafts ()
   (slack-test-setup
     (let ((displayed nil))
-      (cl-letf (((symbol-function 'slack-list-scheduled-messages-request)
-                 (lambda (_team cb)
-                   (funcall cb :data
-                            (list :ok t
-                                  :drafts (list (list :id "D1"
-                                                      :last_updated_ts "1")
-                                                (list :id "D2"
-                                                      :date_scheduled 9999999999
-                                                      :last_updated_ts "2"))))))
-                ((symbol-function 'slack-buffer-display)
-                 (lambda (buf) (setq displayed buf)))
-                ((symbol-function 'slack-scheduled-messages--team)
-                 (lambda (&optional _t) team)))
-        (slack-scheduled-messages-show team))
-      (should displayed)
-      (should (eq 1 (length (oref displayed messages)))))))
+      (unwind-protect
+          (progn
+            (cl-letf (((symbol-function 'slack-list-scheduled-messages-request)
+                       (lambda (_team cb &optional _on-error)
+                         (funcall cb :data
+                                  (list :ok t
+                                        :drafts
+                                        (list (list :id "D1"
+                                                    :last_updated_ts "1")
+                                              (list :id "D2"
+                                                    :date_scheduled 9999999999
+                                                    :last_updated_ts "2"))))))
+                      ((symbol-function 'slack-buffer-display)
+                       (lambda (buf) (setq displayed buf)))
+                      ((symbol-function 'slack-scheduled-messages--team)
+                       (lambda (&optional _t) team)))
+              (slack-scheduled-messages-show team))
+            (should displayed)
+            (should (eq 1 (length (oref displayed messages)))))
+        (when (and displayed (buffer-live-p (oref displayed buf)))
+          (kill-buffer (oref displayed buf)))))))
 
 (ert-deftest slack-test-scheduled-messages-surface-api-errors ()
   (slack-test-setup
     (let ((displayed nil))
-      (cl-letf (((symbol-function 'slack-list-scheduled-messages-request)
-                 (lambda (_team cb)
-                   (funcall cb :data (list :ok :json-false
-                                           :error "invalid_auth"))))
-                ((symbol-function 'slack-buffer-display)
-                 (lambda (buf) (setq displayed buf)))
-                ((symbol-function 'slack-scheduled-messages--team)
-                 (lambda (&optional _t) team)))
-        (slack-scheduled-messages-show team))
-      (should-not displayed))))
+      (unwind-protect
+          (progn
+            (cl-letf (((symbol-function 'slack-list-scheduled-messages-request)
+                       (lambda (_team cb &optional _on-error)
+                         (funcall cb :data (list :ok :json-false
+                                                 :error "invalid_auth"))))
+                      ((symbol-function 'slack-buffer-display)
+                       (lambda (buf) (setq displayed buf)))
+                      ((symbol-function 'slack-scheduled-messages--team)
+                       (lambda (&optional _t) team)))
+              (slack-scheduled-messages-show team))
+            (should displayed)
+            (should (eq 'failed
+                        (slack-page-state-status
+                         (slack-team-page-state team 'scheduled-messages))))
+            (with-current-buffer (oref displayed buf)
+              (goto-char (point-min))
+              (should (search-forward "invalid_auth" nil t))))
+        (when (and displayed (buffer-live-p (oref displayed buf)))
+          (kill-buffer (oref displayed buf)))))))
 
 (ert-deftest slack-test-file-without-timestamp-reads-nil ()
   (let ((file (slack-file-create (list :id "F11111"))))
