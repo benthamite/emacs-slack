@@ -231,6 +231,7 @@ Some terminology in the `slack-` functions:
     stale pagination cannot overwrite or duplicate a newer background refresh
     and missing-message results survive buffer closure or mode changes;
     insertion errors remain distinct from request failures after a page commits
+    and never leave subsequent `(load more)` attempts locked
   - opening a watched-channel Activity feed entry marks that channel read and
     clears the local Activity unread state for the entry after Slack confirms
     the mark

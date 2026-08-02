@@ -5998,6 +5998,67 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (when (buffer-live-p buffer)
           (kill-buffer buffer))))))
 
+(ert-deftest slack-test-activity-feed-load-more-unlocks-after-insertion-error ()
+  "A committed page insertion error must not lock future pagination."
+  (slack-test-setup
+    (let* ((key (slack-activity-feed--page-key nil))
+           (state (slack-team-page-state team key))
+           (feed (make-instance 'slack-activity-feed
+                                :activities '(old)
+                                :pagination "cursor"
+                                :last nil))
+           (object
+            (make-instance
+             'slack-activity-feed-buffer
+             :team-id (oref team id)
+             :room-id "__activity-feed__"
+             :cached-team team
+             :page-key key
+             :activity-feed feed))
+           (buffer
+            (generate-new-buffer " *slack-test-feed-insertion-error*"))
+           request-success
+           request-errors)
+      (slack-page-state-store
+       state
+       (list :activities '(old) :pagination "cursor")
+       "cursor" t)
+      (slack-buffer-cache-team object team)
+      (oset object buf buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-activity-feed-request)
+                     (lambda (_team success &optional _cursor on-error)
+                       (setq request-success success
+                             request-errors on-error)))
+                    ((symbol-function 'slack-activity-feed--parse-item)
+                     #'identity)
+                    ((symbol-function 'slack-activity-feed--prefetch-rooms)
+                     (lambda (_activities _team callback)
+                       (funcall callback)))
+                    ((symbol-function 'slack-activity-feed--prefetch-messages)
+                     #'ignore)
+                    ((symbol-function 'slack-buffer-insert--history)
+                     (lambda (_object)
+                       (error "page insertion boom"))))
+            (with-current-buffer buffer
+              (slack-buffer-load-more object)
+              (should slack-buffer--loading-more-p))
+            (should-error
+             (funcall request-success
+                      (list :items '(next)
+                            :response_metadata
+                            (list :next_cursor "next-cursor"))))
+            (should (functionp request-errors))
+            (should (equal '(old next)
+                           (plist-get (slack-page-state-value state)
+                                      :activities)))
+            (should (equal "next-cursor"
+                           (slack-page-state-continuation state)))
+            (with-current-buffer buffer
+              (should-not slack-buffer--loading-more-p)))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
 (ert-deftest slack-test-activity-feed-load-more-waits-for-primary-hydration ()
   (slack-test-setup
     (let* ((key (slack-activity-feed--page-key nil))

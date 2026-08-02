@@ -1460,9 +1460,10 @@ THIS is the slack-activity-feed-buffer instance."
             (current-page-p)
             (when (buffer-live-p (oref this buf))
               (with-current-buffer (oref this buf)
-                (when current-page-p
-                  (slack-buffer-insert--history this))
-                (setq slack-buffer--loading-more-p nil))))
+                (unwind-protect
+                    (when current-page-p
+                      (slack-buffer-insert--history this))
+                  (setq slack-buffer--loading-more-p nil)))))
            (on-error
             (&rest _)
             (when (buffer-live-p (oref this buf))
