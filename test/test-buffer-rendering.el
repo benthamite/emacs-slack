@@ -1284,6 +1284,132 @@ produces a newline with `not-tracked-p'."
               (should (string= "F11111" (plist-get props 'file-id))))))
       (slack-test--unregister-team team))))
 
+;;; ---- Room history state rendering ----
+
+(ert-deftest slack-test-message-buffer-render-history-preserves-input-and-point ()
+  "A room history redraw leaves the Lui prompt, draft, and draft point intact."
+  (slack-test-setup
+    (slack-test--register-team team)
+    (oset team mark-as-read-immediately nil)
+    (let* ((message (slack-test--make-message "1.000" "history text"))
+           (state (oref channel history-state))
+           (object (slack-create-message-buffer channel "" team))
+           buffer
+           (mark-count 0))
+      (slack-room-set-messages channel (list message) team)
+      (slack-page-state-store state (list message) "cursor-1" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-update-mark-request)
+                     (lambda (&rest _args) (cl-incf mark-count))))
+            (setq buffer (slack-buffer-buffer object))
+            (setq mark-count 0)
+            (with-current-buffer buffer
+              (goto-char (point-max))
+              (insert "draft reply")
+              (backward-char 5)
+              (let ((draft-offset (- (point) (marker-position lui-input-marker)))
+                    (prompt (buffer-substring-no-properties
+                             (marker-position lui-output-marker)
+                             (marker-position lui-input-marker))))
+                (slack-message-buffer-render-history-state object state)
+                (should (equal "draft reply"
+                               (buffer-substring-no-properties
+                                (marker-position lui-input-marker)
+                                (point-max))))
+                (should (= draft-offset
+                           (- (point) (marker-position lui-input-marker))))
+                (should (equal prompt
+                               (buffer-substring-no-properties
+                                (marker-position lui-output-marker)
+                                (marker-position lui-input-marker))))
+                (should (save-excursion
+                          (goto-char (point-min))
+                          (search-forward "(load more)" nil t)))
+                (should (equal "cursor-1" (oref object cursor)))
+                (should (= 0 mark-count)))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))
+        (slack-test--unregister-team team)))))
+
+(ert-deftest slack-test-message-buffer-render-history-preserves-message-point ()
+  "A room history redraw keeps point on the same message timestamp."
+  (slack-test-setup
+    (slack-test--register-team team)
+    (oset team mark-as-read-immediately nil)
+    (let* ((first (slack-test--make-message "1.000" "first"))
+           (second (slack-test--make-message "2.000" "second"))
+           (state (oref channel history-state))
+           (object (slack-create-message-buffer channel "" team))
+           buffer)
+      (slack-room-set-messages channel (list first second) team)
+      (slack-page-state-store state (list first second) "" nil)
+      (unwind-protect
+          (progn
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (should (slack-buffer-goto "2.000"))
+              (oset second text "second hydrated")
+              (slack-message-buffer-render-history-state object state)
+              (should (equal "2.000" (get-text-property (point) 'ts)))
+              (should (save-excursion
+                        (goto-char (point-min))
+                        (search-forward "second hydrated" nil t)))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))
+        (slack-test--unregister-team team)))))
+
+(ert-deftest slack-test-message-buffer-render-history-defers-lui-hooks-once ()
+  "A room history batch runs each Lui output hook once."
+  (slack-test-setup
+    (slack-test--register-team team)
+    (oset team mark-as-read-immediately nil)
+    (let* ((first (slack-test--make-message "1.000" "first"))
+           (second (slack-test--make-message "2.000" "second"))
+           (state (oref channel history-state))
+           (object (slack-create-message-buffer channel "" team))
+           buffer
+           (pre-count 0)
+           (post-count 0))
+      (slack-room-set-messages channel (list first second) team)
+      (slack-page-state-store state (list first second) "" nil)
+      (unwind-protect
+          (progn
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (add-hook 'lui-pre-output-hook
+                        (lambda () (cl-incf pre-count)) nil t)
+              (add-hook 'lui-post-output-hook
+                        (lambda () (cl-incf post-count)) nil t)
+              (slack-message-buffer-render-history-state object state)
+              (should (= 1 pre-count))
+              (should (= 1 post-count))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))
+        (slack-test--unregister-team team)))))
+
+(ert-deftest slack-test-message-buffer-render-history-appends-page-status ()
+  "A room history redraw appends the shared loading or failure status row."
+  (slack-test-setup
+    (slack-test--register-team team)
+    (oset team mark-as-read-immediately nil)
+    (let* ((message (slack-test--make-message "1.000" "cached"))
+           (state (oref channel history-state))
+           (object (slack-create-message-buffer channel "" team))
+           buffer)
+      (slack-room-set-messages channel (list message) team)
+      (slack-page-state-store state (list message) "" nil)
+      (slack-page-state-begin state t)
+      (unwind-protect
+          (progn
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (slack-message-buffer-render-history-state object state)
+              (should (save-excursion
+                        (goto-char (point-min))
+                        (search-forward "Refreshing Slack data" nil t)))
+              (should-not (save-excursion
+                            (goto-char (point-min))
+                            (search-forward "(load more)" nil t)))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))
+        (slack-test--unregister-team team)))))
+
 ;;; ---- Runner ----
 
 (provide 'test-buffer-rendering)

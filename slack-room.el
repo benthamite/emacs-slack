@@ -30,6 +30,7 @@
 (require 'slack-request)
 (require 'slack-user)
 (require 'slack-counts)
+(require 'slack-page-state)
 
 (defface slack-room-unread-face
   '((t (:weight bold)))
@@ -50,6 +51,9 @@
    (unread-count-display :initarg :unread_count_display :initform 0 :type integer)
    (message-ids :initform '() :type list)
    (messages :initform (make-hash-table :test 'equal :size 300)) ;; pre-sized for typical active-channel history
+   (history-state :initform (slack-page-state-create))
+   (message-revision :initform 0)
+   (message-revisions :initform (make-hash-table :test 'equal))
    (last-read :initarg :last_read :type string :initform "0") ;; "0" = Slack API sentinel for "no messages read"
    (topic :initarg :topic :initform nil)))
 
@@ -214,6 +218,7 @@ COUNTS is the counts argument."
 
 (cl-defmethod slack-room-delete-message ((this slack-room) ts)
   "Delete the message with timestamp TS from room THIS."
+  (slack-room-touch-message-revision this ts)
   (remhash ts (oref this messages))
   (oset this
         message-ids
@@ -223,6 +228,7 @@ COUNTS is the counts argument."
 (cl-defmethod slack-room-push-message ((this slack-room) message team)
   "Add MESSAGE to room THIS in TEAM and update the latest-ts cache."
   (let ((ts (slack-ts message)))
+    (slack-room-touch-message-revision this ts)
     (puthash ts message (oref this messages))
     (cl-pushnew ts (oref this message-ids)
                 :test #'string=)
@@ -236,6 +242,9 @@ COUNTS is the counts argument."
 
 (cl-defmethod slack-room-clear-messages ((room slack-room))
   "Remove all messages cached on ROOM."
+  (maphash (lambda (ts _message)
+             (slack-room-touch-message-revision room ts))
+           (oref room messages))
   (oset room messages (make-hash-table :test 'equal :size 300))
   (oset room message-ids '()))
 
@@ -259,6 +268,7 @@ Defaults to 100. Used to reduce memory after closing buffers."
   "Store MESSAGES on ROOM for TEAM and refresh the latest-ts cache."
   (cl-loop for m in messages
            do (let ((ts (slack-ts m)))
+                (slack-room-touch-message-revision room ts)
                 (puthash ts m (oref room messages))
                 (cl-pushnew ts (oref room message-ids)
                             :test #'string=)))
@@ -269,6 +279,47 @@ Defaults to 100. Used to reduce memory after closing buffers."
   (slack-if-let* ((counts (oref team counts))
                   (latest (car (last (oref room message-ids)))))
       (slack-room--update-latest room counts latest)))
+
+(defun slack-room-touch-message-revision (room ts)
+  "Record one cache mutation for timestamp TS in ROOM."
+  (cl-incf (oref room message-revision))
+  (puthash ts
+           (oref room message-revision)
+           (oref room message-revisions)))
+
+(defun slack-room-history-start-snapshot (room)
+  "Return ROOM's timestamp-to-revision snapshot for a history request."
+  (let ((snapshot (make-hash-table :test 'equal)))
+    (maphash (lambda (ts revision) (puthash ts revision snapshot))
+             (oref room message-revisions))
+    snapshot))
+
+(defun slack-room-merge-history-page (room messages team start-snapshot)
+  "Merge history MESSAGES into ROOM without overwriting concurrent events.
+START-SNAPSHOT maps timestamps to cache revisions at request start; TEAM owns
+the room caches."
+  (let ((response-ids (make-hash-table :test 'equal)))
+    (dolist (message messages)
+      (puthash (slack-ts message) t response-ids))
+    (dolist (old-message
+             (slack-page-state-value (oref room history-state)))
+      (let ((ts (slack-ts old-message)))
+        (when (and (not (gethash ts response-ids))
+                   (equal (gethash ts start-snapshot)
+                          (gethash ts (oref room message-revisions))))
+          (slack-room-delete-message room ts)))))
+  (dolist (message messages)
+    (let* ((ts (slack-ts message))
+           (start-revision (gethash ts start-snapshot))
+           (current-revision
+            (gethash ts (oref room message-revisions))))
+      (when (or (null current-revision)
+                (equal current-revision start-revision))
+        (slack-room-set-messages room (list message) team))))
+  (oset room message-ids (cl-sort (oref room message-ids) #'string<))
+  (when-let* ((counts (oref team counts))
+              (latest (car (last (oref room message-ids)))))
+    (slack-room--update-latest room counts latest)))
 
 (cl-defmethod slack-room-update-mark ((room slack-room) team ts)
   "Update the read mark for ROOM in TEAM to timestamp TS."

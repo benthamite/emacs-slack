@@ -247,6 +247,41 @@ inserted messages."
         (slack-buffer-insert-messages this messages nil t)))
     buf))
 
+(defun slack-message-buffer-render-history-state (object state)
+  "Render OBJECT's room history and shared page status from STATE."
+  (let* ((room (slack-buffer-room object))
+         (messages (slack-room-sorted-messages room))
+         (continuation (or (slack-page-state-continuation state) ""))
+         (input-offset (when (>= (point) (marker-position lui-input-marker))
+                         (- (point) (marker-position lui-input-marker))))
+         (message-ts (get-text-property (point) 'ts))
+         (output-offset (- (point) (point-min))))
+    (oset object cursor continuation)
+    (oset object oldest nil)
+    (oset object latest nil)
+    (slack-buffer-delete-overlay object)
+    (slack-buffer-widen
+      (let ((inhibit-read-only t))
+        (delete-region (point-min) (marker-position lui-output-marker))
+        (set-marker lui-output-marker (point-min))
+        (goto-char lui-output-marker)
+        (slack-buffer-with-deferred-hooks
+          (when (< 0 (length continuation))
+            (slack-buffer-insert-load-more object))
+          (slack-buffer-insert-messages object messages nil t))
+        (goto-char lui-output-marker)
+        (slack-buffer-insert-page-status object state)
+        (set-marker lui-output-marker (point))))
+    (slack-buffer-update-marker-overlay object)
+    (cond
+     (input-offset
+      (goto-char (min (point-max)
+                      (+ (marker-position lui-input-marker) input-offset))))
+     ((and message-ts (slack-buffer-goto message-ts)))
+     (t
+      (goto-char (min (+ (point-min) output-offset)
+                      (marker-position lui-output-marker)))))))
+
 (cl-defmethod slack-buffer-update ((this slack-message-buffer) message &key replace)
   "Update THIS buffer with MESSAGE after new data arrives.
 With REPLACE non-nil, replace the rendered message instead of appending."
@@ -368,13 +403,24 @@ would be stale once history is inserted above it."
                ))
             (when current-ts
               (slack-buffer-goto current-ts)))))
-         (after-success (messages next-cursor)
-                        (oset this cursor next-cursor)
-                        (slack-room-set-messages room messages team)
-                        (update-buffer (slack-room-sorted-messages room))))
+         (primary (messages next-cursor)
+                  (let ((state (oref room history-state)))
+                    (oset this cursor next-cursor)
+                    (setf (slack-page-state-continuation state) next-cursor
+                          (slack-page-state-has-more state)
+                          (and next-cursor (< 0 (length next-cursor)))
+                          (slack-page-state-updated-at state) (current-time))
+                    (slack-room-set-messages room messages team)
+                    (update-buffer (slack-room-sorted-messages room))))
+         (hydrated (&rest _ignored)
+                   (when (buffer-live-p (oref this buf))
+                     (with-current-buffer (oref this buf)
+                       (slack-message-buffer-render-history-state
+                        this (oref room history-state))))))
       (slack-conversations-history room team
                                    :cursor (oref this cursor)
-                                   :after-success #'after-success)))))
+                                   :on-primary-page #'primary
+                                   :after-success #'hydrated)))))
 
 (cl-defmethod slack-buffer-display-pins-list ((this slack-message-buffer))
   "Open the pinned-items buffer for THIS buffer."
@@ -735,39 +781,72 @@ TYPE is the cursor-sensor event type, either `entered' or `left'."
       (slack-buffer-display-user-profile buf)))
 
 (defun slack-room-display (room team &optional success-callback)
-  "Display TEAM ROOM.
-Provide SUCCESS-CALLBACK to run some action after displaying."
-  (let ((room-id (oref room id)))
+  "Display TEAM ROOM before history loading completes.
+Call SUCCESS-CALLBACK after supplemental identity hydration."
+  (let* ((current-room (or (slack-room-find (oref room id) team) room))
+         (state (oref current-room history-state))
+         (buffer (slack-create-message-buffer
+                  current-room
+                  (or (slack-page-state-continuation state) "")
+                  team)))
+    (slack-buffer-present-page
+     buffer state
+     (lambda (generation success error)
+       (slack-room-history-load
+        current-room team generation success error))
+     #'slack-message-buffer-render-history-state
+     t
+     (when (functionp success-callback)
+       (lambda (_state) (funcall success-callback))))))
+
+(defun slack-room-history-load (room team generation success error)
+  "Load ROOM history for TEAM GENERATION through SUCCESS or ERROR."
+  (let ((state (oref room history-state))
+        start-snapshot)
     (cl-labels
-        ((resolve-room ()
-           (or (slack-room-find room-id team) room))
-         (open (buf)
-           (slack-buffer-display buf))
-         (fetch-and-display ()
-           (message "No Message in %s, fetching from server..." (slack-room-name room team))
-           (slack-room-clear-messages (resolve-room))
-           (slack-conversations-history
-            room team
-            :after-success (lambda (messages cursor)
-                             (let ((current-room (resolve-room)))
-                               (slack-room-set-messages current-room messages team)
-                               (slack-buffer-display
-                                (slack-create-message-buffer current-room cursor team))
-                               (when (functionp success-callback)
-                                 (funcall success-callback)))))))
-      (let ((buf (slack-buffer-find 'slack-message-buffer team room)))
-        (if (and buf (< 0 (hash-table-count (oref room messages))))
-            (progn
-              (open buf)
-              (when (functionp success-callback) (funcall success-callback)))
-          (when buf
-            (kill-buffer (slack-buffer-buffer buf)))
-          (if (slack-im-p room)
+        ((current-p ()
+           (and (= generation (slack-page-state-generation state))
+                (slack-page-state-in-flight-p state)))
+         (fail (&rest errors)
+           (when (current-p)
+             (apply error errors)))
+         (ready (&rest _ignored)
+           (when (current-p)
+             (slack-page-state-ready state generation)))
+         (primary (messages cursor)
+           (when (current-p)
+             (condition-case merge-error
+                 (progn
+                   (slack-room-merge-history-page
+                    room messages team start-snapshot)
+                   (funcall success
+                            (slack-room-sorted-messages room)
+                            cursor
+                            (and cursor (< 0 (length cursor)))
+                            t))
+               (error (funcall error merge-error)))))
+         (request-history ()
+           (when (current-p)
+             (setq start-snapshot
+                   (slack-room-history-start-snapshot room))
+             (condition-case request-error
+                 (slack-conversations-history
+                  room team
+                  :on-primary-page #'primary
+                  :after-success #'ready
+                  :on-error #'fail)
+               (error (funcall error request-error)))))
+         (opened (&rest _ignored)
+           (request-history)))
+      (if (slack-im-p room)
+          (condition-case open-error
               (slack-conversations-open
-               team :room room
-               :on-success (lambda (_data)
-                             (fetch-and-display)))
-            (fetch-and-display)))))))
+               team
+               :room room
+               :on-success #'opened
+               :on-error #'fail)
+            (error (funcall error open-error)))
+        (request-history)))))
 
 (cl-defmethod slack-room-update-buffer ((this slack-room) team message replace)
   "Update THIS room's message buffer on TEAM with MESSAGE, or REPLACE it."
