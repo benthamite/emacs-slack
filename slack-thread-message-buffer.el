@@ -342,7 +342,8 @@ TS is the ts argument."
                                         (slack-message-star-api-params message))
                                 team)
         (slack-message-star-removed message)
-        (slack-team-mark-unsaved team (slack-ts message)))))
+        (slack-team-mark-unsaved
+         team (slack-ts message) "message" (oref room id)))))
 
 (cl-defmethod slack-buffer-update ((this slack-thread-message-buffer) message &key replace)
   "Update THIS buffer after new data arrives.

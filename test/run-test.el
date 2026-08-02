@@ -2601,6 +2601,249 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                      (mapcar #'slack-ts
                              (slack-star-items (oref team star))))))))
 
+(ert-deftest slack-test-stars-list-removal-is-scoped-to-item-identity ()
+  (slack-test-setup
+    (let* ((other-channel-id "C22222")
+           (other-channel (make-instance 'slack-channel
+                                         :id other-channel-id
+                                         :name "OtherChannel"))
+           (shared-ts "1.000")
+           request-success)
+      (puthash other-channel-id other-channel (oref team channels))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (setq request-success (oref request success))))
+                ((symbol-function 'slack-team-missing-user-ids)
+                 (lambda (&rest _args) nil)))
+        (slack-stars-list-request team)
+        (slack-event-update-star-item
+         (slack-create-star-event
+          (list :type "star_removed"
+                :item (list :type "message" :channel channel-id
+                            :message (list :ts shared-ts))))
+         team)
+        (funcall
+         request-success
+         :data
+         (list
+          :ok t
+          :saved_items
+          (list
+           (list :item_id channel-id :item_type "message"
+                 :message (list :type "message" :user user-id
+                                :text "removed channel" :ts shared-ts))
+           (list :item_id other-channel-id :item_type "message"
+                 :message (list :type "message" :user user-id
+                                :text "kept channel" :ts shared-ts)))
+          :response_metadata (list :next_cursor ""))))
+      (should (equal (list other-channel-id)
+                     (mapcar (lambda (item) (oref item item-id))
+                             (slack-star-items (oref team star))))))))
+
+(ert-deftest slack-test-team-mark-unsaved-ts-only-keeps-legacy-wide-match ()
+  (slack-test-setup
+    (let* ((shared-ts "1.000")
+           (first (slack-test-star-item shared-ts channel-id))
+           (second (slack-test-star-item shared-ts "C22222")))
+      (oset team star
+            (make-instance 'slack-star :items (list first second)))
+      (slack-team-mark-unsaved team shared-ts)
+      (should-not (slack-star-items (oref team star))))))
+
+(ert-deftest slack-test-ts-saved-p-scopes-optional-item-identity ()
+  (slack-test-setup
+    (let* ((shared-ts "1.000")
+           (item (slack-test-star-item shared-ts channel-id)))
+      (oset team star (make-instance 'slack-star :items (list item)))
+      (should (slack-ts-saved-p team shared-ts))
+      (should (slack-ts-saved-p
+               team shared-ts "message" channel-id))
+      (should-not (slack-ts-saved-p
+                   team shared-ts "message" "C22222")))))
+
+(ert-deftest slack-test-saved-items-stale-refresh-restores-current-cache ()
+  (slack-test-setup
+    (let* ((old-star
+            (make-instance
+             'slack-star
+             :items (list (slack-test-star-item "2.000" channel-id))
+             :cursor "old-cursor"))
+           (newer-star
+            (make-instance
+             'slack-star
+             :items (list (slack-test-star-item "3.000" channel-id))
+             :cursor "newer-cursor"))
+           (state (slack-team-page-state team 'saved-items))
+           request-success
+           object
+           emacs-buffer)
+      (oset team star old-star)
+      (slack-page-state-store state old-star "old-cursor" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-request)
+                     (lambda (request)
+                       (setq request-success (oref request success))))
+                    ((symbol-function 'slack-team-missing-user-ids)
+                     (lambda (&rest _args) nil)))
+            (setq object (slack-stars-buffer--present team t)
+                  emacs-buffer (oref object buf))
+            (slack-page-state-store state newer-star "newer-cursor" t)
+            (oset team star newer-star)
+            (funcall
+             request-success
+             :data
+             (list :ok t
+                   :saved_items
+                   (list (list :item_id channel-id
+                               :item_type "message"
+                               :ts "1.000"))
+                   :response_metadata (list :next_cursor "")))
+            (should (eq newer-star (slack-page-state-value state)))
+            (should (eq newer-star (oref team star))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-saved-items-cold-refresh-preserves-live-adds ()
+  (slack-test-setup
+    (let* ((local-ts "1.000")
+           (event-ts "2.000")
+           (local-message
+            (slack-message-create
+             (list :type "message" :ts local-ts :user user-id
+                   :text "locally saved during refresh" :channel channel-id)
+             team channel))
+           (event-message
+            (slack-message-create
+             (list :type "message" :ts event-ts :user user-id
+                   :text "event saved during refresh" :channel channel-id)
+             team channel))
+           request-success
+           object
+           emacs-buffer)
+      (slack-room-set-messages channel (list local-message event-message) team)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select) (lambda () team))
+                    ((symbol-function 'slack-team-ensure-conversations-loaded)
+                     #'ignore)
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (displayed)
+                       (setq object displayed
+                             emacs-buffer (oref displayed buf))))
+                    ((symbol-function 'slack-request)
+                     (lambda (request)
+                       (setq request-success (oref request success)))))
+            (should-not (oref team star))
+            (slack-saved-items)
+            (slack-team-mark-saved team channel-id local-ts)
+            (slack-event-update-star-item
+             (slack-create-star-event
+              (list :type "star_added"
+                    :item (list :type "message" :channel channel-id
+                                :message (list :ts event-ts))))
+             team)
+            (funcall request-success
+                     :data
+                     (list :ok t :saved_items nil
+                           :response_metadata (list :next_cursor "")))
+            (let* ((state (slack-team-page-state team 'saved-items))
+                   (cached-ts
+                    (mapcar #'slack-ts
+                            (slack-star-items (oref team star))))
+                   (durable-ts
+                    (mapcar #'slack-ts
+                            (slack-star-items
+                             (slack-page-state-value state)))))
+              (should (equal (list event-ts local-ts) cached-ts))
+              (should (equal cached-ts durable-ts))
+              (should (eq 'ready (slack-page-state-status state))))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "event saved during refresh" nil t))
+              (goto-char (point-min))
+              (should (search-forward "locally saved during refresh" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-saved-items-cold-refresh-preserves-live-removals ()
+  (slack-test-setup
+    (let ((local-ts "1.000")
+          (event-ts "2.000")
+          request-success
+          object
+          emacs-buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select) (lambda () team))
+                    ((symbol-function 'slack-team-ensure-conversations-loaded)
+                     #'ignore)
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (displayed)
+                       (setq object displayed
+                             emacs-buffer (oref displayed buf))))
+                    ((symbol-function 'slack-request)
+                     (lambda (request)
+                       (setq request-success (oref request success)))))
+            (should-not (oref team star))
+            (slack-saved-items)
+            (slack-team-mark-unsaved team local-ts)
+            (slack-event-update-star-item
+             (slack-create-star-event
+              (list :type "star_removed"
+                    :item (list :type "message" :channel channel-id
+                                :message (list :ts event-ts))))
+             team)
+            (funcall
+             request-success
+             :data
+             (list
+              :ok t
+              :saved_items
+              (list
+               (list :item_id channel-id :item_type "message"
+                     :message
+                     (list :type "message" :user user-id
+                           :text "stale local removal" :ts local-ts))
+               (list :item_id channel-id :item_type "message"
+                     :message
+                     (list :type "message" :user user-id
+                           :text "stale event removal" :ts event-ts)))
+              :response_metadata (list :next_cursor "")))
+            (let* ((state (slack-team-page-state team 'saved-items))
+                   (cached (slack-star-items (oref team star)))
+                   (durable
+                    (slack-star-items (slack-page-state-value state))))
+              (should-not cached)
+              (should-not durable)
+              (should (eq 'ready (slack-page-state-status state))))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should-not (search-forward "stale local removal" nil t))
+              (goto-char (point-min))
+              (should-not (search-forward "stale event removal" nil t))
+              (goto-char (point-min))
+              (should (search-forward "(no more items)" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-star-mutation-journal-prunes-without-losing-active-delta ()
+  (slack-test-setup
+    (let ((slack-star-mutation-journal-limit 2)
+          token)
+      (slack-star-mutation-journal-record-remove team "old-1")
+      (slack-star-mutation-journal-record-remove team "old-2")
+      (slack-star-mutation-journal-record-remove team "old-3")
+      (should (= 2 (slack-star-mutation-journal-size team)))
+      (setq token (slack-star-mutation-journal-register team))
+      (slack-star-mutation-journal-record-remove team "new-1")
+      (slack-star-mutation-journal-record-remove team "new-2")
+      (slack-star-mutation-journal-record-remove team "new-3")
+      ;; Entries needed by an active request are retained even above the
+      ;; idle-history bound; releasing it immediately restores the bound.
+      (should (= 3 (length
+                    (slack-star-mutation-journal-entries-since team token))))
+      (slack-star-mutation-journal-release team token)
+      (should (= 2 (slack-star-mutation-journal-size team))))))
+
 (ert-deftest slack-test-stars-list-hydrates-saved-item-authors ()
   (slack-test-setup
     (let ((missing-user-id "U-saved-author")

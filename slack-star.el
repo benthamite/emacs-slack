@@ -41,6 +41,23 @@
   ((cursor :initarg :cursor :type (or null string) :initform nil)
    (items :initarg :items :type (or null list) :initform nil)))
 
+(defcustom slack-star-mutation-journal-limit 256
+  "Maximum idle saved-item mutation entries retained per team.
+Entries needed by an active saved-list request are retained until that
+request consumes or releases them, then the journal returns to this
+bound."
+  :type 'integer
+  :group 'slack)
+
+(defclass slack-star-mutation-journal ()
+  ((sequence :initform 0 :type integer)
+   (entries :initform nil :type list)
+   (active-tokens :initform nil :type list)))
+
+(defvar slack-star--mutation-journals
+  (make-hash-table :test #'eq :weakness 'key)
+  "Weak mapping from Slack teams to their saved-item mutation journals.")
+
 (defclass slack-star-item ()
   ((item-id :initarg :item-id :type string)
    (item-type :initarg :item-type :type string)
@@ -137,30 +154,149 @@ page, so only a non-empty cursor means another page exists."
   "Return the stable identity key for saved ITEM."
   (list (oref item item-type) (oref item item-id) (slack-ts item)))
 
-(defun slack-star-reconcile-refresh (page before-items current-items)
-  "Overlay live saved-item changes onto refresh PAGE.
-BEFORE-ITEMS is the saved list when the request began and CURRENT-ITEMS
-is that same cache after intervening star events."
-  (let* ((before-keys (mapcar #'slack-star-item-key before-items))
-         (current-keys (mapcar #'slack-star-item-key current-items))
-         (removed-keys
-          (cl-set-difference before-keys current-keys :test #'equal))
-         (page-items
+(defun slack-star--mutation-journal (team)
+  "Return TEAM's saved-item mutation journal, creating it when absent."
+  (or (gethash team slack-star--mutation-journals)
+      (let ((journal (make-instance 'slack-star-mutation-journal)))
+        (puthash team journal slack-star--mutation-journals)
+        journal)))
+
+(defun slack-star-mutation-journal--prune (journal)
+  "Prune obsolete entries from saved-item mutation JOURNAL.
+The idle history is bounded by `slack-star-mutation-journal-limit'.
+When requests are active, every entry newer than the oldest request
+token is protected; only older diagnostic history is pruned."
+  (let* ((entries (oref journal entries))
+         (tokens (oref journal active-tokens))
+         (oldest-active
+          (when tokens
+            (apply #'min (mapcar #'cdr tokens))))
+         (required
+          (and oldest-active
+               (cl-remove-if-not
+                (lambda (entry)
+                  (> (plist-get entry :sequence) oldest-active))
+                entries)))
+         (optional
+          (if oldest-active
+              (cl-remove-if
+               (lambda (entry)
+                 (> (plist-get entry :sequence) oldest-active))
+               entries)
+            entries))
+         (remaining
+          (max 0 (- slack-star-mutation-journal-limit
+                    (length required))))
+         (kept-optional
+          (cl-subseq optional 0 (min remaining (length optional)))))
+    (oset journal entries (append required kept-optional))))
+
+(defun slack-star-mutation-journal-register (team)
+  "Register a saved-list request for TEAM and return its replay token."
+  (let* ((journal (slack-star--mutation-journal team))
+         (token (cons journal (oref journal sequence))))
+    (push token (oref journal active-tokens))
+    token))
+
+(defun slack-star-mutation-journal-release (team token)
+  "Release TEAM's saved-list request TOKEN and prune its journal."
+  (let ((journal (slack-star--mutation-journal team)))
+    (when (eq journal (car-safe token))
+      (oset journal active-tokens
+            (delq token (oref journal active-tokens)))
+      (slack-star-mutation-journal--prune journal))))
+
+(defun slack-star-mutation-journal-entries-since (team token)
+  "Return TEAM's saved-item mutations after TOKEN in occurrence order."
+  (let ((journal (slack-star--mutation-journal team)))
+    (unless (eq journal (car-safe token))
+      (error "Saved-item mutation token belongs to another team"))
+    (nreverse
+     (cl-remove-if-not
+      (lambda (entry)
+        (> (plist-get entry :sequence) (cdr token)))
+      (copy-sequence (oref journal entries))))))
+
+(defun slack-star-mutation-journal-size (team)
+  "Return the number of retained saved-item mutations for TEAM."
+  (length (oref (slack-star--mutation-journal team) entries)))
+
+(defun slack-star-mutation-journal--record (team operation &rest properties)
+  "Record TEAM's saved-item OPERATION with entry PROPERTIES."
+  (let* ((journal (slack-star--mutation-journal team))
+         (sequence (1+ (oref journal sequence)))
+         (entry (append (list :sequence sequence :operation operation)
+                        properties)))
+    (oset journal sequence sequence)
+    (push entry (oref journal entries))
+    (slack-star-mutation-journal--prune journal)
+    entry))
+
+(defun slack-star-mutation-journal-record-add (team item)
+  "Record that saved ITEM was added to TEAM."
+  (slack-star-mutation-journal--record team 'add :item item))
+
+(defun slack-star-mutation-journal-record-remove
+    (team ts &optional item-type item-id)
+  "Record removal of TEAM's saved item identified by TS.
+When ITEM-TYPE and ITEM-ID are non-nil, retain that exact identity so replay
+does not remove a same-timestamp item from another conversation."
+  (slack-star-mutation-journal--record
+   team 'remove :ts ts :item-type item-type :item-id item-id))
+
+(defun slack-star-item-matches-p (item ts &optional item-type item-id)
+  "Return non-nil when saved ITEM matches TS and optional identity fields.
+Omitted ITEM-TYPE or ITEM-ID acts as a wildcard for legacy timestamp-only
+callers."
+  (and (string= (slack-ts item) ts)
+       (or (null item-type)
+           (string= (oref item item-type) item-type))
+       (or (null item-id)
+           (string= (oref item item-id) item-id))))
+
+(defun slack-star--add-item (items item)
+  "Return ITEMS with saved ITEM at the front and no identity duplicate."
+  (let ((key (slack-star-item-key item)))
+    (cons item
           (cl-remove-if
-           (lambda (item)
-             (member (slack-star-item-key item) removed-keys))
-           (slack-star-items page)))
-         (page-keys (mapcar #'slack-star-item-key page-items))
-         (added-items
-          (cl-remove-if
-           (lambda (item)
-             (let ((key (slack-star-item-key item)))
-               (or (member key before-keys)
-                   (member key page-keys))))
-           current-items)))
-    (make-instance 'slack-star
-                   :items (append added-items page-items)
-                   :cursor (oref page cursor))))
+           (lambda (existing)
+             (equal key (slack-star-item-key existing)))
+           items))))
+
+(defun slack-star--apply-mutations (star entries &optional removals-only)
+  "Apply saved-item ENTRIES to STAR in occurrence order.
+When REMOVALS-ONLY is non-nil, suppress stale page rows without
+duplicating live additions already present in the combined cache."
+  (let ((items (copy-sequence (slack-star-items star))))
+    (dolist (entry entries)
+      (pcase (plist-get entry :operation)
+        ('add
+         (unless removals-only
+           (setq items
+                 (slack-star--add-item items (plist-get entry :item)))))
+        ('remove
+         (let ((ts (plist-get entry :ts))
+               (item-type (plist-get entry :item-type))
+               (item-id (plist-get entry :item-id)))
+           (setq items
+                 (cl-remove-if
+                  (lambda (item)
+                    (slack-star-item-matches-p
+                     item ts item-type item-id))
+                  items))))))
+    (oset star items items)
+    star))
+
+(defun slack-star--append-unique-items (first second)
+  "Return saved items from FIRST followed by new identities in SECOND."
+  (let ((seen (make-hash-table :test #'equal))
+        result)
+    (dolist (item (append first second))
+      (let ((key (slack-star-item-key item)))
+        (unless (gethash key seen)
+          (puthash key t seen)
+          (push item result))))
+    (nreverse result)))
 
 (defun slack-star-cache-embedded-messages (payload team)
   "Cache message objects embedded in saved-list PAYLOAD for TEAM."
@@ -198,62 +334,69 @@ response's `slack-star' page and TEAM's stored, combined star cache
 after embedded messages and that cache are stored, but before user
 hydration begins.
 The first four argument positions remain compatible with older callers."
-  (let* ((primary-called-p nil)
-         (source-star (oref team star))
-         (source-items
-          (and source-star
-               (copy-sequence (slack-star-items source-star)))))
+  (let ((primary-called-p nil)
+        (journal-token (slack-star-mutation-journal-register team)))
     (cl-labels
-      ((callback ()
+      ((release-journal ()
+         (when journal-token
+           (slack-star-mutation-journal-release team journal-token)
+           (setq journal-token nil)))
+       (callback ()
          (when (functionp after-success)
            (funcall after-success)))
        (fail (&rest args)
+         (release-journal)
          (when (functionp on-error)
            (apply on-error args)))
        (on-success (&key data &allow-other-keys)
-         (slack-request-handle-error
-          (data "slack-stars-list-request" #'fail)
-          (let* ((star (slack-create-star data))
-                 (current-star (oref team star)))
-            (slack-star-cache-embedded-messages data team)
-            (when (and (not cursor)
-                       (eq current-star source-star))
-              (setq star
-                    (slack-star-reconcile-refresh
-                     star source-items
-                     (and current-star (slack-star-items current-star)))))
-            (if current-star
+         (unwind-protect
+             (slack-request-handle-error
+              (data "slack-stars-list-request" #'fail)
+              (let* ((star (slack-create-star data))
+                     (current-star (oref team star))
+                     (mutations
+                      (slack-star-mutation-journal-entries-since
+                       team journal-token)))
+                (slack-star-cache-embedded-messages data team)
                 (if cursor
-                    (oset team star
-                          (make-instance
-                           'slack-star
-                           :items (append
-                                   (copy-sequence
-                                    (slack-star-items current-star))
-                                   (slack-star-items star))
-                           :cursor (oref star cursor)))
+                    (progn
+                      (slack-star--apply-mutations star mutations t)
+                      (oset team star
+                            (make-instance
+                             'slack-star
+                             :items
+                             (slack-star--append-unique-items
+                              (and current-star
+                                   (slack-star-items current-star))
+                              (slack-star-items star))
+                             :cursor (oref star cursor))))
+                  (slack-star--apply-mutations star mutations)
                   (oset team star star))
-              (oset team star star))
-            (when (and (not primary-called-p)
-                       (functionp on-primary-page))
-              (setq primary-called-p t)
-              (funcall on-primary-page star (oref team star)))
-            (let ((user-ids
-                   (slack-team-missing-user-ids
-                    team (slack-star-user-ids (oref team star) team))))
-              (if (< 0 (length user-ids))
-                  (slack-users-info-request
-                   user-ids team
-                   :after-success #'(lambda () (callback)))
-                (callback)))))))
-    (slack-request
-     (slack-request-create
-      slack-stars-list-url
-      team
-      :type "POST"
-      :data (list (when cursor (cons "cursor" cursor)))
-      :success #'on-success
-      :error (lambda (&rest args) (apply #'fail args)))))))
+                (when (and (not primary-called-p)
+                           (functionp on-primary-page))
+                  (setq primary-called-p t)
+                  (funcall on-primary-page star (oref team star)))
+                (let ((user-ids
+                       (slack-team-missing-user-ids
+                        team (slack-star-user-ids (oref team star) team))))
+                  (if (< 0 (length user-ids))
+                      (slack-users-info-request
+                       user-ids team
+                       :after-success #'(lambda () (callback)))
+                    (callback)))))
+           (release-journal))))
+    (condition-case request-error
+        (slack-request
+         (slack-request-create
+          slack-stars-list-url
+          team
+          :type "POST"
+          :data (list (when cursor (cons "cursor" cursor)))
+          :success #'on-success
+          :error (lambda (&rest args) (apply #'fail args))))
+      (error
+       (release-journal)
+       (signal (car request-error) (cdr request-error)))))))
 
 (defun slack-star-api-request (url params team)
   "Send a star add/remove request to URL with PARAMS for TEAM."
@@ -268,11 +411,13 @@ The first four argument positions remain compatible with older callers."
       :params params
       :success #'on-success))))
 
-(cl-defmethod slack-star-remove-star ((this slack-star) ts team)
-  "Remove from THIS stars the star at TS for TEAM."
+(cl-defmethod slack-star-remove-star
+  ((this slack-star) ts team &optional item-type item-id)
+  "Remove from THIS stars the saved item at TS for TEAM.
+Optional ITEM-TYPE and ITEM-ID disambiguate equal timestamps."
   (slack-if-let* ((item
                    (--find
-                    (string= (oref it ts) ts)
+                    (slack-star-item-matches-p it ts item-type item-id)
                     (oref this items))))
       (slack-star-api-request slack-message-stars-remove-url
                               (list (cons "ts" ts)
@@ -281,37 +426,54 @@ The first four argument positions remain compatible with older callers."
                               team)
     (error "Could not find star to remove for ts")))
 
-(defun slack-star--contains-ts-p (star ts)
-  "Return non-nil when STAR has a saved item with timestamp TS."
-  (cl-some (lambda (i) (string= (slack-ts i) ts))
+(defun slack-star--contains-ts-p (star ts &optional item-type item-id)
+  "Return non-nil when STAR contains TS and optional saved-item identity."
+  (cl-some (lambda (item)
+             (slack-star-item-matches-p item ts item-type item-id))
            (slack-star-items star)))
 
-(defun slack-ts-saved-p (team ts)
+(defun slack-ts-saved-p (team ts &optional item-type item-id)
   "Return non-nil when a saved item with TS exists in TEAM's saved list.
 Returns nil when TEAM has not loaded its saved items list yet, so
 callers must treat nil as \"unknown or not saved\", not \"definitely
-not saved\"."
+not saved\".  Optional ITEM-TYPE and ITEM-ID disambiguate equal timestamps."
   (when-let* ((star (oref team star)))
-    (slack-star--contains-ts-p star ts)))
+    (slack-star--contains-ts-p star ts item-type item-id)))
 
 (defun slack-team-mark-saved (team channel ts)
   "Record that the message at TS in CHANNEL is saved for TEAM.
 Initializes TEAM's saved items list when it has not been loaded, so
 subsequent saved-state checks work even for users who have never
 opened the saved items buffer."
+  (slack-team-mark-saved-item
+   team
+   (slack-create-star-item
+    (list :item_id channel :item_type "message" :ts ts))))
+
+(defun slack-team-mark-saved-item (team item)
+  "Record that normalized saved ITEM was added to TEAM.
+This initializes an empty cache when necessary and records the
+mutation independently so an older in-flight saved-list response
+cannot erase it."
+  (slack-star-mutation-journal-record-add team item)
   (unless (oref team star)
     (oset team star (make-instance 'slack-star :items nil :cursor nil)))
   (let ((star (oref team star)))
-    (unless (slack-star--contains-ts-p star ts)
-      (push (slack-create-star-item
-             (list :item_id channel :item_type "message" :ts ts))
-            (oref star items)))))
+    (oset star items
+          (slack-star--add-item (slack-star-items star) item))))
 
-(defun slack-team-mark-unsaved (team ts)
-  "Record that the message at TS is no longer saved for TEAM."
+(defun slack-team-mark-unsaved (team ts &optional item-type item-id)
+  "Record that the message at TS is no longer saved for TEAM.
+The removal is journaled even when TEAM's saved cache is empty, so
+an older in-flight response cannot reintroduce the item.  Optional ITEM-TYPE
+and ITEM-ID scope the removal; omitted identity preserves the legacy
+timestamp-wide match."
+  (slack-star-mutation-journal-record-remove team ts item-type item-id)
   (when-let* ((star (oref team star)))
     (oset star items
-          (cl-remove-if (lambda (i) (string= (slack-ts i) ts))
+          (cl-remove-if (lambda (item)
+                          (slack-star-item-matches-p
+                           item ts item-type item-id))
                         (slack-star-items star)))))
 
 (provide 'slack-star)

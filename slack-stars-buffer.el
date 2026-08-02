@@ -492,13 +492,16 @@ TEAM is the team argument."
              (and (= generation (slack-page-state-generation state))
                   (slack-page-state-in-flight-p state)))
            (primary (_page stored-star)
-             (when (current-p)
-               (setq primary-star stored-star)
-               (funcall success
-                        primary-star
-                        (oref primary-star cursor)
-                        (slack-star-has-next-page-p primary-star)
-                        t)))
+             (if (current-p)
+                 (progn
+                   (setq primary-star stored-star)
+                   (funcall success
+                            primary-star
+                            (oref primary-star cursor)
+                            (slack-star-has-next-page-p primary-star)
+                            t))
+               (when (eq (oref team star) stored-star)
+                 (oset team star (slack-page-state-value state)))))
            (hydrated ()
              (when (and (not hydration-started-p)
                         (current-p)
@@ -529,15 +532,24 @@ TEAM is the team argument."
 
 (cl-defmethod slack-buffer-remove-star ((this slack-stars-buffer) ts)
   "Remove THIS star at TS."
-  (let ((team (slack-buffer-team this)))
+  (let* ((team (slack-buffer-team this))
+         (room-id (get-text-property (point) 'room-id))
+         (file-id (get-text-property (point) 'file-id))
+         (item-type (cond (room-id "message") (file-id "file")))
+         (item-id (or room-id file-id)))
     (with-slots (star) team
-      (slack-star-remove-star star ts team)
-      (slack-team-mark-unsaved team ts)
-      (when-let* ((room-id (get-text-property (point) 'room-id))
+      (slack-star-remove-star star ts team item-type item-id)
+      (slack-team-mark-unsaved team ts item-type item-id)
+      (when-let* ((room-id room-id)
                   (room (slack-room-find room-id team))
                   (message (slack-room-find-message room ts)))
         (slack-message-star-removed message))
-      (slack-buffer-message-delete this ts))))
+      (let ((state (slack-team-page-state
+                    team slack-stars-buffer--page-key)))
+        (if (and (slack-page-state-loaded-p state)
+                 (eq (slack-page-state-value state) star))
+            (slack-stars-buffer-render-page-state this state)
+          (slack-buffer-message-delete this ts))))))
 
 (cl-defmethod slack-buffer-message-delete ((this slack-stars-buffer) ts)
   "Delete the message at point from THIS buffer.

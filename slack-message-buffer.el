@@ -46,6 +46,9 @@
 (require 'slack-channel)
 (require 'slack-defcustoms)
 
+(declare-function slack-ts-saved-p
+                  "slack-star" (team ts &optional item-type item-id))
+
 (defvar slack-completing-read-function)
 (defvar slack-channel-button-keymap
   (let ((keymap (make-sparse-keymap)))
@@ -1077,11 +1080,15 @@ from the saved items list."
   (slack-if-let* ((ts (slack-get-ts))
                   (buffer slack-current-buffer)
                   (team (slack-buffer-team buffer)))
-      (if (slack-ts-saved-p team ts)
-          (progn (slack-buffer-remove-star buffer ts)
-                 (message "Message removed from saved"))
-        (slack-buffer-add-star buffer ts)
-        (message "Message saved for later"))))
+      (let* ((file-id (get-text-property (point) 'file-id))
+             (room (and (not file-id) (slack-buffer-room buffer)))
+             (item-type (cond (file-id "file") (room "message")))
+             (item-id (or file-id (and room (oref room id)))))
+        (if (slack-ts-saved-p team ts item-type item-id)
+            (progn (slack-buffer-remove-star buffer ts)
+                   (message "Message removed from saved"))
+          (slack-buffer-add-star buffer ts)
+          (message "Message saved for later")))))
 
 (defun slack-message-pins-add ()
   "Pin the message at point to its room."

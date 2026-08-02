@@ -275,7 +275,9 @@ Some terminology in the `slack-` functions:
   - displays a stable buffer before Slack returns the saved index, keeps rows
     visible while message content loads, and refreshes or retries in place
   - live save/unsave events remain visible when they arrive during refresh or
-    pagination, and missing saved-item authors are fetched before hydration ends
+    pagination, including the first load before a saved-item cache exists, and
+    removals stay scoped to the matching conversation; missing saved-item
+    authors are fetched before hydration ends
   - selecting a team that has not connected yet starts it before saved items
     are fetched, instead of opening an empty buffer
   - saved files render as entries (previously every file-type saved item was

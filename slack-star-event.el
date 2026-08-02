@@ -27,6 +27,12 @@
 (require 'slack-event)
 (require 'slack-message-buffer)
 
+(declare-function slack-team-mark-saved-item "slack-star" (team item))
+(declare-function slack-team-mark-unsaved
+                  "slack-star" (team ts &optional item-type item-id))
+(declare-function slack-stars-buffer-render-page-state
+                  "slack-stars-buffer" (buffer state))
+
 (defclass slack-star-event (slack-event slack-message-event-processable) ())
 
 (cl-defmethod slack-event-update-buffer ((_this slack-star-event) message team)
@@ -74,15 +80,20 @@ Optional FILE is forwarded to `slack-event-create-star-item'."
 
 (cl-defmethod slack-event-save-star-item ((_this slack-star-added-event) item team)
   "Persist the starred ITEM from the star added event event into TEAM."
-  (slack-if-let* ((star (oref team star)))
-      (push item (oref star items))))
+  (slack-team-mark-saved-item team item))
 
-(cl-defmethod slack-event-update-star-buffer ((_this slack-star-added-event) item team)
-  "Refresh the stars buffer after the star added event event on TEAM.
-ITEM is the item argument."
-  (slack-if-let* ((buffer (slack-buffer-find 'slack-stars-buffer team)))
-      (with-current-buffer (slack-buffer-buffer buffer)
-        (slack-buffer-insert buffer item))))
+(defun slack-star-event--render-saved-state (team)
+  "Render TEAM's saved buffer when its durable state owns the live cache."
+  (when-let* ((buffer (slack-buffer-find 'slack-stars-buffer team))
+              (state (slack-team-page-state team 'saved-items))
+              ((slack-page-state-loaded-p state))
+              ((eq (slack-page-state-value state) (oref team star))))
+    (slack-stars-buffer-render-page-state buffer state)))
+
+(cl-defmethod slack-event-update-star-buffer
+  ((_this slack-star-added-event) _item team)
+  "Refresh the stars buffer after the star added event event on TEAM."
+  (slack-star-event--render-saved-state team))
 
 (defclass slack-star-removed-event (slack-star-event) ())
 
@@ -92,16 +103,13 @@ ITEM is the item argument."
 
 (cl-defmethod slack-event-save-star-item ((_this slack-star-removed-event) item team)
   "Persist the starred ITEM from the star removed event event into TEAM."
-  (slack-if-let* ((star (oref team star)))
-      (oset star items (cl-remove-if #'(lambda (e) (string= (slack-ts e)
-                                                            (slack-ts item)))
-                                     (oref star items)))))
+  (slack-team-mark-unsaved
+   team (slack-ts item) (oref item item-type) (oref item item-id)))
 
-(cl-defmethod slack-event-update-star-buffer ((_this slack-star-removed-event) item team)
-  "Refresh the stars buffer after the star removed event event on TEAM.
-ITEM is the item argument."
-  (slack-if-let* ((buffer (slack-buffer-find 'slack-stars-buffer team)))
-      (slack-buffer-message-delete buffer (slack-ts item))))
+(cl-defmethod slack-event-update-star-buffer
+  ((_this slack-star-removed-event) _item team)
+  "Refresh the stars buffer after the star removed event event on TEAM."
+  (slack-star-event--render-saved-state team))
 
 (defclass slack-message-star-event (slack-star-event) ())
 (defclass slack-message-star-added-event (slack-message-star-event slack-star-added-event) ())

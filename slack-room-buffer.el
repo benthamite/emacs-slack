@@ -211,7 +211,8 @@ TS is the ts argument."
                                       (cons "item_type" "message"))
                                 team)
         (slack-message-star-removed message)
-        (slack-team-mark-unsaved team (slack-ts message)))))
+        (slack-team-mark-unsaved
+         team (slack-ts message) "message" (oref room id)))))
 
 (cl-defmethod slack-buffer-add-star ((this slack-room-buffer) ts)
   "Star the item at point in THIS buffer.
