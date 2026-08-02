@@ -109,6 +109,7 @@ force a reconnect."
 (require 'slack-search-result-buffer)
 (require 'slack-activity-feed-buffer)
 (require 'slack-scheduled-messages-buffer)
+(require 'slack-channel-bookmarks-buffer)
 (require 'slack-stars-buffer)
 (require 'slack-dialog-buffer)
 (require 'slack-dialog-edit-element-buffer)
@@ -483,32 +484,13 @@ ready-to-evaluate Elisp to apply them to the current team."
       )))
 
 (defun slack-show-channel-bookmarks (channel-id team)
-  "Show an org mode buffer with the bookmarks of CHANNEL-ID for TEAM."
+  "Show CHANNEL-ID's bookmarks buffer for TEAM before its request finishes."
   (interactive (let ((room-and-team (slack-current-room-and-team)))
                  (list
                   (ignore-errors (oref (nth 0 room-and-team) id))
                   (nth 1 room-and-team))))
   (if (and channel-id team)
-      (slack-bookmarks-request
-       channel-id team
-       (lambda (data)
-         (-some--> data
-           (plist-get it :bookmarks)
-           (let ((b "*slack bookmarks for channel*"))
-             (with-help-window b
-               (with-current-buffer b
-                 (insert "* Bookmarks\n\n")
-                 (org-mode)
-                 (slack-override-keybiding-in-buffer
-                  (kbd "q")
-                  'bury-buffer))
-               (--each it
-                 (with-current-buffer b
-                   (let ((link (or (plist-get it :link) ""))
-                         (title (or (plist-get it :title) "untitled")))
-                     (insert (format "- [[%s][%s]]\n"
-                                     (replace-regexp-in-string "\\]\\]" "]​]" link)
-                                     (replace-regexp-in-string "\\]\\]" "]​]" title)))))))))))
+      (slack-channel-bookmarks-buffer--present channel-id team t)
     (user-error "Not in a Slack channel buffer")))
 
 ;;; Slack URL interception

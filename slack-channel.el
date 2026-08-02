@@ -106,22 +106,27 @@ TEAM is the team argument."
    (plist-get (oref team user-prefs) :muted_channels)
    (oref this id)))
 
-(defun slack-bookmarks-request (channel-id team &optional after-success)
+(defun slack-bookmarks-request
+    (channel-id team &optional after-success on-error)
   "Request bookmarks for CHANNEL-ID of TEAM.
-Run an action on the data returned with AFTER-SUCCESS."
+Run AFTER-SUCCESS on returned data.  ON-ERROR receives API and
+transport failures."
   (cl-labels
       ((on-success (&key data &allow-other-keys)
          ;; TODO possibly do something like display these in the room
          (slack-request-handle-error
-          (data "slack-bookmarks-request")
-          (if after-success
-              (funcall after-success data)))))
+          (data "slack-bookmarks-request" on-error)
+          (when (functionp after-success)
+            (funcall after-success data)))))
     (slack-request
      (slack-request-create
       slack-bookmarks-url
       team
       :params (list (cons "channel_id" channel-id))
-      :success #'on-success))))
+      :success #'on-success
+      :error (lambda (&rest errors)
+               (when (functionp on-error)
+                 (apply on-error errors)))))))
 
 (provide 'slack-channel)
 ;;; slack-channel.el ends here

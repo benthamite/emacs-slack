@@ -181,6 +181,9 @@ Some terminology in the `slack-` functions:
   - update direct message list
 - `slack-channel-list-update`
   - update channel list
+- `slack-show-channel-bookmarks`
+  - display the channel-scoped bookmarks buffer immediately, retain cached
+    bookmarks during refresh, and show a retry control on failure
 - `slack-activity-feed-show`
   - show the activity feed
   - if the Activity feed buffer is already visible, showing or refreshing it

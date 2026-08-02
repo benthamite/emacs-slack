@@ -95,6 +95,7 @@
    (slack-search-result-buffer :initform nil :type (or null hash-table))
    (slack-activity-feed-buffer :initform nil :type (or null hash-table))
    (slack-scheduled-messages-buffer :initform nil :type (or null hash-table))
+   (slack-channel-bookmarks-buffer :initform nil :type (or null hash-table))
    (slack-dialog-buffer :initform nil :type (or null hash-table))
    (slack-dialog-edit-element-buffer :initform nil :type (or null hash-table))
    (slack-room-info-buffer :initform nil :type (or null hash-table))

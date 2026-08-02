@@ -1753,6 +1753,33 @@ produces a newline with `not-tracked-p'."
           (kill-buffer buffer))
         (slack-test--unregister-team team)))))
 
+(ert-deftest slack-test-channel-bookmarks-page-render-replaces-shell-with-empty ()
+  (slack-test-setup
+    (slack-test--register-team team)
+    (let* ((state (slack-team-page-state
+                   team (list 'channel-bookmarks channel-id)))
+           (generation (slack-page-state-begin state))
+           (object (slack-create-channel-bookmarks-buffer
+                    channel-id team))
+           buffer)
+      (unwind-protect
+          (progn
+            (setq buffer (slack-buffer-buffer object))
+            (with-current-buffer buffer
+              (slack-channel-bookmarks-buffer-render-page-state object state)
+              (goto-char (point-min))
+              (should (search-forward "Loading Slack data" nil t)))
+            (slack-page-state-commit state generation nil nil nil)
+            (with-current-buffer buffer
+              (slack-channel-bookmarks-buffer-render-page-state object state)
+              (goto-char (point-min))
+              (should (search-forward "(No bookmarks.)" nil t))
+              (goto-char (point-min))
+              (should-not (search-forward "Loading Slack data" nil t))))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))
+        (slack-test--unregister-team team)))))
+
 ;;; ---- Runner ----
 
 (provide 'test-buffer-rendering)

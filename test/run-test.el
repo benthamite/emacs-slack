@@ -8849,6 +8849,115 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                            (slack-page-state-continuation state))))
         (when (buffer-live-p buffer) (kill-buffer buffer))))))
 
+(ert-deftest slack-test-channel-bookmarks-display-before-request ()
+  (slack-test-setup
+    (let (events success object emacs-buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display)
+                     (lambda (displayed)
+                       (setq object displayed
+                             emacs-buffer (oref displayed buf))
+                       (push 'display events)))
+                    ((symbol-function 'slack-bookmarks-request)
+                     (lambda (requested-channel requested-team
+                              &optional after-success _on-error)
+                       (should (equal channel-id requested-channel))
+                       (should (eq team requested-team))
+                       (setq success after-success)
+                       (push 'request events))))
+            (let ((result (slack-show-channel-bookmarks channel-id team)))
+              (should (eq object result)))
+            (should (equal '(display request) (nreverse events)))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "Loading Slack data" nil t)))
+            (funcall success
+                     '(:ok t :bookmarks
+                       ((:title "Runbook"
+                         :link "https://example.test/runbook"))))
+            (should
+             (eq 'ready
+                 (slack-page-state-status
+                  (slack-team-page-state
+                   team (list 'channel-bookmarks channel-id)))))
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "Runbook" nil t))
+              (goto-char (point-min))
+              (should-not (search-forward "Loading Slack data" nil t))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-channel-bookmarks-failure-retries-in-place ()
+  (slack-test-setup
+    (let ((requests 0) on-error object emacs-buffer retry)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-bookmarks-request)
+                     (lambda (_channel-id _team
+                              &optional _after-success error)
+                       (cl-incf requests)
+                       (setq on-error error))))
+            (setq object (slack-show-channel-bookmarks channel-id team)
+                  emacs-buffer (oref object buf))
+            (funcall on-error "offline")
+            (with-current-buffer emacs-buffer
+              (goto-char (point-min))
+              (should (search-forward "offline" nil t))
+              (setq retry slack-buffer-page-retry-function))
+            (funcall retry)
+            (should (= 2 requests))
+            (should (eq emacs-buffer (oref object buf))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-channel-bookmarks-late-result-keeps-state-without-buffer ()
+  (slack-test-setup
+    (let (success object emacs-buffer)
+      (cl-letf (((symbol-function 'slack-buffer-display) #'ignore)
+                ((symbol-function 'slack-bookmarks-request)
+                 (lambda (_channel-id _team
+                          &optional after-success _on-error)
+                   (setq success after-success))))
+        (setq object (slack-show-channel-bookmarks channel-id team)
+              emacs-buffer (oref object buf))
+        (kill-buffer emacs-buffer)
+        (funcall success
+                 '(:ok t :bookmarks
+                   ((:title "Runbook"
+                     :link "https://example.test/runbook"))))
+        (should-not (buffer-live-p emacs-buffer))
+        (should-not
+         (slack-buffer-find 'slack-channel-bookmarks-buffer team channel-id))
+        (should
+         (equal "Runbook"
+                (plist-get
+                 (car
+                  (slack-page-state-value
+                   (slack-team-page-state
+                    team (list 'channel-bookmarks channel-id))))
+                 :title)))))))
+
+(ert-deftest slack-test-bookmarks-request-routes-api-and-transport-errors ()
+  (slack-test-setup
+    (dolist (failure '(api transport))
+      (let (request errors success-called)
+        (cl-letf (((symbol-function 'slack-request)
+                   (lambda (created &rest _)
+                     (setq request created))))
+          (slack-bookmarks-request
+           channel-id team
+           (lambda (&rest _) (setq success-called t))
+           (lambda (&rest reported) (push reported errors)))
+          (if (eq failure 'api)
+              (funcall (oref request success)
+                       :data '(:ok :json-false :error "invalid_auth"))
+            (funcall (oref request error)
+                     :error-thrown '(error "offline")
+                     :symbol-status 'error))
+          (should (= 1 (length errors)))
+          (should-not success-called))))))
+
 (if noninteractive
     (ert-run-tests-batch-and-exit)
   (ert t))
