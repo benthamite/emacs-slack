@@ -1632,10 +1632,12 @@ no read-mark side effects."
 Display the room first, wait for its initial page once, then call CALLBACK
 when TS is available.  If necessary, fetch the before and after ranges
 sequentially.  ON-ERROR receives explicit room or range failures."
-  (let* ((state (oref room history-state))
+  (let* ((current-room (or (slack-room-find (oref room id) team) room))
+         (state (oref current-room history-state))
          (object
           (slack-create-message-buffer
-           room (or (slack-page-state-continuation state) "") team))
+           current-room
+           (or (slack-page-state-continuation state) "") team))
          (buffer (slack-buffer-buffer object))
          finished-p)
     (cl-labels
@@ -1658,18 +1660,19 @@ sequentially.  ON-ERROR receives explicit room or range failures."
          (after-before ()
            (when (and (not finished-p) (active-p))
              (with-current-buffer buffer
-               (slack-messages-after ts room team #'finish #'fail))))
+               (slack-messages-after
+                ts current-room team #'finish #'fail))))
          (ready (&optional _ready-state)
            (when (and (not finished-p) (active-p))
              (with-current-buffer buffer
                (if (or (not slack-test-out-load-older-messages-p)
-                       (-contains-p (oref room message-ids) ts))
+                       (-contains-p (oref current-room message-ids) ts))
                    (finish)
                  (slack-messages-before
-                  ts room team #'after-before #'fail))))))
+                  ts current-room team #'after-before #'fail))))))
       (condition-case display-error
           (progn
-            (slack-room-display room team)
+            (slack-room-display current-room team)
             ;; Register independently of the presentation token so two deep-link
             ;; callers coalesced onto one room request both finish exactly once.
             (slack-page-state-on-ready state #'ready)

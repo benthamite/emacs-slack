@@ -6981,6 +6981,39 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                    (buffer-live-p (oref object buf)))
           (kill-buffer (oref object buf)))))))
 
+(ert-deftest slack-test-open-channel-stale-room-waits-on-canonical-state ()
+  "A deep link passed a stale room object still follows the canonical page."
+  (slack-test-setup
+    (let* ((stale-room (make-instance 'slack-channel
+                                      :id channel-id
+                                      :name "StaleChannel"))
+           (canonical-state (oref channel history-state))
+           (stale-state (oref stale-room history-state))
+           (slack-test-out-load-older-messages-p nil)
+           loaded-room
+           history-success
+           object
+           finished)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display)
+                     (lambda (shown) (setq object shown)))
+                    ((symbol-function 'slack-room-history-load)
+                     (lambda (room _team _generation success _error)
+                       (setq loaded-room room
+                             history-success success))))
+            (slack-open-message--open-channel
+             "1710000000.000500" stale-room team
+             (lambda () (setq finished t)))
+            (should (eq channel loaded-room))
+            (should (eq 'loading
+                        (slack-page-state-status canonical-state)))
+            (should (eq 'unloaded (slack-page-state-status stale-state)))
+            (funcall history-success nil "" nil)
+            (should finished))
+        (when (and object (slot-boundp object 'buf)
+                   (buffer-live-p (oref object buf)))
+          (kill-buffer (oref object buf)))))))
+
 (ert-deftest slack-test-open-channel-coalesced-callers-each-finish-once ()
   (slack-test-setup
     (let* ((target-ts "1710000000.000500")

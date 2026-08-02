@@ -342,6 +342,9 @@ Some terminology in the `slack-` functions:
   - permalinks to plain (non-threaded) messages open the channel directly
     instead of being routed through the thread path, which could leave the
     message displaying a spurious "0 replies" thread line
+  - room deep links use the team's current room object, so replacing the
+    conversation cache while a link is opening cannot strand its navigation on
+    obsolete loading state
   - if emacs-slack has not loaded the target team or channel, the permalink
     opens in the default browser instead of raising an error
 - `slack-file-upload`
