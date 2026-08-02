@@ -3385,7 +3385,7 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
            (buffer (generate-new-buffer " *slack-test-feed-state-page*"))
            request-success
            requested-cursor
-           (insertions 0))
+           requested-cursors)
       (slack-page-state-store
        state
        (list :activities '(state-old) :pagination "state-cursor")
@@ -3396,7 +3396,8 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
           (cl-letf (((symbol-function 'slack-activity-feed-request)
                      (lambda (_team success &optional cursor _on-error)
                        (setq request-success success
-                             requested-cursor cursor)))
+                             requested-cursor cursor)
+                       (push cursor requested-cursors)))
                     ((symbol-function 'slack-activity-feed--parse-item)
                      #'identity)
                     ((symbol-function 'slack-activity-feed--prefetch-rooms)
@@ -3404,9 +3405,18 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                        (funcall callback)))
                     ((symbol-function 'slack-activity-feed--prefetch-messages)
                      #'ignore)
-                    ((symbol-function 'slack-buffer-insert--history)
-                     (lambda (_buffer)
-                       (cl-incf insertions))))
+                    ((symbol-function 'slack-buffer-insert)
+                     (lambda (_buffer activity)
+                       (insert (format "%s\n" activity))))
+                    ((symbol-function
+                      'slack-activity-feed--replace-live-contents)
+                     (lambda (feed-buffer activities)
+                       (with-current-buffer (oref feed-buffer buf)
+                         (erase-buffer)
+                         (dolist (activity activities)
+                           (insert (format "%s\n" activity)))))))
+            (with-current-buffer buffer
+              (insert "buffer-old\n"))
             (with-current-buffer buffer
               (slack-buffer-load-more object)
               (should slack-buffer--loading-more-p))
@@ -3421,7 +3431,24 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
             (should (equal "next-cursor"
                            (slack-page-state-continuation state)))
             (should (slack-page-state-has-more state))
-            (should (= 1 insertions)))
+            (with-current-buffer buffer
+              (should (equal "state-old\nstate-next\n"
+                             (buffer-string)))
+              (slack-buffer-load-more object)
+              (should slack-buffer--loading-more-p))
+            (should (equal "next-cursor" requested-cursor))
+            (funcall request-success
+                     (list :items '(state-last)
+                           :response_metadata
+                           (list :next_cursor "final-cursor")))
+            (should (equal '(state-old state-next state-last)
+                           (plist-get (slack-page-state-value state)
+                                      :activities)))
+            (should (equal '("state-cursor" "next-cursor")
+                           (nreverse requested-cursors)))
+            (with-current-buffer buffer
+              (should (equal "state-old\nstate-next\nstate-last\n"
+                             (buffer-string)))))
         (when (buffer-live-p buffer)
           (kill-buffer buffer))))))
 

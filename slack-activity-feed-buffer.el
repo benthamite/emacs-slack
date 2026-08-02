@@ -1304,23 +1304,31 @@ ON-ERROR is the failure callback."
                       'slack-activity-feed
                       :activities all-activities
                       :pagination pagination
-                      :last (max 0 (1- (length old-activities)))))
+                      :last (length old-activities)))
                     (stored
                      (slack-activity-feed--store-snapshot
                       team mode all-activities pagination generation)))
                (if stored
-                   (let ((current-page-p
-                          (and (buffer-live-p (oref this buf))
-                               (equal key (oref this page-key))
-                               (eq source-feed (oref this activity-feed)))))
+                   (let* ((current-page-p
+                           (and (buffer-live-p (oref this buf))
+                                (equal key (oref this page-key))
+                                (eq source-feed (oref this activity-feed))))
+                          (visible-matches-state-p
+                           (and current-page-p
+                                (not (oref this render-timer))
+                                (equal (oref source-feed activities)
+                                       old-activities))))
                      (when current-page-p
-                       (oset this activity-feed new-activity-feed))
+                       (oset this activity-feed new-activity-feed)
+                       (unless visible-matches-state-p
+                         (slack-activity-feed--replace-live-contents
+                          this all-activities)))
                      (slack-activity-feed--prefetch-rooms
                       new-activities team
                       (lambda ()
                         (slack-activity-feed--prefetch-messages
                          new-activities team #'ignore)))
-                     (funcall after-success current-page-p))
+                     (funcall after-success visible-matches-state-p))
                  (funcall after-success nil)))
            (error
             (when (functionp on-error)

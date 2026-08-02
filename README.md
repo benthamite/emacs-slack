@@ -204,8 +204,9 @@ Some terminology in the `slack-` functions:
     resurrecting the buffer with duplicated rows
   - missing Activity feed messages are fetched asynchronously and replace
     loading placeholders in place without redisplaying or reordering the buffer
-  - Activity feed pagination and missing-message results survive buffer closure
-    or mode changes, and stale pagination cannot overwrite a newer refresh
+  - Activity feed pagination reconciles visible rows with durable state, so
+    stale pagination cannot overwrite or duplicate a newer background refresh
+    and missing-message results survive buffer closure or mode changes
   - opening a watched-channel Activity feed entry marks that channel read and
     clears the local Activity unread state for the entry after Slack confirms
     the mark
