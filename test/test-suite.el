@@ -80,6 +80,147 @@
                                :usergroups (list usergroup))))
      ,@body))
 
+(ert-deftest slack-test-buffer-ts-property-navigation-preserves-positions ()
+  (with-temp-buffer
+    (insert (propertize "aaaaa" 'ts "1"))
+    (insert "---")
+    (insert (propertize "bbbbb" 'ts "2"))
+    (let ((max (point-max)))
+      (should (= 9 (slack-buffer-ts-eq 1 max "2")))
+      (should (= 13 (slack-buffer-ts-eq max 1 "2")))
+      (should (= 3 (slack-buffer-ts-eq 3 max "1")))
+      (should (= 11 (slack-buffer-ts-eq 11 1 "2")))
+      (should (= 9 (slack-buffer-next-point 1 max "1")))
+      (should (= 5 (slack-buffer-prev-point max 1 "2")))
+      (should (= 5 (slack-buffer-ts-eq 9 1 "1")))
+      (should (= 5 (slack-buffer-prev-point 9 1 "2")))
+      (should-not (slack-buffer-ts-eq 1 max "missing"))
+      (should-not (slack-buffer-next-point 9 13 "2"))
+      (should-not (slack-buffer-prev-point 5 1 "1")))))
+
+(ert-deftest slack-test-buffer-ts-search-cost-follows-property-runs ()
+  (with-temp-buffer
+    (dotimes (index 100)
+      (insert (propertize (make-string 1000 ?x)
+                          'ts (number-to-string index))))
+    (let ((calls 0)
+          (original (symbol-function 'get-text-property)))
+      (cl-letf (((symbol-function 'get-text-property)
+                 (lambda (&rest args)
+                   (cl-incf calls)
+                   (apply original args))))
+        (should (slack-buffer-ts-eq
+                 (point-min) (point-max) "99"))
+        (should (< calls 250))))))
+
+(ert-deftest slack-test-buffer-ts-navigation-in-one-character-buffer ()
+  (with-temp-buffer
+    (insert (propertize "x" 'ts "1"))
+    (should (= 1 (slack-buffer-ts-eq (point-min) (point-max) "1")))
+    (should (= 1 (slack-buffer-ts-eq (point-max) (point-min) "1")))
+    (should (= 1 (slack-buffer-next-point (point-min) (point-max) "0")))
+    (should (= 1 (slack-buffer-prev-point (point-max) (point-min) "2")))))
+
+(ert-deftest slack-test-buffer-ts-navigation-with-equal-boundaries ()
+  (with-temp-buffer
+    (insert (propertize "aa" 'ts "1"))
+    (insert (propertize "bb" 'ts "2"))
+    (should (= 2 (slack-buffer-ts-eq 2 2 "1")))
+    (should (= 3 (slack-buffer-next-point 3 3 "1")))
+    (should (= 2 (slack-buffer-prev-point 2 2 "2")))
+    (should-not (slack-buffer-ts-eq (point-max) (point-max) "2"))))
+
+(ert-deftest slack-test-buffer-ts-navigation-from-point-max ()
+  (with-temp-buffer
+    (insert (propertize "aa" 'ts "1"))
+    (should (= 2 (slack-buffer-ts-eq (point-max) (point-min) "1")))
+    (should (= 2 (slack-buffer-prev-point (point-max) (point-min) "2")))
+    (should-not
+     (slack-buffer-next-point (point-max) (point-max) "0"))))
+
+(ert-deftest slack-test-buffer-ts-navigation-in-unpropertized-buffer ()
+  (with-temp-buffer
+    (insert "plain")
+    (should-not
+     (slack-buffer-ts-eq (point-min) (point-max) "1"))
+    (should-not
+     (slack-buffer-ts-eq (point-max) (point-min) "1"))
+    (should-not
+     (slack-buffer-next-point (point-min) (point-max) "0"))
+    (should-not
+     (slack-buffer-prev-point (point-max) (point-min) "2"))))
+
+(ert-deftest slack-test-buffer-ts-navigation-across-adjacent-equal-values ()
+  (with-temp-buffer
+    (insert (propertize "aa" 'ts "1" 'side 'left))
+    (insert (propertize "bb" 'ts "1" 'side 'right))
+    (should (= 1 (slack-buffer-ts-eq (point-min) (point-max) "1")))
+    (should (= 4 (slack-buffer-ts-eq (point-max) (point-min) "1")))
+    (should (= 3 (slack-buffer-ts-eq 3 (point-max) "1")))
+    (should (= 2 (slack-buffer-ts-eq 2 (point-min) "1")))))
+
+(ert-deftest slack-test-buffer-ts-navigation-rejects-oversized-forward-end ()
+  (with-temp-buffer
+    (insert (propertize "x" 'ts "1"))
+    (dolist (function '(slack-buffer-next-point slack-buffer-ts-eq))
+      (let ((after (1+ (point-max)))
+            (calls 0)
+            (original (symbol-function 'next-single-property-change)))
+        (cl-letf (((symbol-function 'next-single-property-change)
+                   (lambda (&rest args)
+                     (cl-incf calls)
+                     (when (> calls 1)
+                       (error "Repeated terminal property boundary"))
+                     (apply original args))))
+          (should
+           (equal (list 'args-out-of-range after after)
+                  (should-error
+                   (funcall function (point-min) after "missing")
+                   :type 'args-out-of-range))))))))
+
+(ert-deftest slack-test-buffer-ts-navigation-preserves-nil-bound-errors ()
+  (with-temp-buffer
+    (insert (propertize "x" 'ts "1"))
+    (should-error
+     (slack-buffer-next-point nil (point-max) "missing")
+     :type 'wrong-type-argument)
+    (should-error
+     (slack-buffer-next-point (point-min) nil "missing")
+     :type 'wrong-type-argument)
+    (should-error
+     (slack-buffer-prev-point nil (point-min) "missing")
+     :type 'wrong-type-argument)
+    (should-error
+     (slack-buffer-prev-point (point-max) nil "missing")
+     :type 'wrong-type-argument)
+    (should-not (slack-buffer-ts-eq nil (point-max) "1"))
+    (should-not (slack-buffer-ts-eq (point-min) nil "1"))))
+
+(ert-deftest slack-test-buffer-ts-navigation-rejects-out-of-range-bounds ()
+  (with-temp-buffer
+    (insert (propertize "x" 'ts "1"))
+    (let ((before (1- (point-min)))
+          (after (1+ (point-max))))
+      (should
+       (equal (list 'args-out-of-range before before)
+              (should-error
+               (slack-buffer-next-point before (point-max) "missing")
+               :type 'args-out-of-range)))
+      (should
+       (equal (list 'args-out-of-range after after)
+              (should-error
+               (slack-buffer-ts-eq after (point-min) "missing")
+               :type 'args-out-of-range)))))
+  (with-temp-buffer
+    (insert "x")
+    (let ((before (1- (point-min))))
+      (should
+       (equal (list 'args-out-of-range before before)
+              (should-error
+               (slack-buffer-prev-point
+                (point-max) before "missing")
+               :type 'args-out-of-range))))))
+
 (ert-deftest slack-test-edit-message-buffer-caches-unregistered-team ()
   (slack-test-setup
     (oset team name "TestTeam")

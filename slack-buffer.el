@@ -1024,30 +1024,64 @@ seed the search; the remaining forms run when no target is found."
 
 (defun slack-buffer-next-point (start end ts)
   "Return the next position between START and END with a `ts' newer than TS."
-  (cl-loop for i from start to end
-           for next-ts = (get-text-property i 'ts)
-           if (and next-ts (string< ts next-ts))
-           return i))
+  (slack-buffer--validate-ts-search-bounds start end)
+  (slack-buffer--find-ts-forward
+   start end (lambda (candidate) (string< ts candidate))))
 
 (defun slack-buffer-prev-point (start end ts)
   "Return the prior position between START and END with a `ts' older than TS."
-  (cl-loop for i from start downto end
-           for prev-ts = (get-text-property i 'ts)
-           if (and prev-ts (string< prev-ts ts))
-           return i))
+  (slack-buffer--validate-ts-search-bounds start end)
+  (slack-buffer--find-ts-backward
+   start end (lambda (candidate) (string< candidate ts))))
 
 (defun slack-buffer-ts-eq (start end ts)
   "Return the position between START and END whose `ts' property equals TS."
   (when (and start end)
+    (slack-buffer--validate-ts-search-bounds start end)
     (if (<= start end)
-        (cl-loop for i from start to end
-                 if (string= (get-text-property i 'ts)
-                             ts)
-                 return i)
-      (cl-loop for i from start downto end
-               if (string= (get-text-property i 'ts)
-                           ts)
-               return i))))
+        (slack-buffer--find-ts-forward
+         start end (lambda (candidate) (string= candidate ts)))
+      (slack-buffer--find-ts-backward
+       start end (lambda (candidate) (string= candidate ts))))))
+
+(defun slack-buffer--validate-ts-search-bounds (start end)
+  "Require START and END to be accessible buffer positions."
+  (dolist (position (list start end))
+    (unless (<= (point-min) position (point-max))
+      (signal 'args-out-of-range
+              (list position position)))))
+
+(defun slack-buffer--find-ts-forward (start end predicate)
+  "Find a `ts' matching PREDICATE from START through END."
+  (let ((position start)
+        found)
+    (while (and position (not found) (<= position end))
+      (let ((ts (get-text-property position 'ts)))
+        (if (and ts (funcall predicate ts))
+            (setq found position)
+          (setq position
+                (and (< position end)
+                     (next-single-property-change
+                      position 'ts nil
+                      (min (point-max) (1+ end))))))))
+    found))
+
+(defun slack-buffer--find-ts-backward (start end predicate)
+  "Find a reverse `ts' matching PREDICATE from START through END."
+  (let ((position (if (and (= start (point-max)) (> start end))
+                      (1- start)
+                    start))
+        found)
+    (while (and position (not found) (>= position end))
+      (let ((ts (get-text-property position 'ts)))
+        (if (and ts (funcall predicate ts))
+            (setq found position)
+          (let ((boundary (previous-single-property-change
+                           (min (point-max) (1+ position))
+                           'ts nil end)))
+            (setq position
+                  (and boundary (> boundary end) (1- boundary)))))))
+    found))
 
 (defun slack-group-rename ()
   "Rename the current private channel, prompting for one if needed."
