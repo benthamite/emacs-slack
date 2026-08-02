@@ -10266,6 +10266,160 @@ USER defaults to the fixture user's id."
         (should-not (buffer-live-p original))
         (should (equal buffers-after-kill (buffer-list)))))))
 
+(ert-deftest slack-test-all-request-backed-entry-points-display-before-request ()
+  "Every stable request-backed entry point displays before starting its request."
+  (slack-test-setup
+    (oset team mark-as-read-immediately nil)
+    (let* ((source (slack-create-message-buffer channel "" team))
+           (deep-link-channel
+            (make-instance 'slack-channel
+                           :id "C-DEEP-LINK"
+                           :name "DeepLinkChannel"))
+           (thread-ts "1710000000.000100")
+           (deep-link-ts "1710000000.000300")
+           (parent (make-instance 'slack-message
+                                  :type "message"
+                                  :channel channel-id
+                                  :ts thread-ts
+                                  :thread_ts thread-ts
+                                  :text "parent"
+                                  :reactions nil))
+           displayed-objects
+           events
+           (rows
+            (list
+             (cons
+              'room-history
+              (lambda ()
+                (cl-letf (((symbol-function 'slack-conversations-history)
+                           (lambda (&rest _args) (push 'request events))))
+                  (slack-room-display channel team))))
+             (cons
+              'room-deep-link
+              (lambda ()
+                (cl-letf (((symbol-function 'slack-conversations-history)
+                           (lambda (&rest _args) (push 'request events))))
+                  (slack-open-message
+                   team deep-link-channel "1710000000.000200" nil))))
+             (cons
+              'existing-thread
+              (lambda ()
+                (cl-letf (((symbol-function 'slack-thread-replies)
+                           (lambda (&rest _args) (push 'request events))))
+                  (slack-thread-show-messages parent channel team))))
+             (cons
+              'thread-deep-link
+              (lambda ()
+                (cl-letf (((symbol-function 'slack-thread-replies)
+                           (lambda (&rest _args) (push 'request events))))
+                  (slack-open-message
+                   team channel deep-link-ts deep-link-ts deep-link-ts))))
+             (cons
+              'activity-feed
+              (lambda ()
+                (cl-letf (((symbol-function 'slack-activity-feed--selected-team)
+                           (lambda () team))
+                          ((symbol-function 'slack-activity-feed-request)
+                           (lambda (&rest _args) (push 'request events))))
+                  (slack-activity-feed-show))))
+             (cons
+              'saved-items
+              (lambda ()
+                (cl-letf (((symbol-function 'slack-team-select)
+                           (lambda (&optional _no-default) team))
+                          ((symbol-function
+                            'slack-team-ensure-conversations-loaded)
+                           #'ignore)
+                          ((symbol-function 'slack-stars-list-request)
+                           (lambda (&rest _args) (push 'request events))))
+                  (slack-saved-items))))
+             (cons
+              'file-list
+              (lambda ()
+                (cl-letf (((symbol-function 'slack-team-select)
+                           (lambda (&optional _no-default) team))
+                          ((symbol-function 'slack-file-list-request)
+                           (lambda (&rest _args) (push 'request events))))
+                  (slack-file-list))))
+             (cons
+              'message-search
+              (lambda ()
+                (cl-letf (((symbol-function 'slack-search-query-params)
+                           (lambda (&optional _query)
+                             (list team "scope messages" "timestamp" "desc")))
+                          ((symbol-function 'slack-search-request)
+                           (lambda (&rest _args) (push 'request events))))
+                  (slack-search-from-messages nil))))
+             (cons
+              'file-search
+              (lambda ()
+                (cl-letf (((symbol-function 'slack-search-query-params)
+                           (lambda (&optional _query)
+                             (list team "scope files" "timestamp" "desc")))
+                          ((symbol-function 'slack-search-request)
+                           (lambda (&rest _args) (push 'request events))))
+                  (slack-search-from-files))))
+             (cons
+              'all-threads
+              (lambda ()
+                (cl-letf (((symbol-function 'slack-team-select)
+                           (lambda (&optional _no-default) team))
+                          ((symbol-function
+                            'slack-subscriptions-thread-get-view)
+                           (lambda (&rest _args) (push 'request events))))
+                  (slack-all-threads))))
+             (cons
+              'scheduled-messages
+              (lambda ()
+                (cl-letf (((symbol-function 'slack-scheduled-messages--team)
+                           (lambda (&optional _selected) team))
+                          ((symbol-function
+                            'slack-list-scheduled-messages-request)
+                           (lambda (&rest _args) (push 'request events))))
+                  (slack-scheduled-messages-show team))))
+             (cons
+              'pinned-items
+              (lambda ()
+                (cl-letf (((symbol-function 'slack-pins-list)
+                           (lambda (&rest _args) (push 'request events))))
+                  (slack-buffer-display-pins-list source))))
+             (cons
+              'file-detail
+              (lambda ()
+                (cl-letf (((symbol-function 'slack-file-request-info)
+                           (lambda (&rest _args) (push 'request events))))
+                  (slack-buffer-display-file source "F-SCOPE"))))
+             (cons
+              'remote-dialog
+              (lambda ()
+                (cl-letf (((symbol-function 'slack-dialog-get-request)
+                           (lambda (&rest _args) (push 'request events))))
+                  (slack-dialog-get "D-SCOPE" team))))
+             (cons
+              'channel-bookmarks
+              (lambda ()
+                (cl-letf (((symbol-function 'slack-bookmarks-request)
+                           (lambda (&rest _args) (push 'request events))))
+                  (slack-show-channel-bookmarks channel-id team)))))))
+      (puthash (oref deep-link-channel id)
+               deep-link-channel (oref team channels))
+      (slack-room-set-messages channel (list parent) team)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-buffer-display)
+                     (lambda (object)
+                       (push object displayed-objects)
+                       (push 'display events))))
+            (should (= 15 (length rows)))
+            (dolist (row rows)
+              (setq events nil)
+              (funcall (cdr row))
+              (should (equal '(display request) (nreverse events)))))
+        (dolist (object (cons source displayed-objects))
+          (when (and (eieio-object-p object)
+                     (slot-boundp object 'buf)
+                     (buffer-live-p (oref object buf)))
+            (kill-buffer (oref object buf))))))))
+
 (if noninteractive
     (ert-run-tests-batch-and-exit)
   (ert t))

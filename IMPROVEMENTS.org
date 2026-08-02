@@ -143,6 +143,22 @@ by ~slack-prefetch-channel-messages-p~ defcustom (default ~t~).
 Chose the lighter alternative: only prefetch channels with unreads, not all
 channels, to minimize memory and rate-limit impact.
 
+The complete fix no longer relies on a successful prefetch. Once a room has a
+stable id, its buffer is displayed from durable room-owned history state before
+the history request begins. Other pages use durable team-owned state. A cold
+room shows an explicit loading row; a warm room keeps its retained messages
+visible during refresh. The same lifecycle now covers every stable
+request-backed view, including threads and deep links, Activity Feed, saved
+items, channel bookmarks, file lists and details, both searches, All threads,
+scheduled messages, pinned items, and remote dialogs.
+
+Primary pages are committed before supplemental user or message hydration.
+Failed loads render an error and retry control in the same buffer, while a
+failed refresh preserves stale contents. Repeated opens coalesce on one
+in-flight generation, stale callbacks cannot replace newer state, and callbacks
+may update durable state after a buffer is killed without recreating or writing
+through a replacement buffer.
+
 * DONE Stale reaction cache
 :PROPERTIES:
 :FILE: slack-reaction-event.el

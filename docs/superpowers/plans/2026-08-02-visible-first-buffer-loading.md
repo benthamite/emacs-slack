@@ -22,11 +22,12 @@ means completing all four subplans in order during this branch:
 - [ ] Update `IMPROVEMENTS.org` with the closed lifecycle defect and the invariant
       that domain readiness is never inferred from buffer existence.
 - [ ] Update `README.md` under “How to use” with this user-facing guarantee:
-      channel/group/DM/thread selection, Activity Feed, saved items, file lists,
-      searches, all threads, scheduled messages, pins, file details, and remote
-      dialogs display a cached result or loading shell before their Slack request
-      finishes, refresh in place, coalesce duplicate opens, retain pagination, and
-      show a retry control without discarding stale data on failure.
+      channel/group/DM/thread selection, Activity Feed, saved items, channel
+      bookmarks, file lists, searches, all threads, scheduled messages, pins,
+      file details, and remote dialogs display a cached result or loading shell
+      before their Slack request finishes, refresh in place, coalesce duplicate
+      opens, retain pagination, and show a retry control without discarding stale
+      data on failure.
 - [ ] Run an `rg` inventory of every interactive request-backed buffer entry point
       and add any applicable omission to the relevant subplan before final review.
 - [ ] Run independent specification and code-quality reviews over the combined

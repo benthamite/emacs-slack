@@ -150,6 +150,25 @@ for that endpoint.
 
 I recommend to chat with slackbot for tutorial using `slack-im-select`.
 
+### Loading request-backed views
+
+Once a stable Slack target is known, emacs-slack displays its buffer before
+starting the network request. Cached contents remain visible during refresh;
+cold buffers show an explicit loading row, then update in place. This applies to
+rooms and existing threads (including deep links), Activity Feed, saved items,
+channel bookmarks, file lists and file details, message and file searches, All
+threads, scheduled messages, pinned items, and remote dialogs. Primary results
+appear before supplemental user or message hydration finishes. Failures are
+shown in the same buffer with a retry action, duplicate opens share one request,
+stale replies cannot replace newer state, and late replies do not recreate a
+killed buffer. First-page and load-more pagination state is retained across
+buffer recreation.
+
+Direct and multi-person conversations still resolve their stable room id first
+when necessary. Member selection likewise waits until the target user is known;
+local compose, edit, share, log, and new-thread buffers do not make an initial
+page request.
+
 Some terminology in the `slack-` functions:
 - `im`: An IM (instant message) is a direct message between you and exactly one other Slack user.
 - `channel`: A channel is a Slack channel which you are a member of

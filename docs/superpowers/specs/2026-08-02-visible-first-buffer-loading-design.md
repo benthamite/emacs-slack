@@ -164,6 +164,7 @@ The complete migration covers these request-gated paths:
 | Existing thread view | Show cached root/replies or loading row, then load replies in place. New local thread buffers remain immediate. |
 | Activity Feed | Show cached snapshot or a cold loading shell before the initial index request; hydrate referenced messages after display. |
 | Saved items | Show cached items or a cold loading shell; refresh in place and hydrate referenced messages after display. |
+| Channel bookmarks | Show the channel-scoped shell immediately; retain cached bookmarks during refresh. |
 | File list | Show cached files or a cold loading shell, retaining pagination. |
 | All threads | Show cached threads or a cold loading shell; refresh in place. |
 | Message and file search | Create the query-named result buffer immediately, then replace its loading state with results. |

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Migrate every remaining stable request-backed Slack buffer to the shared visible-first lifecycle: files, searches, all threads, scheduled messages, pins, file details, and remote dialogs.
+**Goal:** Migrate every remaining stable request-backed Slack buffer to the shared visible-first lifecycle: files, searches, all threads, scheduled messages, pins, file details, channel bookmarks, and remote dialogs.
 
 **Architecture:** Each view keeps its native payload and renderer but stores the last successful page in the team registry under a stable domain key. Requests that currently delay completion for missing users gain an `on-primary-page` callback; simple requests use the presenter's immediate-ready success. Payload slots become optional only where a stable identity is known before the payload.
 
@@ -387,7 +387,92 @@ git add slack-dialog-buffer.el test/run-test.el test/test-buffer-rendering.el
 git commit -m "slack: show remote dialogs before schema load"
 ```
 
-### Task 8: Audit all remaining request-backed entry points
+### Task 8: Make channel bookmarks visible before `bookmarks.list`
+
+**Files:**
+
+- Create: `slack-channel-bookmarks-buffer.el`
+- Modify: `slack-channel.el:106-130`
+- Modify: `slack-team.el:80-105`
+- Modify: `slack.el:100-115,480-510`
+- Modify: `test/run-test.el`
+- Modify: `test/test-buffer-rendering.el`
+
+- [ ] **Step 1: Add cold-order, error/retry, kill, and renderer tests**
+
+Stub `slack-bookmarks-request`, call `slack-show-channel-bookmarks`, and record
+display and request events. Assert the command returns the displayed object and:
+
+```elisp
+(should (equal '(display request) (nreverse events)))
+(should (equal '(channel-bookmarks "C11111")
+               (slack-channel-bookmarks-page-key "C11111")))
+```
+
+Fail the captured request and assert an in-buffer retry starts a second request
+without replacing the object or Emacs buffer. Kill the buffer before success,
+invoke the late callback, and assert the durable bookmark value is committed but
+no buffer is recreated. In `test/test-buffer-rendering.el`, cover cold loading,
+an empty ready page, cached bookmarks during refresh, and a failed page with retry.
+
+- [ ] **Step 2: Run RED**
+
+Run compile, `test-upstream`, and `test-buffer`; expect the existing help-window
+implementation to remain request-gated and to lack durable failure/retry state.
+
+- [ ] **Step 3: Add the stable bookmark buffer and presenter**
+
+Create `slack-channel-bookmarks-buffer`, keyed by channel id in the team buffer
+registry. Store pages under `(channel-bookmarks CHANNEL-ID)`. Its renderer inserts
+the shared loading/refresh/error status and, when loaded, an Org heading plus one
+link per bookmark or `(No bookmarks.)`. Its presenter must have this shape:
+
+```elisp
+(defun slack-channel-bookmarks-buffer--present (channel-id team refresh)
+  (let* ((state (slack-team-page-state
+                 team (list 'channel-bookmarks channel-id)))
+         (buffer (slack-create-channel-bookmarks-buffer channel-id team)))
+    (slack-buffer-present-page
+     buffer state
+     (lambda (_generation success error)
+       (slack-bookmarks-request
+        channel-id team
+        (lambda (data)
+          (funcall success
+                   (slack-seq-to-list (plist-get data :bookmarks)) nil nil))
+        error))
+     #'slack-channel-bookmarks-buffer-render-page-state
+     refresh)
+    buffer))
+```
+
+Normalize bookmark payloads inside `condition-case` and route normalization
+errors through `error`; do not partially mutate team or buffer state first.
+
+- [ ] **Step 4: Wire request errors, registration, and the command**
+
+Extend `slack-bookmarks-request` to accept optional `on-error`, pass it to
+`slack-request-handle-error`, and route transport errors to it. Add the
+`slack-channel-bookmarks-buffer` team registry slot, require the new module from
+`slack.el`, and replace the delayed help-window callback with:
+
+```elisp
+(if (and channel-id team)
+    (slack-channel-bookmarks-buffer--present channel-id team t)
+  (user-error "Not in a Slack channel buffer"))
+```
+
+- [ ] **Step 5: Verify and commit**
+
+Run all suites plus `batch-test.sh`; then:
+
+```sh
+git add README.md slack-channel-bookmarks-buffer.el slack-channel.el \
+  slack-team.el slack.el test/run-test.el test/test-buffer-rendering.el
+git commit -m "slack: show channel bookmarks before loading"
+```
+
+### Task 9: Audit all remaining request-backed entry points
 
 **Files:**
 
@@ -399,8 +484,8 @@ git commit -m "slack: show remote dialogs before schema load"
 Run `rg -n` for every interactive `slack-buffer-display`, `slack-room-display`,
 and request call. Classify every request-backed interactive path. The expected
 applicable set is room selection, existing threads/deep links, Activity Feed,
-saved items, file list, both searches, all threads, scheduled messages, pins, file
-detail, and remote dialogs.
+saved items, channel bookmarks, file list, both searches, all threads, scheduled
+messages, pins, file detail, and remote dialogs.
 
 The documented exceptions are unresolved DM/MPIM identity,
 conversation-member selection before the target user is chosen, local new-thread
@@ -410,10 +495,12 @@ and migrate it in a dedicated commit before proceeding.
 
 - [ ] **Step 2: Add a direct full-scope table test**
 
-Add one ERT test whose rows invoke the command adapters with captured pending
-callbacks and assert each row recorded display before request completion. Include
-one row for every applicable family above. This count is the mechanical completion
-measure; passing unrelated totals is not sufficient.
+Add one ERT test whose 15 rows invoke the command adapters with captured pending
+callbacks and assert each row recorded display before request completion. The rows
+are room history, room deep link, existing thread, thread deep link, Activity Feed,
+saved items, channel bookmarks, file list, message search, file search, All Threads,
+scheduled messages, pins, file detail, and remote dialog. The explicit row count is
+the mechanical completion measure; passing unrelated totals is not sufficient.
 
 - [ ] **Step 3: Verify and record the closed issue**
 
