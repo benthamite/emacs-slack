@@ -838,7 +838,9 @@ https://google.com
         (let ((section (car elements)))
           (should (string= "rich_text_list" (plist-get section :type)))
           (should (string= "bullet" (plist-get section :style)))
-          (should (eq 1 (plist-get section :indent)))
+          ;; Two spaces = one indent level; a single leading space is
+          ;; level 0 (upstream's slack-list-indent-level semantics).
+          (should (eq 0 (plist-get section :indent)))
           (let ((elements (plist-get section :elements)))
             (should (eq 3 (length elements)))
 
@@ -3411,21 +3413,22 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
       (unwind-protect
           (progn
             (with-temp-file target (insert "precious"))
-            (cl-letf (((symbol-function 'read-file-name)
-                       (lambda (&rest _) target))
-                      ((symbol-function 'y-or-n-p)
-                       (lambda (&rest _) nil))
-                      ((symbol-function 'slack-url-copy-file)
-                       (cl-function
-                        (lambda (&rest _args &key &allow-other-keys)
-                          (setq download-started t)))))
-              (should-error (slack-file-download file team)
-                            :type 'user-error)
-              (should-not download-started)
-              (cl-letf (((symbol-function 'y-or-n-p)
-                         (lambda (&rest _) t)))
-                (slack-file-download file team)
-                (should download-started))))
+            (let ((slack-file-download-confirm t))
+              (cl-letf (((symbol-function 'read-file-name)
+                         (lambda (&rest _) target))
+                        ((symbol-function 'yes-or-no-p)
+                         (lambda (&rest _) nil))
+                        ((symbol-function 'slack-url-copy-file)
+                         (cl-function
+                          (lambda (&rest _args &key &allow-other-keys)
+                            (setq download-started t)))))
+                (should-error (slack-file-download file team)
+                              :type 'user-error)
+                (should-not download-started)
+                (cl-letf (((symbol-function 'yes-or-no-p)
+                           (lambda (&rest _) t)))
+                  (slack-file-download file team)
+                  (should download-started)))))
         (delete-directory dir t)))))
 
 (ert-deftest slack-test-merge-and-equalp-on-strings ()
