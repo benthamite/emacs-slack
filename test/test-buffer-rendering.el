@@ -879,6 +879,36 @@ produces a newline with `not-tracked-p'."
           (let ((kill-buffer-query-functions nil))
             (kill-buffer (oref buffer buf))))))))
 
+(ert-deftest slack-test-activity-feed-page-render-keeps-exact-buffer ()
+  "Rendering page state updates the existing Activity Feed buffer."
+  (slack-test-setup
+    (let* ((state (slack-team-page-state
+                   team (list 'activity-feed nil)))
+           (snapshot (list :activities nil :pagination "next"))
+           (feed (make-instance 'slack-activity-feed
+                                :activities nil
+                                :pagination nil
+                                :last nil))
+           (object (make-instance 'slack-activity-feed-buffer
+                                  :team-id (oref team id)
+                                  :room-id "__activity-feed__"
+                                  :cached-team team
+                                  :activity-feed feed))
+           (emacs-buffer (slack-buffer-buffer object)))
+      (unwind-protect
+          (progn
+            (slack-page-state-store state snapshot "next" t)
+            (with-current-buffer emacs-buffer
+              (cl-letf (((symbol-function 'slack-buffer-buffer)
+                         (lambda (&rest _)
+                           (error "renderer must not recreate the buffer"))))
+                (slack-activity-feed-render-page-state object state)))
+            (should (eq emacs-buffer (oref object buf)))
+            (should (equal "next"
+                           (oref (oref object activity-feed) pagination))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
 (ert-deftest slack-test-rerender-covers-slack-mode-buffers ()
   "Async rerender reaches buffers in `slack-mode'."
   (let ((slack-emoji-master (make-hash-table :test 'equal))
