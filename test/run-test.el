@@ -3371,6 +3371,75 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
                      (mapcar #'slack-ts
                              (slack-star-items (oref team star))))))))
 
+(defun slack-test-run-overlapping-star-writes
+    (team channel-id ts operations outcomes callback-order)
+  "Run overlapping saved OPERATIONS for TEAM and return whether TS is saved.
+OUTCOMES maps each operation to success or failure.  CALLBACK-ORDER contains
+the operation indexes in terminal callback order."
+  (let (requests)
+    (cl-letf (((symbol-function 'slack-request)
+               (lambda (request)
+                 (push request requests)
+                 request)))
+      (dolist (operation operations)
+        (pcase operation
+          ('add
+           (slack-star-api-request
+            slack-message-stars-add-url
+            (list (cons "item_id" channel-id)
+                  (cons "item_type" "message")
+                  (cons "ts" ts))
+            team
+            (lambda ()
+              (slack-team-mark-saved team channel-id ts))))
+          ('remove
+           (slack-star-api-request
+            slack-message-stars-remove-url
+            (list (cons "item_id" channel-id)
+                  (cons "item_type" "message")
+                  (cons "ts" ts))
+            team
+            (lambda ()
+              (slack-team-mark-unsaved
+               team ts "message" channel-id))))))
+      (setq requests (nreverse requests))
+      (dolist (index callback-order)
+        (funcall
+         (oref (nth index requests) success)
+         :data
+         (if (nth index outcomes)
+             (list :ok t)
+           (list :ok :json-false :error "not_allowed")))))
+    (and (slack-ts-saved-p team ts "message" channel-id) t)))
+
+(ert-deftest slack-test-overlapping-add-remove-writes-replay-from-unsaved-baseline ()
+  "Resolve overlapping add/remove writes from one stable unsaved baseline."
+  (dolist (outcomes '((nil nil) (t nil) (nil t) (t t)))
+    (dolist (callback-order '((0 1) (1 0)))
+      (slack-test-setup
+        (let ((ts "3.000")
+              (expected (and (car outcomes) (not (cadr outcomes)))))
+          (should
+           (eq expected
+               (slack-test-run-overlapping-star-writes
+                team channel-id ts '(add remove)
+                outcomes callback-order))))))))
+
+(ert-deftest slack-test-overlapping-remove-add-writes-replay-from-saved-baseline ()
+  "Resolve overlapping remove/add writes from one stable saved baseline."
+  (dolist (outcomes '((nil nil) (t nil) (nil t) (t t)))
+    (dolist (callback-order '((0 1) (1 0)))
+      (slack-test-setup
+        (let* ((ts "1.000")
+               (item (slack-test-star-item ts channel-id))
+               (expected (or (cadr outcomes) (not (car outcomes)))))
+          (oset team star (make-instance 'slack-star :items (list item)))
+          (should
+           (eq expected
+               (slack-test-run-overlapping-star-writes
+                team channel-id ts '(remove add)
+                outcomes callback-order))))))))
+
 (ert-deftest slack-test-stars-list-replays-pending-add-after-ack ()
   "Keep a pre-request add in an older response even after its write succeeds."
   (slack-test-setup

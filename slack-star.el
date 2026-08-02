@@ -53,7 +53,8 @@ bound."
   ((sequence :initform 0 :type integer)
    (entries :initform nil :type list)
    (active-tokens :initform nil :type list)
-   (pending-writes :initform nil :type list)))
+   (pending-writes :initform nil :type list)
+   (open-chains :initform nil :type list)))
 
 (defclass slack-star-mutation-token ()
   ((journal :initarg :journal :type slack-star-mutation-journal)
@@ -62,7 +63,12 @@ bound."
 
 (defclass slack-star-pending-write ()
   ((state :initform 'pending :type symbol)
+   (chains :initform nil :type list)
    (rollbacks :initform nil :type list)))
+
+(defclass slack-star-optimistic-chain ()
+  ((baseline-items :initarg :baseline-items :type list)
+   (entries :initform nil :type list)))
 
 (defvar slack-star--current-pending-write nil
   "Saved-item write whose optimistic mutation is currently being applied.")
@@ -565,6 +571,33 @@ not saved\".  Optional ITEM-TYPE and ITEM-ID disambiguate equal timestamps."
   (when-let* ((star (oref team star)))
     (slack-star--contains-ts-p star ts item-type item-id)))
 
+(defun slack-star-pending-intent (team ts &optional item-type item-id)
+  "Return TEAM's pending saved intent for TS, ITEM-TYPE, and ITEM-ID.
+The result is `(pending . SAVED-P)', or nil when no overlapping saved-item
+write remains unacknowledged."
+  (let* ((journal (slack-star--mutation-journal team))
+         (identity (list ts item-type item-id))
+         (chain
+          (cl-find-if
+           (lambda (candidate)
+             (and
+              (slack-star-optimistic-chain-pending-p candidate)
+              (cl-some
+               (lambda (entry)
+                 (slack-star-mutation-identities-overlap-p
+                  identity (slack-star-mutation-entry-identity entry)))
+               (oref candidate entries))))
+           (oref journal open-chains))))
+    (when chain
+      (cons
+       'pending
+       (and
+        (cl-some
+         (lambda (item)
+           (slack-star-item-matches-p item ts item-type item-id))
+         (slack-star-optimistic-chain-replayed-items chain))
+        t)))))
+
 (defun slack-team-mark-saved (team channel ts)
   "Record that the message at TS in CHANNEL is saved for TEAM.
 Initializes TEAM's saved items list when it has not been loaded, so
@@ -583,20 +616,13 @@ cannot erase it."
   (unless (oref team star)
     (oset team star (make-instance 'slack-star :items nil :cursor nil)))
   (let* ((star (oref team star))
-         (key (slack-star-item-key item))
-         (previous
-          (cl-find-if
-           (lambda (existing)
-             (equal key (slack-star-item-key existing)))
-           (slack-star-items star)))
+         (items (slack-star-items star))
          (entry (slack-star-mutation-journal-record-add team item)))
-    (oset star items
-          (slack-star--add-item (slack-star-items star) item))
     (when slack-star--current-pending-write
-      (slack-star-pending-write-add-rollback
-       slack-star--current-pending-write
-       (lambda ()
-         (slack-star--rollback-add team entry item previous))))
+      (slack-star-pending-write-track-entry
+       team slack-star--current-pending-write entry items))
+    (oset star items
+          (slack-star--add-item items item))
     entry))
 
 (defun slack-team-mark-unsaved (team ts &optional item-type item-id)
@@ -606,26 +632,19 @@ an older in-flight response cannot reintroduce the item.  Optional ITEM-TYPE
 and ITEM-ID scope the removal; omitted identity preserves the legacy
 timestamp-wide match."
   (let* ((star (oref team star))
-         (removed
-          (and star
-               (cl-remove-if-not
-                (lambda (item)
-                  (slack-star-item-matches-p item ts item-type item-id))
-                (slack-star-items star))))
+         (items (and star (slack-star-items star)))
          (entry
           (slack-star-mutation-journal-record-remove
            team ts item-type item-id)))
+    (when slack-star--current-pending-write
+      (slack-star-pending-write-track-entry
+       team slack-star--current-pending-write entry items))
     (when star
       (oset star items
             (cl-remove-if
              (lambda (item)
                (slack-star-item-matches-p item ts item-type item-id))
-             (slack-star-items star))))
-    (when slack-star--current-pending-write
-      (slack-star-pending-write-add-rollback
-       slack-star--current-pending-write
-       (lambda ()
-         (slack-star--rollback-remove team entry removed))))
+             items)))
     entry))
 
 (defun slack-star-pending-write-start (team)
@@ -650,6 +669,8 @@ timestamp-wide match."
   "Rollback TEAM's failed saved-item WRITE and record its terminal state."
   (when (eq 'pending (oref write state))
     (oset write state 'failed)
+    (dolist (chain (oref write chains))
+      (slack-star-optimistic-chain-reconcile team chain))
     (dolist (rollback (oref write rollbacks))
       (funcall rollback))
     (slack-star-pending-write-finish team write)))
@@ -659,51 +680,106 @@ timestamp-wide match."
   (let ((journal (slack-star--mutation-journal team)))
     (oset journal pending-writes
           (delq write (oref journal pending-writes)))
+    (dolist (chain (oref write chains))
+      (unless (slack-star-optimistic-chain-pending-p chain)
+        (oset journal open-chains
+              (delq chain (oref journal open-chains)))))
     (slack-star-mutation-journal--prune journal)))
 
-(defun slack-star--rollback-add (team entry item previous)
-  "Rollback TEAM's optimistic add ENTRY for ITEM to PREVIOUS state."
-  (unless (slack-star-mutation-journal-later-entry-p team entry)
-    (when-let* ((star (oref team star)))
-      (let* ((key (slack-star-item-key item))
-             (items
-              (cl-remove-if
-               (lambda (current)
-                 (equal key (slack-star-item-key current)))
-               (slack-star-items star))))
-        (oset star items
-              (if previous
-                  (slack-star--add-item items previous)
-                items))))))
+(defun slack-star-pending-write-track-entry (team write entry items)
+  "Attach TEAM's optimistic mutation ENTRY and pre-mutation ITEMS to WRITE."
+  (let* ((journal (slack-star--mutation-journal team))
+         (chain
+          (cl-find-if
+           (lambda (candidate)
+             (slack-star-optimistic-chain-overlaps-entry-p
+              candidate entry))
+           (oref journal open-chains))))
+    (unless chain
+      (setq chain
+            (make-instance
+             'slack-star-optimistic-chain
+             :baseline-items
+             (cl-remove-if-not
+              (lambda (item)
+                (slack-star-mutation-entry-matches-item-p entry item))
+              items)))
+      (push chain (oref journal open-chains)))
+    (oset chain entries (append (oref chain entries) (list entry)))
+    (cl-pushnew chain (oref write chains) :test #'eq)
+    chain))
 
-(defun slack-star--rollback-remove (team entry removed)
-  "Rollback TEAM's optimistic remove ENTRY by restoring REMOVED items."
-  (unless (or (null removed)
-              (slack-star-mutation-journal-later-entry-p team entry))
-    (unless (oref team star)
-      (oset team star (make-instance 'slack-star :items nil :cursor nil)))
-    (let ((star (oref team star)))
+(defun slack-star-optimistic-chain-reconcile (team chain)
+  "Recompute TEAM's saved state for optimistic mutation CHAIN."
+  (let* ((star (oref team star))
+         (current (and star (slack-star-items star)))
+         (unrelated
+          (cl-remove-if
+           (lambda (item)
+             (cl-some
+              (lambda (entry)
+                (slack-star-mutation-entry-matches-item-p entry item))
+              (oref chain entries)))
+           current))
+         (replayed (slack-star-optimistic-chain-replayed-items chain)))
+    (when (or star replayed)
+      (unless star
+        (setq star (make-instance 'slack-star :items nil :cursor nil))
+        (oset team star star))
       (oset star items
-            (slack-star--append-unique-items
-             removed (slack-star-items star))))))
+            (slack-star--append-unique-items replayed unrelated)))))
 
-(defun slack-star-mutation-journal-later-entry-p (team entry)
-  "Return non-nil when TEAM has a later live mutation overlapping ENTRY."
+(defun slack-star-optimistic-chain-replayed-items (chain)
+  "Return saved items produced by replaying nonfailed mutations in CHAIN."
+  (let ((items (copy-sequence (oref chain baseline-items))))
+    (dolist (entry (oref chain entries))
+      (let ((write (plist-get entry :write)))
+        (unless (and write (eq 'failed (oref write state)))
+          (pcase (plist-get entry :operation)
+            ('add
+             (setq items
+                   (slack-star--add-item
+                    items (plist-get entry :item))))
+            ('remove
+             (setq items
+                   (cl-remove-if
+                    (lambda (item)
+                      (slack-star-mutation-entry-matches-item-p
+                       entry item))
+                    items)))))))
+    items))
+
+(defun slack-star-optimistic-chain-pending-p (chain)
+  "Return non-nil when CHAIN still contains an unacknowledged write."
+  (cl-some
+   (lambda (entry)
+     (let ((write (plist-get entry :write)))
+       (and write (eq 'pending (oref write state)))))
+   (oref chain entries)))
+
+(defun slack-star-optimistic-chain-overlaps-entry-p (chain entry)
+  "Return non-nil when optimistic CHAIN overlaps mutation ENTRY."
   (cl-some
    (lambda (candidate)
-     (let ((write (plist-get candidate :write)))
-       (and (> (plist-get candidate :sequence)
-               (plist-get entry :sequence))
-            (not (and write (eq 'failed (oref write state))))
-            (slack-star-mutation-entries-overlap-p entry candidate))))
-   (oref (slack-star--mutation-journal team) entries)))
+     (slack-star-mutation-entries-overlap-p candidate entry))
+   (oref chain entries)))
 
 (defun slack-star-mutation-entries-overlap-p (first second)
   "Return non-nil when saved-item mutations FIRST and SECOND overlap."
-  (pcase-let ((`(,first-ts ,first-type ,first-id)
-               (slack-star-mutation-entry-identity first))
-              (`(,second-ts ,second-type ,second-id)
-               (slack-star-mutation-entry-identity second)))
+  (slack-star-mutation-identities-overlap-p
+   (slack-star-mutation-entry-identity first)
+   (slack-star-mutation-entry-identity second)))
+
+(defun slack-star-mutation-entry-matches-item-p (entry item)
+  "Return non-nil when saved mutation ENTRY applies to ITEM."
+  (pcase-let ((`(,ts ,item-type ,item-id)
+               (slack-star-mutation-entry-identity entry)))
+    (slack-star-item-matches-p item ts item-type item-id)))
+
+(defun slack-star-mutation-identities-overlap-p (first second)
+  "Return non-nil when saved-item identities FIRST and SECOND overlap."
+  (pcase-let ((`(,first-ts ,first-type ,first-id) first)
+              (`(,second-ts ,second-type ,second-id) second))
     (and (string= first-ts second-ts)
          (or (null first-type) (null second-type)
              (string= first-type second-type))
