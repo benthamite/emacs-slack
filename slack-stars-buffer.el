@@ -387,6 +387,7 @@ flight stays dead instead of being re-created."
              (buffer (current-buffer))
              primary-seen-p
              accepted-star
+             accepted-items
              new-items)
         (cl-labels
             ((reset-loading-flag ()
@@ -409,6 +410,8 @@ flight stays dead instead of being re-created."
                     (eq accepted-star (slack-page-state-value state))
                     (equal (oref accepted-star cursor)
                            (slack-page-state-continuation state))))
+             (accepted-items-current-p ()
+               (equal accepted-items (slack-star-items accepted-star)))
              (primary (page stored-star)
                (unless primary-seen-p
                  (setq primary-seen-p t)
@@ -426,7 +429,9 @@ flight stays dead instead of being re-created."
                                   candidate (oref page cursor)
                                   (slack-star-has-next-page-p page))
                              (setq new-items page-items
-                                   accepted-star candidate)
+                                   accepted-star candidate
+                                   accepted-items
+                                   (copy-sequence all-items))
                              (oset team star candidate)))
                        (when (eq (oref team star) stored-star)
                          (oset team star (slack-page-state-value state)))
@@ -443,8 +448,11 @@ flight stays dead instead of being re-created."
                       (unwind-protect
                           (when (and (accepted-current-p)
                                      (presentation-current-p))
-                            (slack-stars-buffer--append-items
-                             this new-items state))
+                            (if (accepted-items-current-p)
+                                (slack-stars-buffer--append-items
+                                 this new-items state)
+                              (slack-stars-buffer-render-page-state
+                               this state)))
                         (reset-loading-flag))))
                  (reset-loading-flag)))
              (failed (&rest _args)

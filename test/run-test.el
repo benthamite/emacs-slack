@@ -2557,6 +2557,74 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
       (funcall users-success)
       (should (equal '(ready users primary) events)))))
 
+(ert-deftest slack-test-stars-list-refresh-preserves-live-event-delta ()
+  (slack-test-setup
+    (let* ((kept-item (slack-test-star-item "2.000" channel-id))
+           (removed-item (slack-test-star-item "1.000" channel-id))
+           (source-star (make-instance 'slack-star
+                                       :items (list kept-item removed-item)
+                                       :cursor "old-cursor"))
+           request-success)
+      (oset team star source-star)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (setq request-success (oref request success))))
+                ((symbol-function 'slack-team-missing-user-ids)
+                 (lambda (&rest _args) nil)))
+        (slack-stars-list-request team)
+        (slack-event-update-star-item
+         (slack-create-star-event
+          (list :type "star_added"
+                :item (list :type "message" :channel channel-id
+                            :message (list :ts "3.000"))))
+         team)
+        (slack-event-update-star-item
+         (slack-create-star-event
+          (list :type "star_removed"
+                :item (list :type "message" :channel channel-id
+                            :message (list :ts "1.000"))))
+         team)
+        (funcall
+         request-success
+         :data
+         (list :ok t
+               :saved_items
+               (list
+                (list :item_id channel-id :item_type "message"
+                      :message (list :type "message" :user user-id
+                                     :text "kept" :ts "2.000"))
+                (list :item_id channel-id :item_type "message"
+                      :message (list :type "message" :user user-id
+                                     :text "removed" :ts "1.000")))
+               :response_metadata (list :next_cursor "new-cursor"))))
+      (should (equal '("3.000" "2.000")
+                     (mapcar #'slack-ts
+                             (slack-star-items (oref team star))))))))
+
+(ert-deftest slack-test-stars-list-hydrates-saved-item-authors ()
+  (slack-test-setup
+    (let ((missing-user-id "U-saved-author")
+          request-success
+          requested-user-ids)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (setq request-success (oref request success))))
+                ((symbol-function 'slack-users-info-request)
+                 (lambda (user-ids _team &rest _args)
+                   (setq requested-user-ids user-ids))))
+        (slack-stars-list-request team)
+        (funcall
+         request-success
+         :data
+         (list :ok t
+               :saved_items
+               (list
+                (list :item_id channel-id :item_type "message"
+                      :message (list :type "message" :user missing-user-id
+                                     :text "unknown author" :ts "1.000")))
+               :response_metadata (list :next_cursor ""))))
+      (should (equal (list missing-user-id) requested-user-ids)))))
+
 (ert-deftest slack-test-stars-list-four-argument-call-remains-compatible ()
   (slack-test-setup
     (let (request-success
@@ -4200,6 +4268,67 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
             (should (equal "cursor-1"
                            (slack-page-state-continuation state)))
             (should-not appended)
+            (with-current-buffer buffer
+              (should-not slack-buffer--loading-more-p)))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
+(ert-deftest slack-test-stars-load-more-reconciles-removal-during-hydration ()
+  (slack-test-setup
+    (let* ((old-item (slack-test-star-item "2.000" channel-id))
+           (page-item (slack-test-star-item "1.000" channel-id))
+           (old-star (make-instance 'slack-star
+                                    :items (list old-item)
+                                    :cursor "cursor-1"))
+           (page (make-instance 'slack-star
+                                :items (list page-item)
+                                :cursor ""))
+           (request-star (make-instance 'slack-star
+                                        :items (list old-item page-item)
+                                        :cursor ""))
+           (state (slack-team-page-state team 'saved-items))
+           (object (slack-create-stars-buffer team))
+           (buffer (slack-buffer-buffer object))
+           request-primary
+           request-hydrated
+           hydration-done
+           appended
+           rerendered)
+      (oset team star old-star)
+      (slack-page-state-store state old-star "cursor-1" t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-stars-list-request)
+                     (lambda (_team _cursor after-success _on-error
+                              on-primary-page)
+                       (setq request-primary on-primary-page
+                             request-hydrated after-success)))
+                    ((symbol-function 'slack-stars--prefetch-messages)
+                     (lambda (_items _team callback)
+                       (setq hydration-done callback)))
+                    ((symbol-function 'slack-stars-buffer--append-items)
+                     (lambda (_object items _state)
+                       (setq appended items)))
+                    ((symbol-function 'slack-stars-buffer-render-page-state)
+                     (lambda (&rest _args)
+                       (setq rerendered t))))
+            (with-current-buffer buffer
+              (slack-buffer-load-more object))
+            (oset team star request-star)
+            (funcall request-primary page request-star)
+            (funcall request-hydrated)
+            (should (functionp hydration-done))
+            (slack-event-update-star-item
+             (slack-create-star-event
+              (list :type "star_removed"
+                    :item (list :type "message" :channel channel-id
+                                :message (list :ts "1.000"))))
+             team)
+            (funcall hydration-done)
+            (should-not appended)
+            (should rerendered)
+            (should (equal (list old-item)
+                           (slack-star-items
+                            (slack-page-state-value state))))
             (with-current-buffer buffer
               (should-not slack-buffer--loading-more-p)))
         (when (buffer-live-p buffer)

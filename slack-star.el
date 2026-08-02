@@ -133,6 +133,35 @@ page, so only a non-empty cursor means another page exists."
                    :items items
                    :cursor cursor)))
 
+(defun slack-star-item-key (item)
+  "Return the stable identity key for saved ITEM."
+  (list (oref item item-type) (oref item item-id) (slack-ts item)))
+
+(defun slack-star-reconcile-refresh (page before-items current-items)
+  "Overlay live saved-item changes onto refresh PAGE.
+BEFORE-ITEMS is the saved list when the request began and CURRENT-ITEMS
+is that same cache after intervening star events."
+  (let* ((before-keys (mapcar #'slack-star-item-key before-items))
+         (current-keys (mapcar #'slack-star-item-key current-items))
+         (removed-keys
+          (cl-set-difference before-keys current-keys :test #'equal))
+         (page-items
+          (cl-remove-if
+           (lambda (item)
+             (member (slack-star-item-key item) removed-keys))
+           (slack-star-items page)))
+         (page-keys (mapcar #'slack-star-item-key page-items))
+         (added-items
+          (cl-remove-if
+           (lambda (item)
+             (let ((key (slack-star-item-key item)))
+               (or (member key before-keys)
+                   (member key page-keys))))
+           current-items)))
+    (make-instance 'slack-star
+                   :items (append added-items page-items)
+                   :cursor (oref page cursor))))
+
 (defun slack-star-cache-embedded-messages (payload team)
   "Cache message objects embedded in saved-list PAYLOAD for TEAM."
   (dolist (item (plist-get payload :saved_items))
@@ -145,6 +174,21 @@ page, so only a non-empty cursor means another page exists."
                           (copy-sequence message-payload) team room)))
       (slack-room-set-messages room (list message) team))))
 
+(defun slack-star-user-ids (star team)
+  "Return user IDs referenced by saved STAR's renderable items on TEAM."
+  (cl-remove-if-not
+   #'stringp
+   (cl-loop
+    for item in (slack-star-items star)
+    nconc
+    (cond
+     ((oref item file)
+      (slack-message-user-ids (oref item file)))
+     (t
+      (when-let* ((room (slack-room-find (oref item item-id) team))
+                  (message (slack-room-find-message room (slack-ts item))))
+        (slack-message-user-ids message)))))))
+
 (defun slack-stars-list-request
     (team &optional cursor after-success on-error on-primary-page)
   "Fetch TEAM's saved items from CURSOR.
@@ -154,7 +198,11 @@ response's `slack-star' page and TEAM's stored, combined star cache
 after embedded messages and that cache are stored, but before user
 hydration begins.
 The first four argument positions remain compatible with older callers."
-  (let ((primary-called-p nil))
+  (let* ((primary-called-p nil)
+         (source-star (oref team star))
+         (source-items
+          (and source-star
+               (copy-sequence (slack-star-items source-star)))))
     (cl-labels
       ((callback ()
          (when (functionp after-success)
@@ -166,17 +214,22 @@ The first four argument positions remain compatible with older callers."
          (slack-request-handle-error
           (data "slack-stars-list-request" #'fail)
           (let* ((star (slack-create-star data))
-                 (user-ids (slack-team-missing-user-ids
-                            team nil)))
+                 (current-star (oref team star)))
             (slack-star-cache-embedded-messages data team)
-            (if (oref team star)
+            (when (and (not cursor)
+                       (eq current-star source-star))
+              (setq star
+                    (slack-star-reconcile-refresh
+                     star source-items
+                     (and current-star (slack-star-items current-star)))))
+            (if current-star
                 (if cursor
                     (oset team star
                           (make-instance
                            'slack-star
                            :items (append
                                    (copy-sequence
-                                    (slack-star-items (oref team star)))
+                                    (slack-star-items current-star))
                                    (slack-star-items star))
                            :cursor (oref star cursor)))
                   (oset team star star))
@@ -185,11 +238,14 @@ The first four argument positions remain compatible with older callers."
                        (functionp on-primary-page))
               (setq primary-called-p t)
               (funcall on-primary-page star (oref team star)))
-            (if (< 0 (length user-ids))
-                (slack-users-info-request
-                 user-ids team
-                 :after-success #'(lambda () (callback)))
-              (callback))))))
+            (let ((user-ids
+                   (slack-team-missing-user-ids
+                    team (slack-star-user-ids (oref team star) team))))
+              (if (< 0 (length user-ids))
+                  (slack-users-info-request
+                   user-ids team
+                   :after-success #'(lambda () (callback)))
+                (callback)))))))
     (slack-request
      (slack-request-create
       slack-stars-list-url
