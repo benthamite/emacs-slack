@@ -2576,6 +2576,279 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
         (when (buffer-live-p displayed-buffer)
           (kill-buffer displayed-buffer))))))
 
+(ert-deftest slack-test-activity-feed-stale-watched-hydration-is-rejected ()
+  (slack-test-setup
+    (let* ((state
+            (slack-team-page-state
+             team (slack-activity-feed--page-key nil)))
+           (old-activity
+            (slack-activity-feed--message-activity
+             (make-instance 'slack-message
+                            :type "message"
+                            :channel channel-id
+                            :ts "1710000000.000100"
+                            :text "old")
+             channel))
+           (extra-activity
+            (slack-activity-feed--message-activity
+             (make-instance 'slack-message
+                            :type "message"
+                            :channel channel-id
+                            :ts "1710000001.000100"
+                            :text "extra")
+             channel))
+           (old-snapshot (list :activities (list old-activity)
+                               :pagination nil))
+           (replacement-snapshot (list :activities '(replacement)
+                                       :pagination nil))
+           (object
+            (make-instance 'slack-activity-feed-buffer
+                           :team-id (oref team id)
+                           :room-id "__activity-feed__"
+                           :cached-team team
+                           :page-key (slack-activity-feed--page-key nil)
+                           :activity-feed
+                           (make-instance 'slack-activity-feed)))
+           (buffer (generate-new-buffer " *slack-test-stale-watched*"))
+           (generation (slack-page-state-begin state))
+           watched-success
+           (renders 0)
+           (room-prefetches 0))
+      (slack-page-state-commit state generation old-snapshot nil nil t)
+      (slack-buffer-cache-team object team)
+      (oset object buf buffer)
+      (with-current-buffer buffer
+        (setq-local slack-buffer-page-presentation-token (cons state nil)))
+      (unwind-protect
+          (cl-letf (((symbol-function
+                      'slack-activity-feed--fetch-watched-activities)
+                     (lambda (_team callback)
+                       (setq watched-success callback)))
+                    ((symbol-function
+                      'slack-activity-feed-render-page-state)
+                     (lambda (&rest _)
+                       (cl-incf renders)))
+                    ((symbol-function 'slack-activity-feed--prefetch-rooms)
+                     (lambda (&rest _)
+                       (cl-incf room-prefetches))))
+            (slack-activity-feed--hydrate-page
+             object team state generation nil old-snapshot)
+            (let ((replacement-generation (slack-page-state-restart state)))
+              (slack-page-state-commit
+               state replacement-generation replacement-snapshot nil nil t)
+              (funcall watched-success (list extra-activity))
+              (should (equal (list old-activity)
+                             (plist-get old-snapshot :activities)))
+              (should (eq replacement-snapshot
+                          (slack-page-state-value state)))
+              (should (= 0 renders))
+              (should (= 0 room-prefetches))))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
+(ert-deftest slack-test-activity-feed-stale-message-hydration-is-rejected ()
+  (slack-test-setup
+    (let* ((state
+            (slack-team-page-state
+             team (slack-activity-feed--page-key nil)))
+           (activity
+            (slack-activity-feed--message-activity
+             (make-instance 'slack-message
+                            :type "message"
+                            :channel channel-id
+                            :ts "1710000000.000100"
+                            :text "old")
+             channel))
+           (activity-message (oref (oref activity item) message))
+           (snapshot (list :activities (list activity) :pagination nil))
+           (replacement-snapshot (list :activities '(replacement)
+                                       :pagination nil))
+           (object
+            (make-instance 'slack-activity-feed-buffer
+                           :team-id (oref team id)
+                           :room-id "__activity-feed__"
+                           :cached-team team
+                           :page-key (slack-activity-feed--page-key nil)
+                           :activity-feed
+                           (make-instance 'slack-activity-feed)))
+           (buffer (generate-new-buffer " *slack-test-stale-messages*"))
+           (generation (slack-page-state-begin state))
+           watched-success
+           room-success
+           message-success
+           messages-callback
+           unavailable-callback
+           (message-replacements 0)
+           (unavailable-replacements 0))
+      (slack-page-state-commit state generation snapshot nil nil t)
+      (slack-buffer-cache-team object team)
+      (oset object buf buffer)
+      (with-current-buffer buffer
+        (setq-local slack-buffer-page-presentation-token (cons state nil)))
+      (unwind-protect
+          (cl-letf (((symbol-function
+                      'slack-activity-feed--fetch-watched-activities)
+                     (lambda (_team callback)
+                       (setq watched-success callback)))
+                    ((symbol-function 'slack-activity-feed--prefetch-rooms)
+                     (lambda (_activities _team callback)
+                       (setq room-success callback)))
+                    ((symbol-function 'slack-activity-feed--prefetch-messages)
+                     (lambda (_activities _team callback row-callback
+                                          missing-callback)
+                       (setq message-success callback
+                             messages-callback row-callback
+                             unavailable-callback missing-callback)))
+                    ((symbol-function
+                      'slack-activity-feed--replace-buffer-messages)
+                     (lambda (&rest _)
+                       (cl-incf message-replacements)))
+                    ((symbol-function
+                      'slack-activity-feed--replace-buffer-unavailable)
+                     (lambda (&rest _)
+                       (cl-incf unavailable-replacements)))
+                    ((symbol-function
+                      'slack-activity-feed-render-page-state)
+                     #'ignore))
+            (slack-activity-feed--hydrate-page
+             object team state generation nil snapshot)
+            (funcall watched-success nil)
+            (funcall room-success)
+            (let ((replacement-generation (slack-page-state-restart state)))
+              (slack-page-state-commit
+               state replacement-generation replacement-snapshot nil nil t)
+              (funcall messages-callback nil '(message))
+              (funcall unavailable-callback activity)
+              (funcall message-success)
+              (should-not (oref activity-message source-message-unavailable))
+              (should (eq replacement-snapshot
+                          (slack-page-state-value state)))
+              (should (= 0 message-replacements))
+              (should (= 0 unavailable-replacements))))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
+(ert-deftest slack-test-activity-feed-replays-event-before-primary-commit ()
+  (slack-test-setup
+    (let ((slack-current-team team)
+          (slack-activity-feed-watch-channels (list channel-name))
+          request-success
+          watched-success
+          displayed-buffer)
+      (oset channel last-read "1710000000.000000")
+      (slack-activity-feed--cache-put team nil nil)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-activity-feed--selected-team)
+                     (lambda () team))
+                    ((symbol-function 'slack-activity-feed-render-page-state)
+                     #'ignore)
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (object)
+                       (setq displayed-buffer (oref object buf))))
+                    ((symbol-function 'slack-activity-feed-request)
+                     (lambda (_team success &optional _cursor _on-error)
+                       (setq request-success success)))
+                    ((symbol-function
+                      'slack-activity-feed--fetch-watched-activities)
+                     (lambda (_team callback)
+                       (setq watched-success callback)))
+                    ((symbol-function 'slack-activity-feed--prefetch-rooms)
+                     (lambda (_activities _team callback)
+                       (funcall callback)))
+                    ((symbol-function 'slack-activity-feed--prefetch-messages)
+                     (lambda (_activities _team callback &rest _)
+                       (funcall callback)))
+                    ((symbol-function 'force-mode-line-update)
+                     #'ignore))
+            (slack-activity-feed-show)
+            (should
+             (eq 'refreshing
+                 (slack-page-state-status
+                  (slack-team-page-state
+                   team (slack-activity-feed--page-key nil)))))
+            (slack-activity-feed-watch-channel-message
+             (make-instance 'slack-message
+                            :type "message"
+                            :channel channel-id
+                            :ts "1710000001.000100"
+                            :text "live")
+             channel team)
+            (funcall request-success (list :items nil :response_metadata nil))
+            (funcall watched-success nil)
+            (let* ((state
+                    (slack-team-page-state
+                     team (slack-activity-feed--page-key nil)))
+                   (activities
+                    (plist-get (slack-page-state-value state) :activities)))
+              (should (eq 'ready (slack-page-state-status state)))
+              (should (= 1 (length activities)))
+              (should (equal "1710000001.000100"
+                             (oref (car activities) feed-ts)))))
+        (when (buffer-live-p displayed-buffer)
+          (kill-buffer displayed-buffer))))))
+
+(ert-deftest slack-test-activity-feed-keeps-event-after-primary-commit ()
+  (slack-test-setup
+    (let ((slack-current-team team)
+          (slack-activity-feed-watch-channels (list channel-name))
+          request-success
+          watched-success
+          displayed-buffer)
+      (oset channel last-read "1710000000.000000")
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-activity-feed--selected-team)
+                     (lambda () team))
+                    ((symbol-function 'slack-activity-feed-render-page-state)
+                     #'ignore)
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (object)
+                       (setq displayed-buffer (oref object buf))))
+                    ((symbol-function 'slack-activity-feed-request)
+                     (lambda (_team success &optional _cursor _on-error)
+                       (setq request-success success)))
+                    ((symbol-function
+                      'slack-activity-feed--fetch-watched-activities)
+                     (lambda (_team callback)
+                       (setq watched-success callback)))
+                    ((symbol-function 'slack-activity-feed--prefetch-rooms)
+                     (lambda (_activities _team callback)
+                       (funcall callback)))
+                    ((symbol-function 'slack-activity-feed--prefetch-messages)
+                     (lambda (_activities _team callback &rest _)
+                       (funcall callback)))
+                    ((symbol-function 'force-mode-line-update)
+                     #'ignore))
+            (slack-activity-feed-show)
+            (funcall request-success (list :items nil :response_metadata nil))
+            (slack-activity-feed-watch-channel-message
+             (make-instance 'slack-message
+                            :type "message"
+                            :channel channel-id
+                            :ts "1710000001.000100"
+                            :text "live")
+             channel team)
+            (let* ((state
+                    (slack-team-page-state
+                     team (slack-activity-feed--page-key nil)))
+                   (activities
+                    (plist-get (slack-page-state-value state) :activities)))
+              (should (eq 'loading (slack-page-state-status state)))
+              (should (= 1 (length activities)))
+              (should (equal "1710000001.000100"
+                             (oref (car activities) feed-ts))))
+            (funcall watched-success nil)
+            (let* ((state
+                    (slack-team-page-state
+                     team (slack-activity-feed--page-key nil)))
+                   (activities
+                    (plist-get (slack-page-state-value state) :activities)))
+              (should (eq 'ready (slack-page-state-status state)))
+              (should (= 1 (length activities)))
+              (should (equal "1710000001.000100"
+                             (oref (car activities) feed-ts)))))
+        (when (buffer-live-p displayed-buffer)
+          (kill-buffer displayed-buffer))))))
+
 (ert-deftest slack-test-activity-feed-watched-message-updates-existing-cache ()
   (slack-test-setup
     (let* ((slack-activity-feed-watch-channels (list channel-name))

@@ -77,6 +77,16 @@ without its leading #."
 
 (defconst slack-activity-feed-multipart-boundary "----WebKitFormBoundaryh7x3DqJqAIvkEcie")
 
+(cl-defstruct (slack-activity-feed-event-journal
+               (:constructor slack-activity-feed-event-journal-create))
+  (sequence 0)
+  entries
+  active-tokens)
+
+(defvar slack-activity-feed--event-journals
+  (make-hash-table :test #'eq :weakness 'key)
+  "Weak mapping from Slack teams to watched-message event journals.")
+
 (defun slack-activity-feed--watch-channel-limit ()
   "Return the watched-channel history limit as a Slack API string."
   (if (numberp slack-activity-feed-watch-channel-limit)
@@ -375,8 +385,9 @@ ROOM is the room containing MESSAGE, and TEAM is the Slack team."
              (slack-activity-feed--message-unread-p message room))
     (setq slack-has-unreads t
           slack-unread-count (1+ (or slack-unread-count 0)))
-    (slack-activity-feed--cache-update-activity
-     team (slack-activity-feed--message-activity message room))
+    (let ((activity (slack-activity-feed--message-activity message room)))
+      (slack-activity-feed--event-journal-record team activity)
+      (slack-activity-feed--cache-update-activity team activity))
     (force-mode-line-update)))
 
 (defun slack-activity-feed--message-activity (message room)
@@ -614,22 +625,94 @@ content."
   "Merge ACTIVITY into any existing Activity Feed cache snapshots for TEAM."
   (let ((changed nil))
     (dolist (key (slack-activity-feed--cache-keys-for-team team))
-      (let* ((snapshot
-              (slack-page-state-value (slack-team-page-state team key)))
+      (let* ((state (slack-team-page-state team key))
+             (snapshot (slack-page-state-value state))
              (old-activities (plist-get snapshot :activities)))
         (unless (and (cadr key) (not (oref activity is-unread)))
           (let ((new-activities
-                 (slack-activity-feed--merge-activities
-                  (list activity) old-activities)))
+                 (slack-activity-feed--apply-event-activities
+                  old-activities (list activity))))
             (unless (equal (slack-activity-feed--activity-keys old-activities)
                            (slack-activity-feed--activity-keys new-activities))
-              (when (slack-activity-feed--store-snapshot
-                     team (cadr key) new-activities
-                     (plist-get snapshot :pagination))
-                (setq changed t)))))))
+              (if (slack-page-state-in-flight-p state)
+                  (when (and (slack-page-state-loaded-p state) snapshot)
+                    (setf (plist-get snapshot :activities) new-activities
+                          (slack-page-state-updated-at state) (current-time))
+                    (setq changed t))
+                (when (slack-activity-feed--store-snapshot
+                       team (cadr key) new-activities
+                       (plist-get snapshot :pagination))
+                  (setq changed t))))))))
     (when (and changed (slack-activity-feed--visible-p team))
       (message "Activity feed has newer cached results; press g to refresh."))
     changed))
+
+(defun slack-activity-feed--apply-event-activities (activities events)
+  "Replay watched-message EVENTS over ACTIVITIES in occurrence order."
+  (dolist (activity events activities)
+    (setq activities
+          (slack-activity-feed--merge-activities
+           (list activity) activities))))
+
+(defun slack-activity-feed--event-journal-register (team)
+  "Register an Activity Feed request for TEAM and return its event token."
+  (let* ((journal (slack-activity-feed--event-journal team))
+         (token
+          (cons journal (slack-activity-feed-event-journal-sequence journal))))
+    (push token (slack-activity-feed-event-journal-active-tokens journal))
+    token))
+
+(defun slack-activity-feed--event-journal-release (team token)
+  "Release TEAM's Activity Feed event TOKEN and prune retained events."
+  (when token
+    (let ((journal (gethash team slack-activity-feed--event-journals)))
+      (when (eq journal (car-safe token))
+        (setf (slack-activity-feed-event-journal-active-tokens journal)
+              (delq token
+                    (slack-activity-feed-event-journal-active-tokens journal)))
+        (slack-activity-feed--event-journal-prune journal)))))
+
+(defun slack-activity-feed--event-journal-record (team activity)
+  "Record TEAM's watched-message ACTIVITY for every active feed request."
+  (let ((journal (gethash team slack-activity-feed--event-journals)))
+    (when (and journal
+               (slack-activity-feed-event-journal-active-tokens journal))
+      (let ((sequence
+             (1+ (slack-activity-feed-event-journal-sequence journal))))
+        (setf (slack-activity-feed-event-journal-sequence journal) sequence)
+        (push (cons sequence activity)
+              (slack-activity-feed-event-journal-entries journal))))))
+
+(defun slack-activity-feed--event-journal-events-since (team token)
+  "Return TEAM's watched-message events recorded after TOKEN."
+  (let ((journal (gethash team slack-activity-feed--event-journals)))
+    (unless (eq journal (car-safe token))
+      (error "Activity Feed event token belongs to another team"))
+    (mapcar
+     #'cdr
+     (nreverse
+      (cl-remove-if-not
+       (lambda (entry) (> (car entry) (cdr token)))
+       (copy-sequence
+        (slack-activity-feed-event-journal-entries journal)))))))
+
+(defun slack-activity-feed--event-journal (team)
+  "Return TEAM's watched-message event journal, creating it when absent."
+  (or (gethash team slack-activity-feed--event-journals)
+      (let ((journal (slack-activity-feed-event-journal-create)))
+        (puthash team journal slack-activity-feed--event-journals)
+        journal)))
+
+(defun slack-activity-feed--event-journal-prune (journal)
+  "Discard entries from JOURNAL that no active request can need."
+  (let ((tokens (slack-activity-feed-event-journal-active-tokens journal)))
+    (setf (slack-activity-feed-event-journal-entries journal)
+          (if tokens
+              (let ((oldest (apply #'min (mapcar #'cdr tokens))))
+                (cl-remove-if
+                 (lambda (entry) (<= (car entry) oldest))
+                 (slack-activity-feed-event-journal-entries journal)))
+            nil))))
 
 (defun slack-activity-feed--cache-merge-activities
     (team activities &optional expected-generations)
@@ -1450,82 +1533,115 @@ THIS is the slack-activity-feed-buffer instance."
    team
    (plist-get snapshot :pagination)))
 
-(defun slack-activity-feed--active-page-p (buffer state)
-  "Return non-nil when BUFFER still presents Activity Feed STATE."
-  (and (buffer-live-p (oref buffer buf))
+(defun slack-activity-feed--active-page-p (buffer state generation)
+  "Return non-nil when BUFFER presents STATE at GENERATION."
+  (and (slack-activity-feed--current-generation-p state generation)
+       (buffer-live-p (oref buffer buf))
        (eq state
            (car-safe
             (buffer-local-value
              'slack-buffer-page-presentation-token (oref buffer buf))))))
 
+(defun slack-activity-feed--current-generation-p (state generation)
+  "Return non-nil when STATE is hydrating its committed GENERATION."
+  (and (= generation (slack-page-state-generation state))
+       (= generation (slack-page-state-committed-generation state))
+       (slack-page-state-in-flight-p state)))
+
 (defun slack-activity-feed--hydrate-page
-    (buffer team state generation mode snapshot)
-  "Hydrate BUFFER's SNAPSHOT for TEAM and STATE GENERATION in MODE."
+    (buffer team state generation mode snapshot &optional after-hydration)
+  "Hydrate BUFFER's SNAPSHOT for TEAM and STATE GENERATION in MODE.
+Call AFTER-HYDRATION before finishing the current generation."
   (let ((barrier
          (slack-async-barrier-create
-          3 (lambda () (slack-page-state-ready state generation)))))
+          3
+          (lambda ()
+            (unwind-protect
+                (when (functionp after-hydration)
+                  (condition-case hydration-error
+                      (funcall after-hydration)
+                    (error
+                     (message
+                      "slack-activity-feed: final hydration error: %S"
+                      hydration-error))))
+              (slack-page-state-ready state generation))))))
     (cl-labels
         ((render-current ()
-           (when (slack-activity-feed--active-page-p buffer state)
+           (when (slack-activity-feed--active-page-p
+                  buffer state generation)
              (with-current-buffer (oref buffer buf)
                (slack-activity-feed-render-page-state buffer state))))
          (hydrate-messages (activities)
-           (condition-case hydration-error
-               (slack-activity-feed--prefetch-messages
-                activities team
-                (lambda () (slack-async-barrier-done barrier))
-                (lambda (_room messages)
-                  (condition-case hydration-error
-                      (when (slack-activity-feed--active-page-p buffer state)
-                        (slack-activity-feed--replace-buffer-messages
-                         buffer messages))
-                    (error
-                     (message
-                      "slack-activity-feed: message row hydration error: %S"
-                      hydration-error))))
-                (lambda (activity)
-                  (condition-case hydration-error
-                      (progn
-                        (slack-activity-feed--mark-message-unavailable
-                         activity)
-                        (when (slack-activity-feed--active-page-p buffer state)
-                          (slack-activity-feed--replace-buffer-unavailable
-                           buffer activity)))
-                    (error
-                     (message
-                      "slack-activity-feed: unavailable row hydration error: %S"
-                      hydration-error)))))
-             (error
-              (message "slack-activity-feed: message hydration error: %S"
-                       hydration-error)
-              (slack-async-barrier-done barrier))))
+           (if (not (slack-activity-feed--current-generation-p
+                     state generation))
+               (slack-async-barrier-done barrier)
+             (condition-case hydration-error
+                 (slack-activity-feed--prefetch-messages
+                  activities team
+                  (lambda () (slack-async-barrier-done barrier))
+                  (lambda (_room messages)
+                    (condition-case hydration-error
+                        (when (slack-activity-feed--active-page-p
+                               buffer state generation)
+                          (slack-activity-feed--replace-buffer-messages
+                           buffer messages))
+                      (error
+                       (message
+                        "slack-activity-feed: message row hydration error: %S"
+                        hydration-error))))
+                  (lambda (activity)
+                    (condition-case hydration-error
+                        (when (slack-activity-feed--current-generation-p
+                               state generation)
+                          (slack-activity-feed--mark-message-unavailable
+                           activity)
+                          (when (slack-activity-feed--active-page-p
+                                 buffer state generation)
+                            (slack-activity-feed--replace-buffer-unavailable
+                             buffer activity)))
+                      (error
+                       (message
+                        "slack-activity-feed: unavailable row hydration error: %S"
+                        hydration-error)))))
+               (error
+                (message "slack-activity-feed: message hydration error: %S"
+                         hydration-error)
+                (slack-async-barrier-done barrier)))))
          (hydrate-rooms (activities)
-           (condition-case hydration-error
-               (slack-activity-feed--prefetch-rooms
-                activities team
-                (lambda ()
-                  (slack-async-barrier-done barrier)
-                  (hydrate-messages activities)))
-             (error
-              (message "slack-activity-feed: room hydration error: %S"
-                       hydration-error)
-              (slack-async-barrier-done barrier)
-              (hydrate-messages activities))))
-         (merge-watched (extra-activities)
-           (condition-case hydration-error
+           (if (not (slack-activity-feed--current-generation-p
+                     state generation))
                (progn
-                 (let ((slack-activity-feed-mode-show-only-unread mode))
-                   (setf (plist-get snapshot :activities)
-                         (slack-activity-feed--filter-mode-activities
-                          (slack-activity-feed--merge-activities
-                           (plist-get snapshot :activities)
-                           extra-activities))))
-                 (render-current))
-             (error
-              (message "slack-activity-feed: watched hydration error: %S"
-                       hydration-error)))
+                 (slack-async-barrier-done barrier)
+                 (slack-async-barrier-done barrier))
+             (condition-case hydration-error
+                 (slack-activity-feed--prefetch-rooms
+                  activities team
+                  (lambda ()
+                    (slack-async-barrier-done barrier)
+                    (hydrate-messages activities)))
+               (error
+                (message "slack-activity-feed: room hydration error: %S"
+                         hydration-error)
+                (slack-async-barrier-done barrier)
+                (hydrate-messages activities)))))
+         (merge-watched (extra-activities)
+           (when (slack-activity-feed--current-generation-p state generation)
+             (condition-case hydration-error
+                 (progn
+                   (let ((slack-activity-feed-mode-show-only-unread mode))
+                     (setf (plist-get snapshot :activities)
+                           (slack-activity-feed--filter-mode-activities
+                            (slack-activity-feed--merge-activities
+                             (plist-get snapshot :activities)
+                             extra-activities))))
+                   (render-current))
+               (error
+                (message "slack-activity-feed: watched hydration error: %S"
+                         hydration-error))))
            (slack-async-barrier-done barrier)
-           (hydrate-rooms (plist-get snapshot :activities))))
+           (if (slack-activity-feed--current-generation-p state generation)
+               (hydrate-rooms (plist-get snapshot :activities))
+             (slack-async-barrier-finish barrier))))
       (condition-case hydration-error
           (slack-activity-feed--fetch-watched-activities
            team #'merge-watched)
@@ -1537,30 +1653,58 @@ THIS is the slack-activity-feed-buffer instance."
 (defun slack-activity-feed--page-loader (buffer team state mode)
   "Return the Activity Feed page loader for BUFFER, TEAM, STATE, and MODE."
   (lambda (generation success failure)
-    (let ((slack-activity-feed-mode-show-only-unread mode))
-      (slack-activity-feed-request
-       team
-       (lambda (data)
-         (condition-case page-error
-             (let* ((activities
-                     (slack-activity-feed--filter-mode-activities
-                      (mapcar #'slack-activity-feed--parse-item
-                              (plist-get data :items))))
-                    (pagination
-                     (plist-get (plist-get data :response_metadata)
-                                :next_cursor))
-                    (snapshot (list :activities activities
-                                    :pagination pagination
-                                    :updated-at (current-time))))
-               (when (funcall success
-                              snapshot pagination
-                              (and pagination
-                                   (not (string-empty-p pagination)))
-                              t)
-                 (slack-activity-feed--hydrate-page
-                  buffer team state generation mode snapshot)))
-           (error (funcall failure page-error))))
-       nil failure))))
+    (let ((slack-activity-feed-mode-show-only-unread mode)
+          (event-token (slack-activity-feed--event-journal-register team)))
+      (cl-labels
+          ((release-events ()
+             (when event-token
+               (slack-activity-feed--event-journal-release team event-token)
+               (setq event-token nil)))
+           (fail (&rest errors)
+             (release-events)
+             (apply failure errors))
+           (finish-hydration (snapshot)
+             (unwind-protect
+                 (when (slack-activity-feed--current-generation-p
+                        state generation)
+                   (let ((slack-activity-feed-mode-show-only-unread mode))
+                     (setf (plist-get snapshot :activities)
+                           (slack-activity-feed--filter-mode-activities
+                            (slack-activity-feed--apply-event-activities
+                             (plist-get snapshot :activities)
+                             (slack-activity-feed--event-journal-events-since
+                              team event-token))))))
+               (release-events)))
+           (on-data (data)
+             (condition-case page-error
+                 (let* ((activities
+                         (slack-activity-feed--filter-mode-activities
+                          (slack-activity-feed--apply-event-activities
+                           (mapcar #'slack-activity-feed--parse-item
+                                   (plist-get data :items))
+                           (slack-activity-feed--event-journal-events-since
+                            team event-token))))
+                        (pagination
+                         (plist-get (plist-get data :response_metadata)
+                                    :next_cursor))
+                        (snapshot (list :activities activities
+                                        :pagination pagination
+                                        :updated-at (current-time))))
+                   (if (funcall success
+                                snapshot pagination
+                                (and pagination
+                                     (not (string-empty-p pagination)))
+                                t)
+                       (slack-activity-feed--hydrate-page
+                        buffer team state generation mode snapshot
+                        (lambda () (finish-hydration snapshot)))
+                     (release-events)))
+               (error (fail page-error)))))
+        (condition-case request-error
+            (slack-activity-feed-request team #'on-data nil #'fail)
+          (error
+           (release-events)
+           (signal (car request-error) (cdr request-error))))))))
 
 (defun slack-activity-feed--present (team &optional refresh)
   "Present TEAM's Activity Feed, using REFRESH for an existing snapshot."
