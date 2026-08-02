@@ -431,6 +431,56 @@
           (slack-room-find-message channel ts)))
         (slack-room-history-release-snapshot channel snapshot)))))
 
+(ert-deftest slack-test-acked-save-governs-history-started-after-mutation ()
+  "Keep saved state when history starts after mutation but returns after ACK."
+  (slack-test-setup
+    (let* ((ts "1710000000.000101")
+           (message
+            (slack-message-create
+             (list :type "message" :user user-id :channel channel-id
+                   :text "current body" :ts ts :is_starred nil)
+             team channel))
+           snapshot
+           history-request
+           save-request)
+      (slack-room-set-messages channel (list message) team)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (cond
+                    ((string= (oref request url)
+                              slack-conversations-history-url)
+                     (setq history-request request))
+                    ((string= (oref request url)
+                              slack-message-stars-add-url)
+                     (setq save-request request)))
+                   request)))
+        (slack-star-api-request
+         slack-message-stars-add-url nil team
+         (lambda ()
+           (slack-message-star-added message)
+           (slack-team-mark-saved team channel-id ts)))
+        (setq snapshot (slack-room-history-start-snapshot channel))
+        (slack-conversations-history
+         channel team
+         :on-primary-page
+         (lambda (messages &rest _)
+           (slack-room-merge-history-page
+            channel messages team snapshot)))
+        (funcall (oref save-request success) :data (list :ok t))
+        (funcall
+         (oref history-request success)
+         :data
+         (list :ok t
+               :messages
+               (list (list :type "message" :user user-id
+                           :channel channel-id :text "stale body"
+                           :ts ts :is_starred nil))
+               :response_metadata (list :next_cursor "")))
+        (should
+         (slack-message-starred-p
+          (slack-room-find-message channel ts)))
+        (slack-room-history-release-snapshot channel snapshot)))))
+
 (ert-deftest slack-test-acked-unsave-overrides-older-saved-list-message ()
   "Keep acknowledged unsaved state when older saved.list completes later."
   (slack-test-setup
@@ -528,6 +578,107 @@
                  :ts ts :is_starred t)
            team "C22222")))
         (funcall (oref (cadr requests) success) :data (list :ok t))))))
+
+(ert-deftest slack-test-acked-saved-authority-governs-direct-message-consumers ()
+  "Apply ACKed saved state to shared Activity and All Threads normalization."
+  (slack-test-setup
+    (let ((ts "1710000000.000102")
+          save-request)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (setq save-request request)
+                   request)))
+        (slack-star-api-request
+         slack-message-stars-add-url nil team
+         (lambda ()
+           (slack-team-mark-saved team channel-id ts)))
+        (funcall (oref save-request success) :data (list :ok t)))
+      (should
+       (slack-message-starred-p
+        (slack-message-create
+         (list :type "message" :user user-id :channel channel-id
+               :ts ts :is_starred nil)
+         team channel)))
+      (slack-team-mark-unsaved team ts "message" channel-id)
+      (should-not
+       (slack-message-starred-p
+        (slack-message-create
+         (list :type "message" :user user-id :channel channel-id
+               :ts ts :is_starred t)
+         team channel))))))
+
+(ert-deftest slack-test-saved-authority-replays-overlap-and-skips-failures ()
+  "Derive retained saved authority from ordered nonfailed overlapping writes."
+  (slack-test-setup
+    (let ((ts "1710000000.000103")
+          requests)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (setq requests (append requests (list request)))
+                   request)))
+        (slack-star-api-request
+         slack-message-stars-add-url nil team
+         (lambda ()
+           (slack-team-mark-saved team channel-id ts)))
+        (slack-star-api-request
+         slack-message-stars-remove-url nil team
+         (lambda ()
+           (slack-team-mark-unsaved team ts "message" channel-id)))
+        (funcall (oref (car requests) success) :data (list :ok t))
+        (funcall
+         (oref (cadr requests) success)
+         :data (list :ok :json-false :error "not_allowed")))
+      (should
+       (slack-message-starred-p
+        (slack-message-create
+         (list :type "message" :user user-id :channel channel-id
+               :ts ts :is_starred nil)
+         team channel))))))
+
+(ert-deftest slack-test-saved-message-authority-is-journal-bounded ()
+  "Drop saved-message authority when its journal entry is pruned."
+  (slack-test-setup
+    (let ((slack-star-mutation-journal-limit 1))
+      (slack-team-mark-saved team channel-id "1710000000.000104")
+      (slack-team-mark-saved team "C22222" "1710000000.000105")
+      (should-not
+       (slack-message-starred-p
+        (slack-message-create
+         (list :type "message" :user user-id :channel channel-id
+               :ts "1710000000.000104" :is_starred nil)
+         team channel)))
+      (should
+       (slack-message-starred-p
+        (slack-message-create
+         (list :type "message" :user user-id :channel "C22222"
+               :ts "1710000000.000105" :is_starred nil)
+         team "C22222"))))))
+
+(ert-deftest slack-test-failed-saved-authority-uses-replayed-bounded-baseline ()
+  "Use replayed cache state when a pending write evicts its prior authority."
+  (slack-test-setup
+    (let ((slack-star-mutation-journal-limit 1)
+          (ts "1710000000.000106")
+          remove-request)
+      (slack-team-mark-saved team channel-id ts)
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request)
+                   (setq remove-request request)
+                   request)))
+        (slack-star-api-request
+         slack-message-stars-remove-url nil team
+         (lambda ()
+           (slack-team-mark-unsaved team ts "message" channel-id)))
+        (funcall
+         (oref remove-request success)
+         :data (list :ok :json-false :error "not_allowed")))
+      (should (slack-ts-saved-p team ts "message" channel-id))
+      (should
+       (slack-message-starred-p
+        (slack-message-create
+         (list :type "message" :user user-id :channel channel-id
+               :ts ts :is_starred nil)
+         team channel))))))
 
 (ert-deftest slack-test-saved-items-failed-remove-rerenders-live-row ()
   "Rerender the same Saved Items buffer after a failed optimistic remove."

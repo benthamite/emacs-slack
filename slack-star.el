@@ -616,6 +616,35 @@ write remains unacknowledged."
          (slack-star-optimistic-chain-replayed-items chain))
         t)))))
 
+(defun slack-star-message-authority (team ts &optional item-type item-id)
+  "Return TEAM's retained saved authority for TS, ITEM-TYPE, and ITEM-ID.
+The newest matching mutation whose write has not failed determines the result,
+including pending writes, acknowledged writes, and WebSocket mutations.  The
+reconciled cache supplies the baseline when bounded pruning retained only a
+failed write.  The result is `(saved-authority . SAVED-P)', or nil when the
+journal no longer contains an applicable mutation."
+  (when-let ((journal (gethash team slack-star--mutation-journals)))
+    (let* ((identity (list ts item-type item-id))
+           (matches-p
+            (lambda (entry)
+              (slack-star-mutation-identities-overlap-p
+               identity (slack-star-mutation-entry-identity entry))))
+           (matching (cl-find-if matches-p (oref journal entries)))
+           (effective
+            (cl-find-if
+             (lambda (entry)
+               (let ((write (plist-get entry :write)))
+                 (and (funcall matches-p entry)
+                      (not (and write
+                                (eq 'failed (oref write state)))))))
+             (oref journal entries))))
+      (when matching
+        (cons
+         'saved-authority
+         (if effective
+             (eq 'add (plist-get effective :operation))
+           (and (slack-ts-saved-p team ts item-type item-id) t)))))))
+
 (defun slack-team-mark-saved (team channel ts)
   "Record that the message at TS in CHANNEL is saved for TEAM.
 Initializes TEAM's saved items list when it has not been loaded, so

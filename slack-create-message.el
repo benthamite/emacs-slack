@@ -32,7 +32,7 @@
 (require 'slack-bot-message)
 (require 'slack-attachment)
 
-(declare-function slack-star-pending-intent
+(declare-function slack-star-message-authority
                   "slack-star"
                   (team ts &optional item-type item-id))
 
@@ -140,20 +140,20 @@ PAYLOAD lacks one."
                 (mapcar #'slack-reaction-create (plist-get payload :reactions)))
           (slack-message-set-file message payload)
           (slack-message-set-blocks message payload)
-          (slack-message-apply-pending-saved-intent message team))))))
+          (slack-message-apply-saved-authority message team))))))
 
-(defun slack-message-apply-pending-saved-intent (message team)
-  "Apply TEAM's pending saved-item authority to MESSAGE.
-Remote message payloads may predate an unacknowledged local save or unsave.
-The authority is scoped by timestamp, message type, and channel so equal
-timestamps in other conversations remain independent."
+(defun slack-message-apply-saved-authority (message team)
+  "Apply TEAM's retained saved-item authority to MESSAGE.
+Remote message payloads may predate a local save or unsave even after its API
+acknowledgement.  The authority is scoped by timestamp, message type, and
+channel so equal timestamps in other conversations remain independent."
   (let ((ts (slack-ts message))
         (channel (oref message channel)))
-    (when (and (fboundp 'slack-star-pending-intent)
+    (when (and (fboundp 'slack-star-message-authority)
                (stringp ts)
                (stringp channel))
       (when-let ((intent
-                  (slack-star-pending-intent
+                  (slack-star-message-authority
                    team ts "message" channel)))
         (if (cdr intent)
             (slack-message-star-added message)
