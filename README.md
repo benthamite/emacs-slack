@@ -308,7 +308,8 @@ Some terminology in the `slack-` functions:
     for older message-producing reads; a stale room-history or saved-list
     message cannot overwrite that saved marker, and a rejected write restores
     and redraws the same live Saved Items buffer instead of leaving a phantom
-    addition or removal
+    addition or removal; journal pruning preserves event order, so a newer
+    live save/unsave event still overrides an older pending API write
   - selecting a team that has not connected yet starts it before saved items
     are fetched, instead of opening an empty buffer
   - saved files render as entries (previously every file-type saved item was

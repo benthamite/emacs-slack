@@ -654,6 +654,27 @@
                :ts "1710000000.000105" :is_starred nil)
          team "C22222"))))))
 
+(ert-deftest slack-test-saved-authority-pruning-preserves-mutation-order ()
+  "Keep a newer event authoritative over an older protected write."
+  (slack-test-setup
+    (let ((slack-star-mutation-journal-limit 2)
+          (ts "1710000000.000107"))
+      (cl-letf (((symbol-function 'slack-request)
+                 (lambda (request) request)))
+        (slack-star-api-request
+         slack-message-stars-add-url nil team
+         (lambda ()
+           (slack-team-mark-saved team channel-id ts))))
+      ;; Model a newer WebSocket removal while the older API write remains
+      ;; pending and therefore protected from pruning.
+      (slack-team-mark-unsaved team ts "message" channel-id)
+      (should-not
+       (slack-message-starred-p
+        (slack-message-create
+         (list :type "message" :user user-id :channel channel-id
+               :ts ts :is_starred t)
+         team channel))))))
+
 (ert-deftest slack-test-failed-saved-authority-uses-replayed-bounded-baseline ()
   "Use replayed cache state when a pending write evicts its prior authority."
   (slack-test-setup

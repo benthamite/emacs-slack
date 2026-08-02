@@ -211,7 +211,10 @@ protected; only older diagnostic history is pruned."
                     (length required))))
          (kept-optional
           (cl-subseq optional 0 (min remaining (length optional)))))
-    (oset journal entries (append required kept-optional))))
+    (oset journal entries
+          (cl-sort
+           (append required kept-optional)
+           #'> :key (lambda (entry) (plist-get entry :sequence))))))
 
 (defun slack-star-mutation-journal-register (team)
   "Register a saved-list request for TEAM and return its replay token."
