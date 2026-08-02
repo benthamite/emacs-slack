@@ -9278,6 +9278,390 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
       (should-not notified)
       (should-not (gethash key (oref team page-states)))
       (should-not (buffer-live-p buffer)))))
+;;; File-list lifecycle
+
+(defun slack-test-file-list-file (id created &optional user)
+  "Return a file-list test file identified by ID and CREATED.
+USER defaults to the fixture user's id."
+  (slack-file-create
+   (list :id id
+         :created created
+         :name (concat id ".txt")
+         :title (concat "File " id)
+         :filetype "text"
+         :mimetype "text/plain"
+         :user (or user "U11111")
+         :preview ""
+         :permalink ""
+         :public t
+         :username ""
+         :channels nil
+         :groups nil
+         :ims nil
+         :timestamp created)))
+
+(defun slack-test-kill-file-list-buffer (team)
+  "Kill TEAM's file-list buffer when it is live."
+  (when-let* ((object (slack-buffer-find 'slack-file-list-buffer team))
+              (buffer (and (slot-boundp object 'buf) (oref object buf)))
+              ((buffer-live-p buffer)))
+    (kill-buffer buffer)))
+
+(ert-deftest slack-test-file-list-displays-before-request ()
+  "The stable file-list shell is displayed before files.list starts."
+  (slack-test-setup
+    (oset team name "Test Team")
+    (let (events)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select)
+                     (lambda (&optional _no-default) team))
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (_object) (push 'display events)))
+                    ((symbol-function 'slack-file-list-request)
+                     (lambda (&rest _args) (push 'request events))))
+            (slack-file-list)
+            (should (equal '(request display) events)))
+        (slack-test-kill-file-list-buffer team)))))
+
+(ert-deftest slack-test-file-list-request-publishes-primary-before-users ()
+  "files.list publishes stored files before missing-user hydration."
+  (slack-test-setup
+    (let (request hydration-success primary-args ready-args events)
+      (cl-letf (((symbol-function 'slack-team-missing-user-ids)
+                 (lambda (&rest _args) '("U-MISSING")))
+                ((symbol-function 'slack-users-info-request)
+                 (lambda (_ids _team &rest args)
+                   (push 'hydration-request events)
+                   (setq hydration-success
+                         (plist-get args :after-success))))
+                ((symbol-function 'slack-request)
+                 (lambda (value &rest _args) (setq request value))))
+        (slack-file-list-request
+         team
+         :on-primary-page
+         (lambda (page pages)
+           (setq primary-args (list page pages))
+           (push 'primary events))
+         :after-success
+         (lambda (page pages)
+           (setq ready-args (list page pages))
+           (push 'ready events)))
+        (funcall
+         (oref request success)
+         :data
+         (list :ok t
+               :files
+               (list (list :id "F1" :created 100 :name "one.txt"
+                           :title "One" :filetype "text" :user "U-MISSING"
+                           :preview "" :permalink "" :public t
+                           :username "" :channels nil :groups nil :ims nil
+                           :timestamp 100))
+               :paging (list :page 1 :pages 3)))
+        (should (equal '(hydration-request primary) events))
+        (should (equal '(1 3) primary-args))
+        (should (slack-file-find "F1" team))
+        (should (functionp hydration-success))
+        (funcall hydration-success)
+        (should (equal '(ready hydration-request primary) events))
+        (should (equal primary-args ready-args))))))
+
+(ert-deftest slack-test-file-list-request-forwards-api-and-transport-errors ()
+  "files.list failures skip primary and hydrated success callbacks."
+  (slack-test-setup
+    (dolist (failure '(api transport))
+      (let (request primary-called ready-called errors)
+        (cl-letf (((symbol-function 'slack-request)
+                   (lambda (value &rest _args) (setq request value))))
+          (slack-file-list-request
+           team
+           :on-primary-page (lambda (&rest _) (setq primary-called t))
+           :after-success (lambda (&rest _) (setq ready-called t))
+           :on-error (lambda (&rest args) (push args errors)))
+          (if (eq failure 'api)
+              (funcall (oref request success)
+                       :data '(:ok :json-false :error "invalid_auth"))
+            (funcall (oref request error)
+                     :error-thrown '(error "offline")
+                     :symbol-status 'error
+                     :response nil
+                     :data nil))
+          (should (= 1 (length errors)))
+          (should-not primary-called)
+          (should-not ready-called))))))
+
+(ert-deftest slack-test-file-list-primary-stores-durable-pagination ()
+  "The first parsed file page is durable before identity hydration."
+  (slack-test-setup
+    (oset team name "Test Team")
+    (let (request hydration-success)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select)
+                     (lambda (&optional _no-default) team))
+                    ((symbol-function 'slack-buffer-display) #'ignore)
+                    ((symbol-function 'slack-team-missing-user-ids)
+                     (lambda (&rest _args) '("U-MISSING")))
+                    ((symbol-function 'slack-users-info-request)
+                     (lambda (_ids _team &rest args)
+                       (setq hydration-success
+                             (plist-get args :after-success))))
+                    ((symbol-function 'slack-request)
+                     (lambda (value &rest _args) (setq request value))))
+            (slack-file-list)
+            (funcall
+             (oref request success)
+             :data
+             (list :ok t
+                   :files
+                   (list (list :id "F1" :created 100 :name "one.txt"
+                               :title "One" :filetype "text"
+                               :user "U-MISSING" :preview "" :permalink ""
+                               :public t :username "" :channels nil
+                               :groups nil :ims nil :timestamp 100))
+                   :paging (list :page 1 :pages 3)))
+            (let ((state (slack-team-page-state team 'file-list)))
+              (should (= 1 (plist-get (slack-page-state-value state) :page)))
+              (should (= 3 (plist-get (slack-page-state-value state) :pages)))
+              (should (equal 2 (slack-page-state-continuation state)))
+              (should (slack-page-state-has-more state))
+              (should (eq 'loading (slack-page-state-status state))))
+            (funcall hydration-success)
+            (should (eq 'ready
+                        (slack-page-state-status
+                         (slack-team-page-state team 'file-list)))))
+        (slack-test-kill-file-list-buffer team)))))
+
+(ert-deftest slack-test-file-list-reopen-renders-durable-page ()
+  "Killing and reopening the file list retains its durable page."
+  (slack-test-setup
+    (oset team name "Test Team")
+    (let* ((file (slack-test-file-list-file "F1" 100))
+           (state (slack-team-page-state team 'file-list))
+           first-buffer second-object second-buffer displayed-text)
+      (slack-team-set-files team (list file))
+      (slack-page-state-store
+       state (list :files (list file) :page 1 :pages 3) 2 t)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select)
+                     (lambda (&optional _no-default) team))
+                    ((symbol-function 'slack-file-list-request) #'ignore)
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (object)
+                       (setq second-object object
+                             displayed-text
+                             (with-current-buffer (oref object buf)
+                               (buffer-substring-no-properties
+                                (point-min) (point-max)))))))
+            (slack-file-list)
+            (setq first-buffer (oref second-object buf))
+            (kill-buffer first-buffer)
+            (slack-file-list)
+            (setq second-buffer (oref second-object buf))
+            (should-not (eq first-buffer second-buffer))
+            (should (string-match-p "File F1" displayed-text))
+            (should (= 1 (oref second-object page)))
+            (should (= 3 (oref second-object pages)))
+            (should (= 1 (plist-get (slack-page-state-value state) :page)))
+            (should (= 3 (plist-get (slack-page-state-value state) :pages))))
+        (slack-test-kill-file-list-buffer team)))))
+
+(ert-deftest slack-test-file-list-coalesces-and-keeps-stable-live-buffer ()
+  "Repeated opens share one request and one live file-list buffer."
+  (slack-test-setup
+    (oset team name "Test Team")
+    (let ((requests 0) objects buffers)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select)
+                     (lambda (&optional _no-default) team))
+                    ((symbol-function 'slack-file-list-request)
+                     (lambda (&rest _args) (cl-incf requests)))
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (object)
+                       (push object objects)
+                       (push (oref object buf) buffers))))
+            (slack-file-list)
+            (slack-file-list)
+            (should (= 1 requests))
+            (should (eq (car objects) (cadr objects)))
+            (should (eq (car buffers) (cadr buffers)))
+            (should (buffer-live-p (car buffers))))
+        (slack-test-kill-file-list-buffer team)))))
+
+(ert-deftest slack-test-file-list-late-page-does-not-recreate-killed-buffer ()
+  "A late file page updates state without resurrecting its killed buffer."
+  (slack-test-setup
+    (oset team name "Test Team")
+    (let (primary hydrated killed-buffer buffers-after-kill)
+      (cl-letf (((symbol-function 'slack-team-select)
+                 (lambda (&optional _no-default) team))
+                ((symbol-function 'slack-buffer-display) #'ignore)
+                ((symbol-function 'slack-file-list-request)
+                 (cl-function
+                  (lambda (_team &key on-primary-page after-success
+                          &allow-other-keys)
+                    (setq primary on-primary-page
+                          hydrated after-success)))))
+        (slack-file-list)
+        (setq killed-buffer
+              (oref (slack-buffer-find 'slack-file-list-buffer team) buf))
+        (kill-buffer killed-buffer)
+        (setq buffers-after-kill (buffer-list))
+        (slack-team-set-files team (list (slack-test-file-list-file "F1" 100)))
+        (funcall primary 1 1)
+        (funcall hydrated 1 1)
+        (should-not (buffer-live-p killed-buffer))
+        (should (equal buffers-after-kill (buffer-list)))
+        (should-not (slack-buffer-find 'slack-file-list-buffer team))
+        (should (eq 'ready
+                    (slack-page-state-status
+                     (slack-team-page-state team 'file-list))))))))
+
+(ert-deftest slack-test-file-list-late-update-keeps-state-without-recreation ()
+  "A captured file update changes durable data without reviving a dead buffer."
+  (slack-test-setup
+    (oset team name "Test Team")
+    (let* ((first (slack-test-file-list-file "F1" 200))
+           (second (slack-test-file-list-file "F2" 100))
+           (state (slack-team-page-state team 'file-list))
+           (object (slack-create-file-list-buffer 1 1 team))
+           (buffer (slack-buffer-buffer object))
+           replacement replacement-buffer)
+      (slack-team-set-files team (list first))
+      (slack-page-state-store
+       state (list :files (list first) :page 1 :pages 1) nil nil)
+      (kill-buffer buffer)
+      (setq replacement (slack-create-file-list-buffer 1 1 team)
+            replacement-buffer (slack-buffer-buffer replacement))
+      (with-current-buffer replacement-buffer
+        (slack-file-list-buffer-render-page-state replacement state))
+      (slack-team-set-files team (list second))
+      (slack-buffer-update object second)
+      (should-not (buffer-live-p buffer))
+      (should (eq replacement
+                  (slack-buffer-find 'slack-file-list-buffer team)))
+      (should (eq replacement-buffer (oref replacement buf)))
+      (with-current-buffer replacement-buffer
+        (goto-char (point-min))
+        (should (search-forward "File F2" nil t)))
+      (should (equal '("F2" "F1")
+                     (mapcar #'slack-file-id
+                             (plist-get (slack-page-state-value state)
+                                        :files))))
+      (kill-buffer replacement-buffer))))
+
+(ert-deftest slack-test-file-list-failure-renders-retry-in-place ()
+  "A file-list failure is visible and retry reuses the exact buffer."
+  (slack-test-setup
+    (oset team name "Test Team")
+    (let ((requests 0) error-callback object buffer)
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-team-select)
+                     (lambda (&optional _no-default) team))
+                    ((symbol-function 'slack-buffer-display)
+                     (lambda (value)
+                       (setq object value
+                             buffer (oref value buf))))
+                    ((symbol-function 'slack-file-list-request)
+                     (cl-function
+                      (lambda (_team &key on-error &allow-other-keys)
+                        (cl-incf requests)
+                        (setq error-callback on-error)))))
+            (slack-file-list)
+            (funcall error-callback "offline")
+            (with-current-buffer buffer
+              (goto-char (point-min))
+              (should (search-forward "Slack request failed" nil t))
+              (should (search-forward "Retry" nil t))
+              (slack-buffer-page-retry))
+            (should (= 2 requests))
+            (should (eq buffer (oref object buf)))
+            (should (eq 'loading
+                        (slack-page-state-status
+                         (slack-team-page-state team 'file-list)))))
+        (slack-test-kill-file-list-buffer team)))))
+
+(ert-deftest slack-test-file-list-load-more-updates-same-state ()
+  "File-list load-more appends its primary page to the durable state."
+  (slack-test-setup
+    (oset team name "Test Team")
+    (let* ((first (slack-test-file-list-file "F1" 200))
+           (second (slack-test-file-list-file "F2" 100))
+           (state (slack-team-page-state team 'file-list))
+           (object (slack-create-file-list-buffer 1 3 team))
+           buffer primary hydrated requested-page
+           (requests 0))
+      (slack-team-set-files team (list first))
+      (slack-page-state-store
+       state (list :files (list first) :page 1 :pages 3) 2 t)
+      (setq buffer (slack-buffer-buffer object))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-file-list-request)
+                     (cl-function
+                      (lambda (_team &key page on-primary-page after-success
+                              &allow-other-keys)
+                        (cl-incf requests)
+                        (setq requested-page page
+                              primary on-primary-page
+                              hydrated after-success)))))
+            (with-current-buffer buffer
+              (slack-file-list-buffer-render-page-state object state)
+              (slack-buffer-load-more object)
+              (slack-buffer-load-more object)
+              (should slack-buffer--loading-more-p))
+            (should (= 1 requests))
+            (should (equal "2" requested-page))
+            (slack-team-set-files team (list second))
+            (funcall primary 2 3)
+            (let ((value (slack-page-state-value state)))
+              (should (= 2 (plist-get value :page)))
+              (should (= 3 (plist-get value :pages)))
+              (should (equal '("F2" "F1")
+                             (mapcar #'slack-file-id
+                                     (plist-get value :files))))
+              (should (equal 3 (slack-page-state-continuation state)))
+              (should (slack-page-state-has-more state)))
+            (funcall hydrated 2 3)
+            (with-current-buffer buffer
+              (should-not slack-buffer--loading-more-p)
+              (goto-char (point-min))
+              (should (search-forward "File F2" nil t))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(ert-deftest slack-test-file-list-load-more-rejects-stale-state ()
+  "A superseded file-list page cannot extend state or mutate its buffer."
+  (slack-test-setup
+    (oset team name "Test Team")
+    (let* ((first (slack-test-file-list-file "F1" 200))
+           (second (slack-test-file-list-file "F2" 100))
+           (state (slack-team-page-state team 'file-list))
+           (object (slack-create-file-list-buffer 1 2 team))
+           buffer primary)
+      (slack-team-set-files team (list first))
+      (slack-page-state-store
+       state (list :files (list first) :page 1 :pages 2) 2 t)
+      (setq buffer (slack-buffer-buffer object))
+      (unwind-protect
+          (cl-letf (((symbol-function 'slack-file-list-request)
+                     (cl-function
+                      (lambda (_team &key on-primary-page &allow-other-keys)
+                        (setq primary on-primary-page)))))
+            (with-current-buffer buffer
+              (slack-file-list-buffer-render-page-state object state)
+              (slack-buffer-load-more object))
+            (let ((replacement-generation (slack-page-state-restart state)))
+              (slack-page-state-commit
+               state replacement-generation
+               (list :files (list first) :page 1 :pages 1) nil nil))
+            (slack-team-set-files team (list second))
+            (funcall primary 2 2)
+            (should (= 1 (plist-get (slack-page-state-value state) :page)))
+            (should-not (slack-page-state-continuation state))
+            (with-current-buffer buffer
+              (goto-char (point-min))
+              (should-not (search-forward "File F2" nil t))
+              (should-not slack-buffer--loading-more-p)))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+
 (if noninteractive
     (ert-run-tests-batch-and-exit)
   (ert t))

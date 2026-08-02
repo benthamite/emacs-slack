@@ -1389,6 +1389,115 @@ produces a newline with `not-tracked-p'."
               (should (string= "F11111" (plist-get props 'file-id))))))
       (slack-test--unregister-team team))))
 
+;;; ---- File-list page state rendering ----
+
+(defun slack-test--make-file (id created)
+  "Create a file-list fixture identified by ID and CREATED."
+  (slack-file-create
+   (list :id id
+         :created created
+         :name (concat id ".txt")
+         :title (concat "File " id)
+         :filetype "text"
+         :mimetype "text/plain"
+         :user "U11111"
+         :preview ""
+         :permalink ""
+         :public t
+         :username ""
+         :channels nil
+         :groups nil
+         :ims nil
+         :timestamp created)))
+
+(ert-deftest slack-test-file-list-render-distinguishes-loading-empty-and-error ()
+  "File-list rendering shows empty only for a successfully ready empty page."
+  (slack-test-setup
+    (slack-test--register-team team)
+    (let* ((state (slack-team-page-state team 'file-list))
+           (object (slack-create-file-list-buffer 0 0 team))
+           (buffer (slack-buffer-buffer object))
+           generation)
+      (unwind-protect
+          (with-current-buffer buffer
+            (setq generation (slack-page-state-begin state))
+            (slack-file-list-buffer-render-page-state object state)
+            (should (save-excursion
+                      (goto-char (point-min))
+                      (search-forward "Loading Slack data" nil t)))
+            (should-not (save-excursion
+                          (goto-char (point-min))
+                          (search-forward "(no files)" nil t)))
+            (slack-page-state-commit
+             state generation '(:files nil :page 1 :pages 1) nil nil)
+            (slack-file-list-buffer-render-page-state object state)
+            (should (save-excursion
+                      (goto-char (point-min))
+                      (search-forward "(no files)" nil t)))
+            (should-not (save-excursion
+                          (goto-char (point-min))
+                          (search-forward "Loading Slack data" nil t)))
+            (setq generation (slack-page-state-begin state t))
+            (slack-page-state-fail state generation "offline")
+            (slack-file-list-buffer-render-page-state object state)
+            (should (save-excursion
+                      (goto-char (point-min))
+                      (search-forward "Slack request failed" nil t)))
+            (should-not (save-excursion
+                          (goto-char (point-min))
+                          (search-forward "(no files)" nil t))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))
+        (slack-test--unregister-team team)))))
+
+(ert-deftest slack-test-file-list-render-copies-page-metadata-and-files ()
+  "File-list rendering copies durable page metadata and displays its files."
+  (slack-test-setup
+    (slack-test--register-team team)
+    (let* ((first (slack-test--make-file "F1" 200))
+           (second (slack-test--make-file "F2" 100))
+           (state (slack-team-page-state team 'file-list))
+           (object (slack-create-file-list-buffer 0 0 team))
+           (buffer (slack-buffer-buffer object)))
+      (slack-page-state-store
+       state (list :files (list second first) :page 2 :pages 3) 3 t)
+      (unwind-protect
+          (with-current-buffer buffer
+            (slack-file-list-buffer-render-page-state object state)
+            (should (= 2 (oref object page)))
+            (should (= 3 (oref object pages)))
+            (goto-char (point-min))
+            (should (search-forward "File F2" nil t))
+            (goto-char (point-min))
+            (should (search-forward "File F1" nil t))
+            (goto-char (point-min))
+            (should (search-forward "(load more)" nil t)))
+        (when (buffer-live-p buffer) (kill-buffer buffer))
+        (slack-test--unregister-team team)))))
+
+(ert-deftest slack-test-file-list-render-defers-lui-hooks-once ()
+  "A file-list redraw runs each Lui output hook once."
+  (slack-test-setup
+    (slack-test--register-team team)
+    (let* ((file (slack-test--make-file "F1" 100))
+           (state (slack-team-page-state team 'file-list))
+           (object (slack-create-file-list-buffer 0 0 team))
+           (buffer (slack-buffer-buffer object))
+           (pre-count 0)
+           (post-count 0))
+      (slack-page-state-store
+       state (list :files (list file) :page 1 :pages 1) nil nil)
+      (unwind-protect
+          (with-current-buffer buffer
+            (add-hook 'lui-pre-output-hook
+                      (lambda () (cl-incf pre-count)) nil t)
+            (add-hook 'lui-post-output-hook
+                      (lambda () (cl-incf post-count)) nil t)
+            (slack-file-list-buffer-render-page-state object state)
+            (should (= 1 pre-count))
+            (should (= 1 post-count)))
+        (when (buffer-live-p buffer) (kill-buffer buffer))
+        (slack-test--unregister-team team)))))
+
 ;;; ---- Room history state rendering ----
 
 (ert-deftest slack-test-message-buffer-render-history-preserves-input-and-point ()

@@ -564,39 +564,54 @@ Prompt for team, channel, title, message, and filetype."
 (cl-defun slack-file-list-request (team &key
                                         (page "1")
                                         (count "100")
-                                        (after-success nil))
+                                        (after-success nil)
+                                        (on-primary-page nil)
+                                        (on-error nil))
   "Fetch the file listing for TEAM.
 PAGE selects which page to fetch, COUNT the number of entries per page.
-Invoke AFTER-SUCCESS with the current page number and total pages on
-completion."
+Invoke ON-PRIMARY-PAGE with the current page number and total pages after
+storing parsed files, before missing-user hydration.  Invoke AFTER-SUCCESS
+with the same arguments after hydration.  ON-ERROR handles API and transport
+failures."
   (cl-labels
-      ((callback (paging)
+      ((fail (&rest args)
+         (when (functionp on-error)
+           (apply on-error args)))
+       (callback (paging)
          (when (functionp after-success)
            (funcall after-success
                     (plist-get paging :page)
                     (plist-get paging :pages))))
        (success (&key data &allow-other-keys)
-         (let* ((files (mapcar #'slack-file-create
-                               (plist-get data :files)))
-                (paging (plist-get data :paging))
-                (user-ids (slack-team-missing-user-ids
-                           team (cl-loop for file in files
-                                         nconc (slack-message-user-ids file)))))
-           (when (string= page "1")
-             (oset team files (make-hash-table :test 'equal))
-             (oset team file-ids '()))
-           (slack-team-set-files team files)
-           (if (< 0 (length user-ids))
-               (slack-users-info-request
-                user-ids team :after-success #'(lambda () (callback paging)))
-             (callback paging)))))
+         (slack-request-handle-error
+          (data "slack-file-list" #'fail)
+          (let* ((files (mapcar #'slack-file-create
+                                (plist-get data :files)))
+                 (paging (plist-get data :paging))
+                 (user-ids (slack-team-missing-user-ids
+                            team (cl-loop for file in files
+                                          nconc
+                                          (slack-message-user-ids file)))))
+            (when (string= page "1")
+              (oset team files (make-hash-table :test 'equal))
+              (oset team file-ids '()))
+            (slack-team-set-files team files)
+            (when (functionp on-primary-page)
+              (funcall on-primary-page
+                       (plist-get paging :page)
+                       (plist-get paging :pages)))
+            (if (< 0 (length user-ids))
+                (slack-users-info-request
+                 user-ids team :after-success #'(lambda () (callback paging)))
+              (callback paging))))))
     (slack-request
      (slack-request-create
       slack-file-list-url
       team
       :params (list (cons "page" page)
                     (cons "count" count))
-      :success #'success))))
+      :success #'success
+      :error #'fail))))
 
 (cl-defmethod slack-file-download ((file slack-file) team)
   "Download FILE at location for TEAM.
