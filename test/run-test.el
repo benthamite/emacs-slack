@@ -7154,8 +7154,7 @@ the operation indexes in terminal callback order."
     (cl-letf (((symbol-function 'slack-chat-post-message)
                (lambda (&rest _args) 'internal-request)))
       (let ((result (slack-message-send-internal "hello" channel team)))
-        (should-not result)
-        (should (equal "nil\n" (pp-to-string result)))))))
+        (should-not result)))))
 
 (ert-deftest slack-test-paginate-after-anchors-at-page-newest ()
   (let ((page (list (make-instance 'slack-message :type "message"
@@ -9359,7 +9358,6 @@ the operation indexes in terminal callback order."
                  :on-error
                  (lambda (&rest arguments) (push arguments errors)))))
         (should-not result)
-        (should (equal "nil\n" (pp-to-string result)))
         (pcase failure
           ('api
            (funcall (oref request success)
