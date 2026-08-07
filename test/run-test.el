@@ -7147,6 +7147,16 @@ the operation indexes in terminal callback order."
       (should-error (slack-message-send-internal "" channel team)
                     :type 'user-error))))
 
+(ert-deftest slack-test-send-internal-does-not-return-request ()
+  "Sending a message does not expose its internal request object."
+  (slack-test-setup
+    (oset channel is-member t)
+    (cl-letf (((symbol-function 'slack-chat-post-message)
+               (lambda (&rest _args) 'internal-request)))
+      (let ((result (slack-message-send-internal "hello" channel team)))
+        (should-not result)
+        (should (equal "nil\n" (pp-to-string result)))))))
+
 (ert-deftest slack-test-paginate-after-anchors-at-page-newest ()
   (let ((page (list (make-instance 'slack-message :type "message"
                                    :channel "C11111"
@@ -9336,15 +9346,20 @@ the operation indexes in terminal callback order."
   "Opening a conversation reports both API and transport failures."
   (slack-test-setup
     (dolist (failure '(api transport))
-      (let (request errors success-called)
+      (let (request errors result success-called)
         (cl-letf (((symbol-function 'slack-request)
                    (lambda (candidate &rest _ignored)
                      (setq request candidate))))
-          (slack-conversations-open
-           team
-           :room channel
-           :on-success (lambda (&rest _ignored) (setq success-called t))
-           :on-error (lambda (&rest arguments) (push arguments errors))))
+          (setq result
+                (slack-conversations-open
+                 team
+                 :room channel
+                 :on-success
+                 (lambda (&rest _ignored) (setq success-called t))
+                 :on-error
+                 (lambda (&rest arguments) (push arguments errors)))))
+        (should-not result)
+        (should (equal "nil\n" (pp-to-string result)))
         (pcase failure
           ('api
            (funcall (oref request success)

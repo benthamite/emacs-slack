@@ -62,7 +62,8 @@ In this context an indentation level is a pair of spaces."
 FILES is a list of file paths to upload.  JOINED prevents infinite
 recursion when the join/open callback re-invokes this function.
 ON-SUCCESS is the on-success argument.
-ON-ERROR is the on-error argument."
+ON-ERROR is the on-error argument.  Always return nil so result-printing
+callers do not traverse the internal request object."
   (when (and (slack-string-blankp message) (null files))
     (user-error "Empty message"))
   ;; Phase 1: ensure membership (mpim rooms can report is-member=false
@@ -120,7 +121,8 @@ ON-ERROR is the on-error argument."
         (slack-chat-post-message team
                                  message-payload
                                  :on-success on-success
-                                 :on-error on-error)))))
+                                 :on-error on-error))))
+  nil)
 
 (cl-defun slack-chat-post-message (team message &key (on-success nil) (on-error nil))
   "Send MESSAGE via `chat.postMessage' on TEAM.

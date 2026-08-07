@@ -664,7 +664,9 @@ AFTER-SUCCESS is called with the members list and the next cursor."
 
 (cl-defun slack-conversations-open (team &key room user-ids on-success on-error)
   "Open a conversation in TEAM with ROOM or USER-IDS.
-Calls ON-SUCCESS with response data, or ON-ERROR with failure details."
+Calls ON-SUCCESS with response data, or ON-ERROR with failure details.
+Always returns nil so result-printing callers do not traverse the
+internal request object."
   (let ((channel (or (and room (oref room id))
                      ""))
         (users (mapconcat #'identity user-ids ","))
@@ -689,7 +691,8 @@ Calls ON-SUCCESS with response data, or ON-ERROR with failure details."
                           (cons "users" users)
                         (cons "channel" channel)))
         :success #'success
-        :error #'fail)))))
+        :error #'fail))))
+  nil)
 
 (defun slack-conversations-mark (room team ts &optional after-success after-error)
   "Mark ROOM in TEAM read up to timestamp TS.
