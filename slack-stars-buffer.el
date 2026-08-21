@@ -318,19 +318,21 @@ THIS is the slack-stars-buffer instance."
   "Replace BUFFER's live output with its durable saved-items STATE."
   (when (buffer-live-p (oref buffer buf))
     (with-current-buffer (oref buffer buf)
-      (slack-buffer-widen
-       (let ((inhibit-read-only t))
-         (delete-region (point-min) lui-output-marker)
-         (goto-char (point-min))
-         (when (slack-page-state-loaded-p state)
-           (let ((star (slack-page-state-value state)))
-             (slack-stars--insert-items
-              buffer (slack-star-items star)
-              (slack-stars-buffer--missing-label state))
-             (slack-stars--insert-tail buffer)))
-         (goto-char (point-min))
-         (slack-buffer-insert-page-status buffer state)
-         (goto-char (point-min)))))))
+      (let ((point-state (slack-feed--capture-point-state)))
+        (unwind-protect
+            (slack-buffer-widen
+             (let ((inhibit-read-only t))
+               (delete-region (point-min) lui-output-marker)
+               (goto-char (point-min))
+               (when (slack-page-state-loaded-p state)
+                 (let ((star (slack-page-state-value state)))
+                   (slack-stars--insert-items
+                    buffer (slack-star-items star)
+                    (slack-stars-buffer--missing-label state))
+                   (slack-stars--insert-tail buffer)))
+               (goto-char (point-min))
+               (slack-buffer-insert-page-status buffer state)))
+          (slack-feed--restore-point-state point-state))))))
 
 (defun slack-stars-buffer-render-page-state (buffer state)
   "Render exact BUFFER from durable saved-items STATE."

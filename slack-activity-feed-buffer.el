@@ -950,11 +950,14 @@ which the pending render chain would append its batches again."
   (slack-activity-feed--cancel-render-timer buffer)
   (when (buffer-live-p (oref buffer buf))
     (with-current-buffer (oref buffer buf)
-      (slack-buffer-widen
-       (let ((inhibit-read-only t))
-         (delete-region (point-min) lui-output-marker))
-       (goto-char (point-min))
-       (slack-activity-feed--render-activities buffer activities)))))
+      (let ((point-state (slack-feed--capture-point-state)))
+        (unwind-protect
+            (slack-buffer-widen
+             (let ((inhibit-read-only t))
+               (delete-region (point-min) lui-output-marker))
+             (goto-char (point-min))
+             (slack-activity-feed--render-activities buffer activities))
+          (slack-feed--restore-point-state point-state))))))
 
 (defun slack-activity-feed-render-page-state (buffer state)
   "Render BUFFER from Activity Feed STATE."
@@ -968,8 +971,9 @@ which the pending render chain would append its batches again."
                          :last nil))
     (slack-activity-feed--replace-live-contents buffer activities)
     (let ((inhibit-read-only t))
-      (goto-char (point-min))
-      (slack-buffer-insert-page-status buffer state))))
+      (save-excursion
+        (goto-char (point-min))
+        (slack-buffer-insert-page-status buffer state)))))
 
 (defun slack-create-activity-feed-buffer (activity-feed team)
   "Create and return a new activity feed buffer instance from PAYLOAD.

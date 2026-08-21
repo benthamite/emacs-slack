@@ -1510,5 +1510,56 @@ Dispatches to the buffer-specific open function."
 Subclasses of `slack-buffer' that act as feed buffers should
 specialize this method.")
 
+(defun slack-feed--capture-point-state ()
+  "Capture the current feed entry identity, offset, and numeric point."
+  (let* ((position (point))
+         (ts (get-text-property position 'ts))
+         (identity
+          (when ts
+            (mapcar (lambda (property)
+                      (cons property
+                            (get-text-property position property)))
+                    '(ts room-id file-id activity-feed-ts))))
+         (entry-start
+          (when ts
+            (if (and (> position (point-min))
+                     (equal ts (get-text-property (1- position) 'ts)))
+                (or (previous-single-property-change
+                     position 'ts nil (point-min))
+                    (point-min))
+              position))))
+    (list position identity (and entry-start (- position entry-start)))))
+
+(defun slack-feed--restore-point-state (state)
+  "Restore feed point from captured STATE.
+Prefer the same entry and intra-entry offset.  When that entry no longer
+exists, restore the clamped numeric position instead."
+  (pcase-let ((`(,old-point ,identity ,offset) state))
+    (if-let ((entry-start
+              (and identity (slack-feed--find-entry identity))))
+        (let ((entry-end
+               (or (next-single-property-change
+                    entry-start 'ts nil (point-max))
+                   (point-max))))
+          (goto-char (min (+ entry-start offset) (1- entry-end))))
+      (goto-char (min (max (point-min) old-point) (point-max))))))
+
+(defun slack-feed--find-entry (identity)
+  "Return the start of the feed entry matching IDENTITY, or nil."
+  (let ((position (point-min))
+        found)
+    (while (and (< position (point-max)) (not found))
+      (if (and (get-text-property position 'ts)
+               (cl-every
+                (lambda (property-value)
+                  (equal (get-text-property position (car property-value))
+                         (cdr property-value)))
+                identity))
+          (setq found position)
+        (setq position
+              (next-single-property-change
+               position 'ts nil (point-max)))))
+    found))
+
 (provide 'slack-buffer)
 ;;; slack-buffer.el ends here

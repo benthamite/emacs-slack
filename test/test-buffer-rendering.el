@@ -531,6 +531,90 @@ produces a newline with `not-tracked-p'."
         (when (buffer-live-p emacs-buffer)
           (kill-buffer emacs-buffer))))))
 
+(ert-deftest slack-test-stars-page-render-preserves-current-entry-point ()
+  "A Saved Items redraw keeps point within the current saved entry."
+  (slack-test-setup
+    (let* ((first-ts "1710000000.000100")
+           (second-ts "1710000001.000100")
+           (first (slack-test--make-message first-ts "first saved"))
+           (second (slack-test--make-message second-ts "second saved"))
+           (items (list (make-instance 'slack-star-item
+                                       :item-id channel-id
+                                       :item-type "message"
+                                       :ts first-ts)
+                        (make-instance 'slack-star-item
+                                       :item-id channel-id
+                                       :item-type "message"
+                                       :ts second-ts)))
+           (star (make-instance 'slack-star :items items :cursor ""))
+           (state (slack-team-page-state team 'saved-items))
+           (object (slack-create-stars-buffer team))
+           emacs-buffer)
+      (slack-room-set-messages channel (list first second) team)
+      (slack-page-state-store state star "" nil)
+      (unwind-protect
+          (progn
+            (setq emacs-buffer (slack-buffer-buffer object))
+            (with-current-buffer emacs-buffer
+              (slack-stars-buffer-render-page-state object state)
+              (should (slack-buffer-goto second-ts))
+              (forward-char 3)
+              (let ((entry-offset
+                     (- (point) (slack-test--find-ts-position second-ts))))
+                (oset first text "a much longer first saved message")
+                (slack-stars-buffer-render-page-state object state)
+                (should (equal second-ts (get-text-property (point) 'ts)))
+                (should (= entry-offset
+                           (- (point)
+                              (slack-test--find-ts-position second-ts)))))))
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
+(ert-deftest slack-test-activity-page-render-preserves-current-entry-point ()
+  "An Activity Feed redraw keeps point within the current feed entry."
+  (slack-test-setup
+    (slack-test--register-team team)
+    (let* ((first-message
+            (slack-test--make-message "1710000000.000100" "first activity"))
+           (second-message
+            (slack-test--make-message "1710000001.000100" "second activity"))
+           (first (slack-activity-feed--message-activity first-message channel))
+           (second (slack-activity-feed--message-activity second-message channel))
+           (activities (list first second))
+           (state (slack-team-page-state team (list 'activity-feed nil)))
+           (feed (make-instance 'slack-activity-feed
+                                :activities activities
+                                :pagination nil
+                                :last nil))
+           (object (make-instance 'slack-activity-feed-buffer
+                                  :team-id (oref team id)
+                                  :room-id "__activity-feed__"
+                                  :cached-team team
+                                  :activity-feed feed))
+           (emacs-buffer (slack-buffer-buffer object)))
+      (slack-page-state-store
+       state (list :activities activities :pagination nil) nil nil)
+      (unwind-protect
+          (with-current-buffer emacs-buffer
+            (slack-activity-feed-render-page-state object state)
+            (should (slack-buffer-goto (slack-ts second-message)))
+            (forward-char 3)
+            (let ((entry-offset
+                   (- (point)
+                      (slack-test--find-ts-position
+                       (slack-ts second-message)))))
+              (oset first-message text "a much longer first activity message")
+              (slack-activity-feed-render-page-state object state)
+              (should (equal (slack-ts second-message)
+                             (get-text-property (point) 'ts)))
+              (should (= entry-offset
+                         (- (point)
+                            (slack-test--find-ts-position
+                             (slack-ts second-message)))))))
+        (slack-test--unregister-team team)
+        (when (buffer-live-p emacs-buffer)
+          (kill-buffer emacs-buffer))))))
+
 ;;; ---- 5. Lui-insert basic behavior ----
 
 (ert-deftest slack-test-lui-insert-adds-text ()

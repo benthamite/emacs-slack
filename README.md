@@ -284,6 +284,7 @@ Some terminology in the `slack-` functions:
     later prompt rejects empty input instead of scheduling "Next week"
   - the visible Activity feed is refreshed when the feed is shown or when
     <kbd>g</kbd> is pressed
+  - Activity feed redraws preserve point on the current entry
   - `slack-activity-feed-watch-channel-limit` controls how many recent
     messages are fetched from each watched channel
   - entries can be channel names without `#` or channel IDs such as
@@ -314,6 +315,8 @@ Some terminology in the `slack-` functions:
     are fetched, instead of opening an empty buffer
   - saved files render as entries (previously every file-type saved item was
     silently invisible)
+  - Saved Items redraws preserve point on the current entry, including when a
+    refresh completes while opening that item
   - press <kbd>RET</kbd> on a saved item's thread-status link ("N replies, Last
     reply ...") to open the associated thread
 - `slack-room-pins-list`
