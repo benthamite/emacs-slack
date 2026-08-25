@@ -240,6 +240,9 @@ Some terminology in the `slack-` functions:
     in every Slack client)
   - press <kbd>t</kbd> on an Activity feed thread entry to open the associated
     thread
+  - press <kbd>u</kbd> (`slack-thread-toggle-subscription`) on any message in
+    the Activity feed, a channel, or another message view to follow or
+    unfollow its thread; the command no longer requires a thread buffer
   - opening a thread entry whose parent message is already loaded in the
     channel opens the thread correctly even when the cached parent lacks
     thread data

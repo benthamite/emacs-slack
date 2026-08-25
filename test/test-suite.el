@@ -1557,6 +1557,53 @@
     (slack-counts-channel-set-mention-count (oref team counts) channel 5)
     (should (string= "(5)" (slack-room-mention-count-display channel team)))))
 
+;;; ---- Thread subscription toggle ----
+
+(require 'slack-thread-message-buffer)
+(require 'slack-message-buffer)
+
+(ert-deftest slack-test-thread-toggle-subscription-from-non-thread-buffer ()
+  "Toggling from a channel buffer resolves the thread of the message at point."
+  (slack-test-setup
+    (let ((reply (make-instance 'slack-message :type "message"
+                                :ts "200.0" :thread_ts "100.0"))
+          (parent (make-instance 'slack-message :type "message"
+                                 :ts "100.0" :replies (list "200.0")))
+          (plain (make-instance 'slack-message :type "message" :ts "300.0"))
+          called)
+      (dolist (m (list reply parent plain))
+        (slack-room-push-message channel m team))
+      (cl-letf (((symbol-function 'slack-thread-toggle-subscription-1)
+                 (lambda (room ts tm) (setq called (list (oref room id) ts tm)))))
+        (with-temp-buffer
+          (setq-local slack-current-buffer
+                      (make-instance 'slack-message-buffer :room-id channel-id :team-id (oref team id)))
+          (cl-letf (((symbol-function 'slack-buffer-team) (lambda (_b) team))
+                    ((symbol-function 'slack-buffer-room) (lambda (_b) channel)))
+            ;; Text property wins.
+            (insert (propertize "feed item" 'ts "200.0" 'thread-ts "100.0"))
+            (goto-char (point-min))
+            (slack-thread-toggle-subscription)
+            (should (equal called (list channel-id "100.0" team)))
+            ;; Reply without property: use the message's thread-ts.
+            (erase-buffer) (setq called nil)
+            (insert (propertize "reply" 'ts "200.0"))
+            (goto-char (point-min))
+            (slack-thread-toggle-subscription)
+            (should (equal called (list channel-id "100.0" team)))
+            ;; Thread parent: use its own ts.
+            (erase-buffer) (setq called nil)
+            (insert (propertize "parent" 'ts "100.0"))
+            (goto-char (point-min))
+            (slack-thread-toggle-subscription)
+            (should (equal called (list channel-id "100.0" team)))
+            ;; Message without thread: user-error.
+            (erase-buffer) (setq called nil)
+            (insert (propertize "plain" 'ts "300.0"))
+            (goto-char (point-min))
+            (should-error (slack-thread-toggle-subscription) :type 'user-error)
+            (should-not called)))))))
+
 (if noninteractive
     (ert-run-tests-batch-and-exit)
   (ert t))

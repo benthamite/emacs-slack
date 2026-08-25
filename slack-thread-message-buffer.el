@@ -410,17 +410,36 @@ TS is the ts argument."
     (user-error "Can't determine the room")))
 
 (defun slack-thread-toggle-subscription ()
-  "Toggle follow/unfollow for the current thread.
-Queries the subscription status and then adds or removes the
-subscription accordingly."
+  "Toggle follow/unfollow for the thread at point.
+In a thread buffer, act on that thread.  In any other Slack buffer
+\(channel, activity feed, saved items, …), act on the thread the
+message at point belongs to, or on the message itself when it is a
+thread parent.  Queries the subscription status and then adds or
+removes the subscription accordingly."
   (interactive)
-  (unless (derived-mode-p 'slack-thread-message-buffer-mode)
-    (user-error "Not in a thread buffer"))
-  (slack-if-let* ((buf slack-current-buffer)
-                  (team (slack-buffer-team buf))
-                  (room (slack-buffer-room buf))
-                  (ts (oref buf thread-ts)))
-      (slack-thread-toggle-subscription-1 room ts team)))
+  (let ((buf slack-current-buffer))
+    (unless buf
+      (user-error "Not in a Slack buffer"))
+    (let* ((team (slack-buffer-team buf))
+           (room (slack-buffer-room buf))
+           (ts (if (slack-thread-message-buffer-p buf)
+                   (oref buf thread-ts)
+                 (slack-thread--thread-ts-at-point room))))
+      (unless (and team room ts)
+        (user-error "No thread at point"))
+      (slack-thread-toggle-subscription-1 room ts team))))
+
+(defun slack-thread--thread-ts-at-point (room)
+  "Return the thread ts of the message at point in ROOM, or nil.
+Prefer the `thread-ts' text property.  Otherwise look up the
+message at point in ROOM: return its `thread-ts' when it is a reply,
+or its own ts when it has replies."
+  (or (get-text-property (point) 'thread-ts)
+      (when-let* ((ts (slack-get-ts))
+                  (msg (and room (ignore-errors
+                                   (slack-room-find-message room ts)))))
+        (or (and (slot-boundp msg 'thread-ts) (oref msg thread-ts))
+            (and (slot-boundp msg 'replies) (oref msg replies) ts)))))
 
 (defun slack-thread-toggle-subscription-1 (room ts team)
   "Toggle thread subscription for ROOM, TS, and TEAM."
