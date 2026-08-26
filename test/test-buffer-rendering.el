@@ -2054,5 +2054,37 @@ produces a newline with `not-tracked-p'."
           (kill-buffer buffer))
         (slack-test--unregister-team team)))))
 
+(ert-deftest slack-test-apply-message-keymap-uses-buffer-local-map ()
+  "Message keymap application honors `slack-buffer-message-keymap'."
+  (with-temp-buffer
+    (let ((str (slack-buffer--apply-message-keymap (copy-sequence "hello"))))
+      (should (eq (get-text-property 0 'keymap str) slack-message-keymap))))
+  (with-temp-buffer
+    (let ((local-map (make-sparse-keymap)))
+      (setq-local slack-buffer-message-keymap local-map)
+      (let ((str (slack-buffer--apply-message-keymap (copy-sequence "hello"))))
+        (should (eq (get-text-property 0 'keymap str) local-map))))))
+
+(ert-deftest slack-test-apply-message-keymap-preserves-inner-keymaps ()
+  "Message keymap application leaves pre-existing keymap stretches alone."
+  (with-temp-buffer
+    (let ((inner (make-sparse-keymap))
+          (str (copy-sequence "abcdef")))
+      (put-text-property 2 4 'keymap inner str)
+      (setq-local slack-buffer-message-keymap (make-sparse-keymap))
+      (slack-buffer--apply-message-keymap str)
+      (should (eq (get-text-property 2 'keymap str) inner))
+      (should (eq (get-text-property 0 'keymap str)
+                  slack-buffer-message-keymap))
+      (should (eq (get-text-property 4 'keymap str)
+                  slack-buffer-message-keymap)))))
+
+(ert-deftest slack-test-mode-specific-message-keymaps-inherit ()
+  "Per-mode message keymaps inherit from `slack-message-keymap'."
+  (dolist (map (list slack-message-buffer-message-keymap
+                     slack-thread-message-buffer-message-keymap
+                     slack-activity-feed-buffer-message-keymap))
+    (should (eq (keymap-parent map) slack-message-keymap))))
+
 (provide 'test-buffer-rendering)
 ;;; test-buffer-rendering.el ends here

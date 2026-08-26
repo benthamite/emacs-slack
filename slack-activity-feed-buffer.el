@@ -808,11 +808,19 @@ transport failure so callers can clear their pending state."
   "Apply Activity Feed display invariants in the current buffer."
   (setq-local lui-max-buffer-size nil))
 
+(defvar slack-activity-feed-buffer-message-keymap
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map slack-message-keymap)
+    map)
+  "Keymap for message regions in `slack-activity-feed-buffer-mode'.
+Inherits from `slack-message-keymap'; bindings here shadow the
+shared message commands only on activity feed entries.")
+
 (define-derived-mode slack-activity-feed-buffer-mode slack-buffer-mode "Slack Activity Feed"
   "Major mode for the Slack activity feed.
 
 Message-region bindings (active when point is on an activity entry):
-\\{slack-message-keymap}
+\\{slack-activity-feed-buffer-message-keymap}
 Buffer-wide bindings:
 \\{slack-activity-feed-buffer-mode-map}"
   (add-hook 'lui-pre-output-hook 'slack-mrkdwn-add-face nil t)
@@ -821,6 +829,7 @@ Buffer-wide bindings:
   (setq-local revert-buffer-function
               (lambda (_ignore-auto _noconfirm)
                 (slack-activity-feed-refresh)))
+  (setq-local slack-buffer-message-keymap slack-activity-feed-buffer-message-keymap)
   (cursor-sensor-mode)
   (slack-activity-feed--prepare-buffer))
 

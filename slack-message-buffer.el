@@ -71,18 +71,28 @@
   "Face used to New Message Marker."
   :group 'slack)
 
+(defvar slack-message-buffer-message-keymap
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map slack-message-keymap)
+    map)
+  "Keymap for message regions in `slack-message-buffer-mode'.
+Inherits from `slack-message-keymap'; bindings here shadow the
+shared message commands only in channel, group, and direct-message
+buffers, and never affect the input prompt.")
+
 (define-derived-mode slack-message-buffer-mode slack-buffer-mode "Slack Message Buffer"
   "Major mode for a Slack channel, group, or direct-message buffer.
 
 Message-region bindings (active when point is on a message, not on the
 input prompt):
-\\{slack-message-keymap}
+\\{slack-message-buffer-message-keymap}
 Buffer-wide bindings:
 \\{slack-message-buffer-mode-map}"
   (add-hook 'lui-pre-output-hook 'slack-mrkdwn-add-face nil t)
   (add-hook 'lui-pre-output-hook 'slack-display-inline-action t t)
   (lui-set-prompt lui-prompt-string)
   (setq lui-input-function 'slack-message--send)
+  (setq-local slack-buffer-message-keymap slack-message-buffer-message-keymap)
   (cursor-sensor-mode)
   (setq-local lui-max-buffer-size nil))
 

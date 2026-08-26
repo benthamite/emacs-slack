@@ -26,11 +26,21 @@
 
 (require 'eieio)
 (require 'slack-util)
+(require 'slack-buffer)
 (require 'slack-message-sender)
 (require 'slack-message-reaction)
 (require 'slack-message-edit-buffer)
 (require 'slack-message-share-buffer)
 (require 'slack-star)
+
+(defvar slack-thread-message-buffer-message-keymap
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map slack-message-keymap)
+    map)
+  "Keymap for message regions in `slack-thread-message-buffer-mode'.
+Inherits from `slack-message-keymap'; bindings here shadow the
+shared message commands only in thread reply buffers, and never
+affect the input prompt.")
 
 (define-derived-mode slack-thread-message-buffer-mode
   slack-buffer-mode
@@ -39,12 +49,13 @@
 
 Message-region bindings (active when point is on a reply, not on the
 input prompt):
-\\{slack-message-keymap}
+\\{slack-thread-message-buffer-message-keymap}
 Buffer-wide bindings:
 \\{slack-thread-message-buffer-mode-map}"
   (lui-set-prompt lui-prompt-string)
   (cursor-sensor-mode)
   (add-hook 'post-command-hook #'slack-buffer--maybe-load-more-at-end nil t)
+  (setq-local slack-buffer-message-keymap slack-thread-message-buffer-message-keymap)
   (setq lui-input-function 'slack-thread-message--send))
 
 (defclass slack-thread-message-buffer (slack-room-buffer)

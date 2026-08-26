@@ -88,17 +88,28 @@ Applies when point is on a message but not on an inner button
 Letter keys invoke message-level actions; see `slack-menu' for the
 full command index.")
 
+(defvar-local slack-buffer-message-keymap nil
+  "Buffer-local keymap attached to rendered message regions.
+When non-nil, `slack-buffer--apply-message-keymap' uses this map
+instead of `slack-message-keymap'.  Modes that want mode-specific
+message-region bindings set this to a keymap whose parent is
+`slack-message-keymap', so keys left unbound fall back to the
+shared message commands.")
+
 (defun slack-buffer--apply-message-keymap (str)
-  "Attach `slack-message-keymap' to STR where no keymap is already set.
-Walks STR and sets the `keymap' text property on every stretch
-whose current keymap is nil, leaving inner keymaps (reactions,
-buttons, …) untouched.  Returns STR."
-  (let ((pos 0)
+  "Attach the message-region keymap to STR where no keymap is set.
+The map is `slack-buffer-message-keymap' when the current buffer
+sets it, `slack-message-keymap' otherwise.  Walks STR and sets the
+`keymap' text property on every stretch whose current keymap is
+nil, leaving inner keymaps (reactions, buttons, …) untouched.
+Returns STR."
+  (let ((map (or slack-buffer-message-keymap slack-message-keymap))
+        (pos 0)
         (len (length str)))
     (while (< pos len)
       (let ((next (or (next-single-property-change pos 'keymap str) len)))
         (unless (get-text-property pos 'keymap str)
-          (put-text-property pos next 'keymap slack-message-keymap str))
+          (put-text-property pos next 'keymap map str))
         (setq pos next))))
   str)
 

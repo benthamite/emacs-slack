@@ -566,6 +566,25 @@ Some terminology in the `slack-` functions:
     no longer consumed by your own messages or by background history
     scans without an alert ever firing
 
+### Keybindings
+
+Slack buffers combine a read-only message area with an editable input
+prompt, so printable keys must not be bound in the major-mode maps
+(`slack-message-buffer-mode-map`, …): those apply buffer-wide and
+would shadow typing at the prompt. Instead, message-level commands
+live in `slack-message-keymap`, which is attached as a text property
+to rendered messages only — press `r` (reply), `t` (thread), `e`
+(edit), `d` (delete), etc. while point is on a message, and the same
+keys self-insert at the prompt.
+
+Each interactive mode also has its own message-region map inheriting
+from `slack-message-keymap`, for bindings that should differ per
+buffer type: `slack-message-buffer-message-keymap`,
+`slack-thread-message-buffer-message-keymap`, and
+`slack-activity-feed-buffer-message-keymap`. Bind printable keys
+there; reserve the mode maps for modifier combinations. Buffers pick
+the map via the buffer-local variable `slack-buffer-message-keymap`.
+
 ### Tip
 
 If your Slack team has a huge number of public channels, you may find
