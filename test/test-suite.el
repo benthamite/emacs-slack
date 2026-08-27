@@ -1562,6 +1562,20 @@
 (require 'slack-thread-message-buffer)
 (require 'slack-message-buffer)
 
+(ert-deftest slack-test-select-window-advice-ignores-selected-window ()
+  "Selecting the current window does not emit false cursor transitions."
+  (let ((slack-current-buffer 'fake-buffer)
+        (window (selected-window))
+        events)
+    (cl-letf (((symbol-function 'slack-buffer--subscribe-cursor-event)
+               (lambda (_buffer _window _point type)
+                 (push type events))))
+      (should (eq window
+                  (slack-advice-select-window
+                   (lambda (target &optional _norecord) target)
+                   window)))
+      (should-not events))))
+
 (ert-deftest slack-test-thread-toggle-subscription-from-non-thread-buffer ()
   "Toggling from a channel buffer resolves the thread of the message at point."
   (slack-test-setup

@@ -1352,17 +1352,8 @@ the failed state and error when loading fails."
 (defun slack-advice-select-window (org-func window &optional norecord)
   "Advice around `select-window' emitting cursor left/entered events.
 ORG-FUNC, WINDOW and NORECORD are forwarded to the underlying
-function."
-  (slack-if-let* ((win (selected-window))
-                  (live-p (window-live-p win))
-                  (buf (window-buffer win)))
-      (with-current-buffer buf
-        (slack-if-let* ((buffer slack-current-buffer))
-            (slack-buffer--subscribe-cursor-event buffer
-                                                  nil
-                                                  nil
-                                                  'left))))
-  (prog1
+function.  Selecting the current window is not a cursor transition."
+  (if (eq window (selected-window))
       (funcall org-func window norecord)
     (slack-if-let* ((win (selected-window))
                     (live-p (window-live-p win))
@@ -1372,7 +1363,18 @@ function."
               (slack-buffer--subscribe-cursor-event buffer
                                                     nil
                                                     nil
-                                                    'entered))))))
+                                                    'left))))
+    (prog1
+        (funcall org-func window norecord)
+      (slack-if-let* ((win (selected-window))
+                      (live-p (window-live-p win))
+                      (buf (window-buffer win)))
+          (with-current-buffer buf
+            (slack-if-let* ((buffer slack-current-buffer))
+                (slack-buffer--subscribe-cursor-event buffer
+                                                      nil
+                                                      nil
+                                                      'entered)))))))
 
 (advice-add 'select-window :around 'slack-advice-select-window)
 (advice-add 'delete-window :before 'slack-advice-delete-window)

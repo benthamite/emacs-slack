@@ -288,6 +288,8 @@ Some terminology in the `slack-` functions:
   - the visible Activity feed is refreshed when the feed is shown or when
     <kbd>g</kbd> is pressed
   - Activity feed redraws preserve point on the current entry
+  - selecting the already-selected Slack window does not emit false cursor
+    leave and enter events or rescan its message images
   - `slack-activity-feed-watch-channel-limit` controls how many recent
     messages are fetched from each watched channel
   - entries can be channel names without `#` or channel IDs such as
