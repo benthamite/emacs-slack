@@ -305,6 +305,8 @@ Some terminology in the `slack-` functions:
     can render newly fetched saved items immediately
   - displays a stable buffer before Slack returns the saved index, keeps rows
     visible while message content loads, and refreshes or retries in place
+  - opening, refreshing, and paginating saved history do not mark its old
+    messages, files, or unavailable-message placeholders as new activity
   - live save/unsave events remain visible when they arrive during refresh or
     pagination, including the first load before a saved-item cache exists, and
     removals stay scoped to the matching conversation; missing saved-item

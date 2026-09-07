@@ -260,7 +260,7 @@ MESSAGE is the message argument."
 
 (cl-defmethod slack-stars--insert-items
     ((this slack-stars-buffer) star-items &optional missing-label)
-  "Insert messages for STAR-ITEMS into THIS buffer.
+  "Insert STAR-ITEMS into THIS buffer without marking history as unread.
 File-type items carry the file id in `item-id', never a room, so
 they get their own insert path instead of being silently dropped.
 When MISSING-LABEL is non-nil, insert a placeholder for an
@@ -272,7 +272,7 @@ uncached message instead of dropping its saved-index row."
                              (slack-room-find (oref i item-id) team))
              for m = (and room (slack-room-find-message room (oref i ts)))
              do (cond (file (slack-stars--insert-file-item this i file))
-                      (m (slack-buffer-insert this m))
+                      (m (slack-buffer-insert this m t))
                       (missing-label
                        (slack-stars--insert-missing-item
                         this i missing-label))))))
@@ -284,6 +284,7 @@ uncached message instead of dropping its saved-index row."
          (seconds-to-time (string-to-number (oref item ts)))))
     (lui-insert-with-text-properties
      label
+     'not-tracked-p t
      'ts (oref item ts)
      'team-id (oref (slack-buffer-team buffer) id)
      'room-id (oref item item-id)
@@ -297,6 +298,7 @@ uncached message instead of dropping its saved-index row."
                               (string-to-number (oref item ts)))))
     (lui-insert-with-text-properties
      (slack-message-to-string file (oref item ts) (slack-buffer-team this))
+     'not-tracked-p t
      'ts (oref item ts)
      'file-id (oref file id))
     (lui-insert "" t)))

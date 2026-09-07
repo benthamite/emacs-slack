@@ -1476,6 +1476,34 @@ produces a newline with `not-tracked-p'."
 
 ;;; ---- File-list page state rendering ----
 
+(ert-deftest slack-test-stars-history-does-not-mark-unread ()
+  "Saved messages, files, and placeholders do not announce new activity."
+  (slack-test-setup
+    (slack-test--register-team team)
+    (unwind-protect
+        (let ((tracking-buffers nil)
+              (tracking-mode-line-buffers nil))
+          (slack-test--with-slack-buffer-mode
+            (let* ((message (slack-test--make-message
+                             "1710000000.000100" "Saved history"))
+                   (file (slack-test--make-file "F11111" 1710000000))
+                   (items (list
+                           (make-instance 'slack-star-item :item-id channel-id
+                                          :ts "1710000000.000100")
+                           (make-instance 'slack-star-item :item-id "F11111"
+                                          :item-type "file" :file file
+                                          :ts "1710000000.000200")
+                           (make-instance 'slack-star-item :item-id channel-id
+                                          :ts "1710000000.000300"))))
+              (slack-room-set-messages channel (list message) team)
+              (slack-stars--insert-items
+               (make-instance 'slack-stars-buffer :team-id (oref team id))
+               items "Saved message unavailable.")
+              (should-not (member (buffer-name) tracking-buffers))
+              (dolist (item items)
+                (should (slack-test--find-ts-position (oref item ts)))))))
+      (slack-test--unregister-team team))))
+
 (defun slack-test--make-file (id created)
   "Create a file-list fixture identified by ID and CREATED."
   (slack-file-create
