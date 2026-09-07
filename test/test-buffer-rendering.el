@@ -9,6 +9,7 @@
 (require 'ert)
 (require 'cl-lib)
 (require 'eieio)
+(require 'slack)
 (require 'slack-team)
 (require 'slack-channel)
 (require 'slack-usergroup)
@@ -2066,14 +2067,23 @@ produces a newline with `not-tracked-p'."
         (should (eq (get-text-property 0 'keymap str) local-map))))))
 
 (ert-deftest slack-test-apply-message-keymap-preserves-inner-keymaps ()
-  "Message keymap application leaves pre-existing keymap stretches alone."
+  "Inner bindings take precedence while message commands remain available."
   (with-temp-buffer
     (let ((inner (make-sparse-keymap))
           (str (copy-sequence "abcdef")))
+      (define-key inner (kbd "RET") #'push-button)
       (put-text-property 2 4 'keymap inner str)
-      (setq-local slack-buffer-message-keymap (make-sparse-keymap))
+      (setq-local slack-buffer-message-keymap
+                  (make-composed-keymap nil slack-message-keymap))
       (slack-buffer--apply-message-keymap str)
-      (should (eq (get-text-property 2 'keymap str) inner))
+      (let ((map (get-text-property 2 'keymap str)))
+        (should (eq (lookup-key map (kbd "RET")) #'push-button))
+        (dolist (key '("r" "s" "e" "!"))
+          (should (eq (lookup-key map key)
+                      (lookup-key slack-message-keymap key))))
+        (slack-buffer--apply-message-keymap str)
+        (should (eq map (get-text-property 2 'keymap str)))
+        (should-not (keymap-parent inner)))
       (should (eq (get-text-property 0 'keymap str)
                   slack-buffer-message-keymap))
       (should (eq (get-text-property 4 'keymap str)
@@ -2085,6 +2095,45 @@ produces a newline with `not-tracked-p'."
                      slack-thread-message-buffer-message-keymap
                      slack-activity-feed-buffer-message-keymap))
     (should (eq (keymap-parent map) slack-message-keymap))))
+
+(ert-deftest slack-test-rendered-message-key-dispatch ()
+  "Message keys survive buttons and formatting, but leave input editable."
+  (dolist (mode '(slack-stars-buffer-mode slack-message-buffer-mode
+                 slack-thread-message-buffer-mode slack-activity-feed-buffer-mode
+                 slack-search-result-buffer-mode slack-pinned-items-buffer-mode))
+    (dolist (deferred '(nil t))
+      (slack-test--with-slack-buffer-mode
+        (let ((change-major-mode-hook nil))
+          (funcall mode))
+        (setq-local slack-buffer-message-keymap
+                    (make-composed-keymap nil slack-message-keymap))
+        (define-key slack-buffer-message-keymap "r" #'slack-message-add-reaction)
+        (let ((body (concat "body "
+                            (propertize "reaction" 'keymap slack-reaction-keymap)
+                            " <https://example.com|link>"))
+              (lui-time-stamp-position 'left)
+              (lui-time-stamp-format "[%H:%M] "))
+          (if deferred
+              (slack-buffer-with-deferred-hooks
+                (lui-insert-with-text-properties body 'ts "1710000000.000100"))
+            (lui-insert-with-text-properties body 'ts "1710000000.000100")))
+        (goto-char (point-min))
+        (while (< (point) lui-output-marker)
+          (when (get-text-property (point) 'ts)
+            (dolist (key '("r" "s" "e" "!"))
+              (should (eq (key-binding key)
+                          (lookup-key slack-buffer-message-keymap key)))))
+          (forward-char))
+        (goto-char (point-min))
+        (search-forward "reaction")
+        (backward-char)
+        (should (eq (key-binding (kbd "RET")) #'slack-reaction-toggle))
+        (search-forward "link")
+        (backward-char)
+        (should (eq (key-binding (kbd "RET")) #'push-button))
+        (should (eq (key-binding "w") #'slack-kill-button-url))
+        (goto-char (point-max))
+        (should (eq (key-binding "r") #'self-insert-command))))))
 
 (provide 'test-buffer-rendering)
 ;;; test-buffer-rendering.el ends here

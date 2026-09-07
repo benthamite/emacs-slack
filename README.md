@@ -577,7 +577,9 @@ would shadow typing at the prompt. Instead, message-level commands
 live in `slack-message-keymap`, which is attached as a text property
 to rendered messages only — press `r` (reply), `t` (thread), `e`
 (edit), `d` (delete), etc. while point is on a message, and the same
-keys self-insert at the prompt.
+keys self-insert at the prompt. Message commands remain available on
+timestamps, reactions, and links too. Each button's own bindings, such
+as `RET`, take precedence.
 
 Each interactive mode also has its own message-region map inheriting
 from `slack-message-keymap`, for bindings that should differ per

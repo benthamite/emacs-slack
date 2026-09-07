@@ -83,8 +83,8 @@
     (define-key map (kbd "L") #'slack-message-redisplay)
     map)
   "Keymap active on rendered Slack message regions.
-Applies when point is on a message but not on an inner button
-\(reactions, thread-status link, …) and not on the input prompt.
+Applies on messages, including inner buttons, but not on the input prompt.
+Inner button bindings take precedence over message commands.
 Letter keys invoke message-level actions; see `slack-menu' for the
 full command index.")
 
@@ -97,21 +97,55 @@ message-region bindings set this to a keymap whose parent is
 shared message commands.")
 
 (defun slack-buffer--apply-message-keymap (str)
-  "Attach the message-region keymap to STR where no keymap is set.
-The map is `slack-buffer-message-keymap' when the current buffer
-sets it, `slack-message-keymap' otherwise.  Walks STR and sets the
-`keymap' text property on every stretch whose current keymap is
-nil, leaving inner keymaps (reactions, buttons, …) untouched.
-Returns STR."
+  "Attach message commands to STR, preserving inner button bindings.
+Use `slack-buffer-message-keymap' when set, or `slack-message-keymap'.
+Return STR."
   (let ((map (or slack-buffer-message-keymap slack-message-keymap))
         (pos 0)
         (len (length str)))
     (while (< pos len)
       (let ((next (or (next-single-property-change pos 'keymap str) len)))
-        (unless (get-text-property pos 'keymap str)
-          (put-text-property pos next 'keymap map str))
+        (put-text-property pos next 'keymap
+                           (slack-buffer--compose-message-keymap
+                            (get-text-property pos 'keymap str) map)
+                           str)
         (setq pos next))))
   str)
+
+(defun slack-buffer--compose-message-keymap (inner map)
+  "Compose INNER bindings with message MAP without changing either map."
+  (cond ((null inner) map)
+        ((or (eq inner map) (eq (keymap-parent inner) map)) inner)
+        (t (make-composed-keymap inner map))))
+
+(defun slack-buffer--keymap-rendered-messages ()
+  "Keep message commands available throughout fully formatted output."
+  (let ((map (or slack-buffer-message-keymap slack-message-keymap))
+        (pos (point-min)))
+    (while (< pos (point-max))
+      (let ((end (next-single-property-change pos 'ts nil (point-max))))
+        (when (get-text-property pos 'ts)
+          (let ((start pos))
+            (while (< start end)
+              (let ((next (next-single-property-change start 'keymap nil end)))
+                (put-text-property
+                 start next 'keymap
+                 (slack-buffer--compose-message-keymap
+                  (get-text-property start 'keymap) map))
+                (setq start next))))
+          (dolist (overlay (overlays-in pos end))
+            (when-let ((inner (overlay-get overlay 'keymap)))
+              (unless (eq (keymap-parent inner) map)
+                (overlay-put
+                 overlay 'keymap
+                 (make-composed-keymap
+                  (delq nil (list inner
+                                  (get-text-property (overlay-start overlay)
+                                                     'local-map)
+                                  (get-text-property (overlay-start overlay)
+                                                     'keymap)))
+                  map))))))
+        (setq pos end)))))
 
 (defvar-local slack-buffer--loading-more-p nil
   "Non-nil while an async load-more request is in flight.")
@@ -200,6 +234,7 @@ to modify text properties (faces, buttons, display)."
   (add-hook 'lui-pre-output-hook 'slack-buffer-buttonize-link nil t)
   (add-hook 'lui-pre-output-hook 'slack-add-face-lazy nil t)
   (add-hook 'lui-post-output-hook 'slack-display-image t t)
+  (add-hook 'lui-post-output-hook 'slack-buffer--keymap-rendered-messages t t)
   (add-hook 'lui-pre-output-hook 'slack-handle-lazy-user-name nil t)
   (add-hook 'lui-pre-output-hook 'slack-handle-lazy-conversation-name nil t)
   (slack-buffer-enable-emojify)
