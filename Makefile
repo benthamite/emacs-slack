@@ -10,9 +10,9 @@ LOAD_PATH += -L "$(EXTRAS_DIR)"
 
 BATCH := $(EMACS) --batch -Q $(LOAD_PATH)
 
-.PHONY: test test-upstream test-suite test-buffer test-page-state compile clean
+.PHONY: test test-upstream test-suite test-buffer test-page-state test-images compile clean
 
-test: compile test-upstream test-suite test-buffer test-page-state
+test: compile test-upstream test-suite test-buffer test-page-state test-images
 
 compile: clean
 	$(BATCH) --eval '(batch-byte-compile)' *.el
@@ -30,6 +30,10 @@ test-buffer:
 
 test-page-state:
 	$(BATCH) -l emacs-slack -l test/test-page-state.el \
+	  --eval '(ert-run-tests-batch-and-exit)'
+
+test-images:
+	$(BATCH) -l emacs-slack -l test/test-message-images.el \
 	  --eval '(ert-run-tests-batch-and-exit)'
 
 clean:

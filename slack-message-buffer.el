@@ -769,12 +769,11 @@ message used to decide whether to merge headers."
   (when ts
     (slack-if-let* ((room (slack-buffer-room slack-current-buffer))
                     (beg (slack-buffer-ts-eq (point-min) (point-max) ts))
-                    (end (or (slack-buffer-next-point beg (point-max) ts)
-                             (point-max))))
-
+                    (end (next-single-property-change
+                          beg 'ts nil (point-max))))
         (let ((images (make-hash-table :test 'equal))
               (current beg))
-          (while (<= current end)
+          (while (< current end)
             (let ((prop (or (get-text-property current
                                                'emojify-display)
                             (get-text-property current
@@ -789,7 +788,11 @@ message used to decide whether to merge headers."
                   (puthash (plist-get (cdr image) :file)
                            image
                            images))))
-            (setq current (1+ current)))
+            (setq current
+                  (min (next-single-property-change
+                        current 'emojify-display nil end)
+                       (next-single-property-change
+                        current 'slack-image-display nil end))))
           (hash-table-values images)))))
 
 (defun slack-buffer-animate-image (ts)
