@@ -420,6 +420,8 @@ Some terminology in the `slack-` functions:
     "Fetching…" for unresolvable ids; channel info falls back to the
     creator's id when their name is not cached
 - File and image downloads
+  - curl receives its configuration through a pipe, so closing its input
+    cannot leave it waiting for terminal input during message rendering
   - downloading to an existing path asks for confirmation before
     overwriting
   - downloads are written to a temporary sibling file and renamed into
