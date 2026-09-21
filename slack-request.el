@@ -540,7 +540,9 @@ TOKEN and COOKIE supply auth credentials for Slack-hosted URLs."
 SUCCESS and ERROR are callbacks; TOKEN and COOKIE supply Slack auth.
 The download goes to a sibling temp file that is renamed to NAME only
 on success, so a failed download never disturbs an existing NAME."
-  (let ((tempfile (slack-request--download-tempfile name)))
+  (let ((tempfile (slack-request--download-tempfile name))
+        ;; Curl needs a closed stdin, not a terminal EOF character.
+        (process-connection-type nil))
     (cl-labels
         ((sentinel (proc event)
            (cond
