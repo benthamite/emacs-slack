@@ -357,6 +357,8 @@ Some terminology in the `slack-` functions:
     are sent as emoji, so times like `12:30:45` stay plain text, and
     `:+1:` is now recognized
 - Quoted Slack messages
+  - quoted content appears once; formatted blocks take precedence over the
+    plain-text version unless block formatting is disabled
   - press <kbd>RET</kbd> on a quoted/shared message to open the original
     message in emacs-slack
   - quoted-message permalinks can open messages from public channels, private
