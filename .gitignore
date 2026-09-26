@@ -10,3 +10,4 @@ test/dot_emacs_master_package
 /CLAUDE.md
 /AGENTS.md
 /.worktrees/
+.agent-shell/

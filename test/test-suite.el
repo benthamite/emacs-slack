@@ -342,10 +342,8 @@
                  (lambda (&rest _args)
                    (setq history-called t)
                    nil)))
-        (should-not (slack-message-get-or-fetch "111.222"
-                                                channel-id
-                                                team
-                                                "100.000")))
+        (slack-message-get-or-fetch-async "111.222" channel-id team
+                                          "100.000"))
       (should (string= "100.000" replies-ts))
       (should-not history-called))))
 

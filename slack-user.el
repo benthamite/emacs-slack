@@ -34,6 +34,8 @@
 (require 'slack-image)
 (require 'map)
 (require 'seq)
+(require 'slack-page-state)
+(require 'slack-vip)
 
 (defvar slack-completing-read-function)
 
@@ -75,6 +77,37 @@ ID is the id argument."
   "Find user by ID from TEAM."
   (gethash id (oref team users)))
 
+(declare-function slack-buffer-find "slack-buffer")
+(declare-function slack-buffer-room "slack-buffer")
+(declare-function slack-buffer--insert "slack-buffer")
+(declare-function slack-message-buffer-render-history-state
+                  "slack-message-buffer")
+
+(defun slack-user--refresh-visible-buffers (user-id team)
+  "Re-render visible TEAM buffers that may display USER-ID.
+Redraws the profile buffer for USER-ID and every visible message
+buffer whose history has loaded, so a change to the user (such as
+VIP status) shows up without reopening them."
+  (cl-labels
+      ((visible-live-buffer (object)
+         (when-let* (((slot-boundp object 'buf))
+                     (buf (slot-value object 'buf))
+                     ((buffer-live-p buf))
+                     ((get-buffer-window buf t)))
+           buf)))
+    (when-let* ((object (slack-buffer-find 'slack-user-profile-buffer
+                                           team user-id))
+                (buf (visible-live-buffer object)))
+      (with-current-buffer buf
+        (slack-buffer--insert object)))
+    (when-let* ((message-buffers (oref team slack-message-buffer)))
+      (dolist (object (hash-table-values message-buffers))
+        (when-let* ((buf (visible-live-buffer object))
+                    (state (slot-value (slack-buffer-room object) 'history-state))
+                    ((slack-page-state-loaded-p state)))
+          (with-current-buffer buf
+            (slack-message-buffer-render-history-state object state)))))))
+
 (defun slack-user-id (user)
   "Get id of USER."
   (when user
@@ -109,7 +142,7 @@ ID is the id argument."
   (format "%s%s %s"
           (or (slack-user-dnd-status-to-string user team) " ")
           (or (slack-user-presence-to-string user team) " ")
-          (slack-user--name user team)))
+          (slack-user-vip-display-name user team)))
 
 (defun slack-user--status (user)
   "Return USER's status as \"EMOJI TEXT\" or an empty string."
@@ -275,8 +308,11 @@ FILTER."
               users))))
 
 (defun slack-user-hidden-p (user)
-  "Return non-nil when USER has been deleted/deactivated."
-  (not (eq (plist-get user :deleted) :json-false)))
+  "Return non-nil if USER is deleted and should be hidden from lists.
+A user is hidden only when `:deleted' is explicitly true.  Users
+without a `:deleted' field (e.g. external/Slack-Connect users fetched
+via `users.info') are treated as active."
+  (eq t (plist-get user :deleted)))
 
 (defun slack--user-select (team)
   "Prompt to pick a user from TEAM and return the selected user."

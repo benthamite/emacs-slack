@@ -21,8 +21,11 @@
 (require 'slack-scheduled-messages-buffer)
 (require 'slack-activity-feed-buffer)
 (require 'slack-dialog-buffer)
+(require 'slack-export)
+(require 'slack-user-message)
 
 (defvar slack-channel-button-keymap nil)
+(defvar slack-user-mention-keymap nil)
 (setq slack-render-image-p t)
 
 (defmacro slack-test-setup (&rest body)
@@ -220,6 +223,16 @@
                    (slack-unescape-@
                     "<@U424242>" team)))
     ))
+
+(ert-deftest slack-test-unescape-@-mention-keymap ()
+  "Mention text rendered by `slack-unescape-@' carries a `user-id'
+text property and a keymap so it can be clicked to open a profile."
+  (slack-test-setup
+    (let* ((rendered (slack-unescape-@ (format "<@%s>" user-id) team))
+           (pos (string-match (regexp-quote (format "@%s" display-name)) rendered)))
+      (should (string= user-id (get-text-property pos 'user-id rendered)))
+      (should (eq slack-user-mention-keymap
+                 (get-text-property pos 'keymap rendered))))))
 
 (ert-deftest slack-test-unescape-!subteam ()
   (slack-test-setup
@@ -1099,6 +1112,184 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
            (block (slack-create-rich-text-element payload)))
       (should (string= "https://google.com"
                        (slack-block-to-mrkdwn block))))))
+;;; shared helpers for the per-feature test files
+
+(defun slack-test-message (team room ts text &optional thread-ts)
+  (slack-message-create (append (list :type "message" :ts ts :user "U11111"
+                                      :text text)
+                                (and thread-ts (list :thread_ts thread-ts)))
+                        team room))
+
+(defmacro slack-test-with-registered-team (bindings &rest body)
+  "Run BODY with a team and channel registered in the global team tables.
+BINDINGS is (TEAM-VAR CHANNEL-VAR).  Slack looks teams up by id through those
+tables, so a buffer cannot be built without them; they are cleaned up
+afterwards, together with any buffer BODY created."
+  (declare (indent 1) (debug t))
+  (let ((team (car bindings))
+        (channel (cadr bindings)))
+    `(let* ((,team (make-instance 'slack-team
+                                  :self-id "U00000" :id "T99999"
+                                  :token "xoxb-token-for-tests"
+                                  :name "test-team"))
+            (,channel (make-instance 'slack-channel :id "C99999" :name "chan"))
+            (before (buffer-list)))
+       (puthash (oref ,team token) ,team slack-teams-by-token)
+       (puthash (oref ,team id) (oref ,team token) slack-tokens-by-id)
+       (puthash (oref ,channel id) ,channel (oref ,team channels))
+       (puthash "U11111" (list :name "tester" :id "U11111"
+                               :profile (list :display_name_normalized "Tester"
+                                              :real_name_normalized "Tester"))
+                (oref ,team users))
+       (unwind-protect
+           (progn ,@body)
+         (remhash (oref ,team token) slack-teams-by-token)
+         (remhash (oref ,team id) slack-tokens-by-id)
+         (dolist (buf (buffer-list))
+           (unless (memq buf before)
+             (kill-buffer buf)))))))
+
+;;; message ranges (loaded blocks of history and the holes between them)
+
+(defun slack-test-ts (n)
+  "A realistic message timestamp for message number N.
+Slack timestamps are fixed width, which is why the code can order them with
+`string<'.  Do not shorten these to \"1\", \"7\", \"11\" in tests: as strings
+\"11\" sorts before \"7\" and the tests would exercise an ordering that never
+happens in practice."
+  (format "16000000%02d.000000" n))
+
+(defun slack-test-range (from to)
+  (cons (slack-test-ts from) (slack-test-ts to)))
+
+(ert-deftest slack-test-ranges-merge-overlapping ()
+  (should (equal (list (slack-test-range 1 5))
+                 (slack-ranges-add (list (slack-test-range 1 3))
+                                   (slack-test-ts 2) (slack-test-ts 5))))
+  ;; touching at a shared timestamp is still one block
+  (should (equal (list (slack-test-range 1 5))
+                 (slack-ranges-add (list (slack-test-range 1 3))
+                                   (slack-test-ts 3) (slack-test-ts 5))))
+  ;; a hole remains when the new block does not reach the old one
+  (should (equal (list (slack-test-range 1 3) (slack-test-range 4 5))
+                 (slack-ranges-add (list (slack-test-range 1 3))
+                                   (slack-test-ts 4) (slack-test-ts 5))))
+  ;; a block swallowed by an existing one changes nothing
+  (should (equal (list (slack-test-range 1 5))
+                 (slack-ranges-add (list (slack-test-range 1 5))
+                                   (slack-test-ts 2) (slack-test-ts 3))))
+  ;; arguments in the wrong order are tolerated
+  (should (equal (list (slack-test-range 1 5))
+                 (slack-ranges-add (list (slack-test-range 1 3))
+                                   (slack-test-ts 5) (slack-test-ts 2)))))
+
+(ert-deftest slack-test-ranges-add-joins-two-islands ()
+  ;; the scenario that motivates all of this: loading the middle of a hole
+  ;; makes the two islands one, so the load older/newer buttons disappear
+  (let ((ranges (list (slack-test-range 3 3) (slack-test-range 7 7))))
+    (setq ranges (slack-ranges-add ranges (slack-test-ts 2) (slack-test-ts 3)))
+    (should (equal (list (slack-test-range 2 3) (slack-test-range 7 7)) ranges))
+    (should (equal (list (cons (slack-test-ts 3) (slack-test-ts 7)))
+                   (slack-ranges-gaps ranges)))
+    (setq ranges (slack-ranges-add ranges (slack-test-ts 3) (slack-test-ts 7)))
+    (should (equal (list (slack-test-range 2 7)) ranges))
+    (should (null (slack-ranges-gaps ranges)))))
+
+(ert-deftest slack-test-ranges-gaps ()
+  (should (equal (list (cons (slack-test-ts 3) (slack-test-ts 7)))
+                 (slack-ranges-gaps (list (slack-test-range 1 3)
+                                          (slack-test-range 7 9)))))
+  (should (equal (list (cons (slack-test-ts 3) (slack-test-ts 7))
+                       (cons (slack-test-ts 9) (slack-test-ts 11)))
+                 (slack-ranges-gaps (list (slack-test-range 1 3)
+                                          (slack-test-range 7 9)
+                                          (slack-test-range 11 12)))))
+  (should (null (slack-ranges-gaps (list (slack-test-range 1 3)))))
+  (should (null (slack-ranges-gaps nil))))
+
+(ert-deftest slack-test-ranges-contain-p ()
+  (let ((ranges (list (slack-test-range 1 3) (slack-test-range 7 9))))
+    (should (slack-ranges-contain-p ranges (slack-test-ts 1)))
+    (should (slack-ranges-contain-p ranges (slack-test-ts 2)))
+    (should (slack-ranges-contain-p ranges (slack-test-ts 9)))
+    (should (null (slack-ranges-contain-p ranges (slack-test-ts 5))))
+    (should (null (slack-ranges-contain-p ranges (slack-test-ts 0))))))
+
+(ert-deftest slack-test-ranges-clip ()
+  ;; after trimming the store to the newest messages, blocks that are entirely
+  ;; gone disappear and the surviving one starts where the store now starts
+  (should (equal (list (slack-test-range 5 9))
+                 (slack-ranges-clip (list (slack-test-range 1 3)
+                                          (slack-test-range 4 9))
+                                    (slack-test-ts 5))))
+  (should (equal (list (slack-test-range 4 9))
+                 (slack-ranges-clip (list (slack-test-range 1 3)
+                                          (slack-test-range 4 9))
+                                    (slack-test-ts 4))))
+  (should (null (slack-ranges-clip (list (slack-test-range 1 3))
+                                   (slack-test-ts 5))))
+  (should (null (slack-ranges-clip (list (slack-test-range 1 3)) nil))))
+
+(ert-deftest slack-test-room-record-fetched-range ()
+  (let ((room (make-instance 'slack-channel :id "C1" :name "test")))
+    (slack-room-record-fetched-range room nil
+                                     :oldest (slack-test-ts 3)
+                                     :latest (slack-test-ts 5))
+    (should (equal (list (slack-test-range 3 5)) (slack-room-ranges room)))
+    (should (null (oref room history-start-reached)))
+    ;; an exhausted window with nothing in it still closes the hole, because
+    ;; the bounds we asked for are now known to be fully loaded
+    (slack-room-record-fetched-range room nil
+                                     :oldest (slack-test-ts 5)
+                                     :latest (slack-test-ts 8))
+    (should (equal (list (slack-test-range 3 8)) (slack-room-ranges room)))
+    (slack-room-record-fetched-range room nil
+                                     :oldest (slack-test-ts 1)
+                                     :latest (slack-test-ts 2)
+                                     :reached-start t)
+    (should (equal (list (slack-test-range 1 2) (slack-test-range 3 8))
+                   (slack-room-ranges room)))
+    (should (oref room history-start-reached))))
+
+(ert-deftest slack-test-room-ranges-fallback ()
+  ;; a room filled in before ranges were tracked behaves as it always did:
+  ;; everything it holds counts as one contiguous block, so no holes are drawn
+  (let ((room (make-instance 'slack-channel :id "C1" :name "test")))
+    (oset room message-ids (list (slack-test-ts 1)
+                                 (slack-test-ts 2)
+                                 (slack-test-ts 3)))
+    (should (equal (list (slack-test-range 1 3)) (slack-room-ranges room)))
+    (should (null (slack-room-gaps room)))))
+
+(ert-deftest slack-test-room-ensure-ranges-freezes-fallback ()
+  ;; jumping to an old message in a room whose ranges were never recorded: the
+  ;; guess about what we already had has to be taken BEFORE the old messages
+  ;; are stored, or the room would look contiguous and the hole would vanish
+  (let ((room (make-instance 'slack-channel :id "C1" :name "test")))
+    (oset room message-ids (list (slack-test-ts 8) (slack-test-ts 9)))
+    (slack-room-ensure-ranges room)
+    ;; the jump brings in messages 1 and 2, far away from 8 and 9
+    (oset room message-ids (list (slack-test-ts 1) (slack-test-ts 2)
+                                 (slack-test-ts 8) (slack-test-ts 9)))
+    (slack-room-add-range room (slack-test-ts 1) (slack-test-ts 2))
+    (should (equal (list (slack-test-range 1 2) (slack-test-range 8 9))
+                   (slack-room-ranges room)))
+    (should (equal (list (slack-test-range 2 8)) (slack-room-gaps room)))))
+
+(ert-deftest slack-test-room-trim-messages-clips-ranges ()
+  ;; dropping old messages must also drop the promise that we have them
+  (let ((room (make-instance 'slack-channel :id "C1" :name "test")))
+    (dolist (n '(1 2 3))
+      (puthash (slack-test-ts n)
+               (make-instance 'slack-message :ts (slack-test-ts n))
+               (oref room messages))
+      (oset room message-ids (append (oref room message-ids)
+                                     (list (slack-test-ts n)))))
+    (slack-room-add-range room (slack-test-ts 1) (slack-test-ts 3))
+    (oset room history-start-reached t)
+    (slack-room-trim-messages room 2)
+    (should (equal (list (slack-test-range 2 3)) (slack-room-ranges room)))
+    (should (null (oref room history-start-reached)))))
 
 (ert-deftest slack-test-message-get-text-falls-back-to-plain-text ()
   (slack-test-setup
@@ -1553,7 +1744,7 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
           objects)
       (unwind-protect
           (cl-letf (((symbol-function 'slack-search-query-params)
-                     (lambda (&optional _query)
+                     (lambda (&rest _args)
                        (list team "needle" "timestamp" "desc")))
                     ((symbol-function 'slack-team-page-state)
                      (lambda (state-team key)
@@ -1678,7 +1869,7 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
           first-buffer)
       (unwind-protect
           (cl-letf (((symbol-function 'slack-search-query-params)
-                     (lambda (&optional _query)
+                     (lambda (&rest _args)
                        (list team "needle" "timestamp" "desc")))
                     ((symbol-function 'slack-buffer-display) #'ignore)
                     ((symbol-function 'slack-search-request)
@@ -1727,7 +1918,7 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
           (requests 0))
       (unwind-protect
           (cl-letf (((symbol-function 'slack-search-query-params)
-                     (lambda (&optional _query)
+                     (lambda (&rest _args)
                        (list team "needle" "timestamp" "desc")))
                     ((symbol-function 'slack-buffer-display) #'ignore)
                     ((symbol-function 'slack-search-request)
@@ -1775,7 +1966,7 @@ https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-a
           reopened-buffer)
       (unwind-protect
           (cl-letf (((symbol-function 'slack-search-query-params)
-                     (lambda (&optional _query)
+                     (lambda (&rest _args)
                        (list team "needle" "timestamp" "desc")))
                     ((symbol-function 'slack-buffer-display) #'ignore)
                     ((symbol-function 'slack-search-request)
@@ -4715,15 +4906,20 @@ the operation indexes in terminal callback order."
                   (lambda (_room _ts _team &rest args &key &allow-other-keys)
                     (setq captured-args args)
                     nil))))
-        (slack-message-get-or-fetch "1710000000.000200" channel-id team
-                                    "1710000000.000100"))
+        (slack-message-get-or-fetch-async "1710000000.000200" channel-id team
+                                          "1710000000.000100"))
       (should (equal "1710000000.000200"
                      (plist-get captured-args :oldest))))))
 
 (ert-deftest slack-test-get-or-fetch-tolerates-unknown-room ()
   (slack-test-setup
-    (should-not (slack-message-get-or-fetch "1710000000.000200"
-                                            "C-UNKNOWN" team))))
+    (let ((called nil) (result 'unset))
+      (slack-message-get-or-fetch-async "1710000000.000200" "C-UNKNOWN" team
+                                        nil
+                                        (lambda (message)
+                                          (setq called t result message)))
+      (should called)
+      (should-not result))))
 
 (defclass slack-test--plain-buffer (slack-buffer) ())
 
@@ -11455,7 +11651,7 @@ USER defaults to the fixture user's id."
               'message-search
               (lambda ()
                 (cl-letf (((symbol-function 'slack-search-query-params)
-                           (lambda (&optional _query)
+                           (lambda (&rest _args)
                              (list team "scope messages" "timestamp" "desc")))
                           ((symbol-function 'slack-search-request)
                            (lambda (&rest _args) (push 'request events))))
@@ -11464,7 +11660,7 @@ USER defaults to the fixture user's id."
               'file-search
               (lambda ()
                 (cl-letf (((symbol-function 'slack-search-query-params)
-                           (lambda (&optional _query)
+                           (lambda (&rest _args)
                              (list team "scope files" "timestamp" "desc")))
                           ((symbol-function 'slack-search-request)
                            (lambda (&rest _args) (push 'request events))))
@@ -11854,6 +12050,69 @@ USER defaults to the fixture user's id."
       (should-not no-request)
       (should-not swallowed)
       (should-not reclassified))))
+
+;;; user timezone
+(ert-deftest slack-test-user-timezone-missing-tz-offset ()
+  "Timezone functions return nil for users without `tz_offset'
+\(e.g. external/Slack-Connect users) instead of crashing."
+  (let ((external-user (list :id "UEXT01"
+                             :profile (list :display_name_normalized "External"
+                                            :real_name_normalized "External")))
+        (nil-user nil))
+    (should (null (slack-user-timezone external-user)))
+    (should (null (slack-user-local-time external-user)))
+    (should (null (slack-user-timezone nil-user)))
+    (should (null (slack-user-local-time nil-user)))))
+
+(ert-deftest slack-test-user-hidden-p-missing-deleted-field ()
+  "Users without a `:deleted' field are not hidden.  External/Slack-Connect
+users fetched via `users.info' often lack this field."
+  (should (null (slack-user-hidden-p (list :id "UEXT01" :profile nil))))
+  (should (null (slack-user-hidden-p (list :id "U11111" :deleted :json-false))))
+  (should (slack-user-hidden-p (list :id "U11111" :deleted t))))
+
+;;; reply-broadcast message user-ids scans text for mentions
+(ert-deftest slack-test-reply-broadcast-user-ids-includes-mentions ()
+  "A reply-broadcast message collects mentioned user IDs from text, not
+just the sender."
+  (slack-test-setup
+   (let ((msg (slack-message-create
+               (list :type "message"
+                     :subtype "thread_broadcast"
+                     :ts (slack-test-ts 5)
+                     :user "U11111"
+                     :text "Hey <@U22222> and <@U33333>")
+               team
+               channel)))
+     (should (eq 'slack-reply-broadcast-message
+                 (eieio-object-class-name msg)))
+     (let ((ids (slack-message-user-ids msg)))
+       (should (member "U11111" ids))
+       (should (member "U22222" ids))
+       (should (member "U33333" ids))))))
+
+(defvar slack-tests-to-run
+  (list
+   "slack-export-test.el"
+   "slack-modeline-test.el"
+   "slack-vip-test.el"
+   "slack-group-test.el"
+   "slack-file-attach-test.el"
+   "slack-image-test.el"
+   "slack-permalink-test.el"
+   "slack-org-link-test.el"
+   "slack-org-alert-test.el"
+   "slack-message-test.el"
+   "slack-emoji-test.el"
+   "slack-room-buffer-test.el"
+   "slack-thread-message-buffer-test.el"))
+
+(dolist (test-file slack-tests-to-run)
+  (load (expand-file-name
+         test-file
+         (file-name-directory (or load-file-name buffer-file-name)))
+        nil
+        nil))
 
 (if noninteractive
     (ert-run-tests-batch-and-exit)

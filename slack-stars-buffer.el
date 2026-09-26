@@ -25,6 +25,7 @@
 ;;; Code:
 
 (require 'eieio)
+(require 'dash)
 (require 'slack-util)
 (require 'slack-team)
 
@@ -475,6 +476,58 @@ flight stays dead instead of being re-created."
       (slack-stars-buffer-mode)
       (slack-buffer-set-current-buffer this))
     buf))
+
+(defun slack-stars-buffer--load-items (this items)
+  "Insert placeholders for the saved ITEMS of THIS, then fill them.
+
+The placeholders are replaced by the real messages as the
+non-blocking fetches complete, so opening the buffer never blocks
+on the API."
+  (let ((team (slack-buffer-team this))
+        (buffer (slack-buffer-buffer this)))
+    (when items
+      (slack-buffer-update-oldest this (car items)))
+    (dolist (i items)
+      (let ((ts (oref i ts))
+            (room-id (oref i item-id)))
+        (slack-stars-buffer--insert-placeholder this ts room-id)
+        (slack-message-get-or-fetch-async
+         ts room-id team nil
+         (lambda (message)
+           (when (buffer-live-p buffer)
+             (slack-stars-buffer--fill-placeholder this ts message))))))))
+
+(defun slack-stars-buffer--insert-placeholder (this ts room-id)
+  "Insert a placeholder line for the starred message TS in ROOM-ID."
+  (let ((team (slack-buffer-team this)))
+    (with-current-buffer (slack-buffer-buffer this)
+      (let ((lui-time-stamp-format "[%Y-%m-%d %H:%M] ")
+            (lui-time-stamp-time (seconds-to-time
+                                  (string-to-number ts))))
+        (lui-insert-with-text-properties
+         (concat slack-loading-message-string "\n")
+         'ts ts
+         'team-id (oref team id)
+         'room-id room-id
+         'not-tracked-p t)
+        (lui-insert "" t)))))
+
+(defun slack-stars-buffer--fill-placeholder (this ts message)
+  "Render MESSAGE (or an unavailable notice) in place of the placeholder for TS.
+
+The placeholder is matched by TS, the timestamp of the saved item,
+not by the fetched MESSAGE's own timestamp: when the message only
+exists as a thread reply, the fetch resolves it through
+`conversations.replies' and both are the same, but a fetch that
+finds nothing must still clear the placeholder."
+  (let ((team (slack-buffer-team this)))
+    (with-current-buffer (slack-buffer-buffer this)
+      (lui-replace (if message
+                       (slack-message-to-string message team)
+                     (concat slack-unavailable-message-string "\n"))
+                   (lambda ()
+                     (string= (get-text-property (point) 'ts)
+                              ts))))))
 
 (defun slack-create-stars-buffer (team)
   "Create and return a new stars buffer instance from PAYLOAD.

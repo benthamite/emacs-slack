@@ -1221,7 +1221,7 @@ produces a newline with `not-tracked-p'."
                                                'slack-activity-feed
                                                :activities (list activity)
                                                :pagination nil))))
-            (cl-letf (((symbol-function 'slack-message-get-or-fetch)
+            (cl-letf (((symbol-function 'slack-message-get-or-fetch-async)
                        (lambda (&rest _)
                          (error "message was refetched"))))
               (slack-buffer-insert feed-buffer activity))
@@ -1263,7 +1263,7 @@ produces a newline with `not-tracked-p'."
                                                :activities (list activity)
                                                :pagination nil))))
             (let ((fetched nil))
-              (cl-letf (((symbol-function 'slack-message-get-or-fetch)
+              (cl-letf (((symbol-function 'slack-message-get-or-fetch-async)
                          (lambda (&rest _)
                            (setq fetched t)
                            (error "message was fetched synchronously"))))

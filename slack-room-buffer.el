@@ -462,6 +462,27 @@ obtained."
 
 (defalias 'slack-open-link 'slack-open-url  "Open a Slack permalink in emacs-slack.")
 
+(defconst slack-open-url-regexp
+  "^https://\\(.*\\)\\.slack\\.com/\\(?:[^/]+/\\)?archives/[^/?]+/p[0-9]+"
+  "Regexp matching a Slack message permalink.
+Subexpression 1 is the team domain.  A URL matching this regexp can be
+handed to `slack-open-url'.")
+
+(defun slack-open-url-or-browse-url (url)
+  "Open URL in emacs-slack when it is a Slack permalink, in a browser otherwise.
+Slack permalinks go to `slack-open-url'; every other URL, and permalinks
+whose team or room is not available in emacs-slack, are opened with
+`browse-url'."
+  (if (and (stringp url)
+           (string-match slack-open-url-regexp url))
+      (condition-case err
+          (slack-open-url url)
+        (error
+         (message "slack: could not open %s in emacs-slack (%s), opening it in the browser"
+                  url (error-message-string err))
+         (browse-url url)))
+    (browse-url url)))
+
 (defun slack-insert-link (title url)
   "Insert link TITLE and URL in markdown fomat."
   (interactive
@@ -563,7 +584,7 @@ Execute this function when cursor is on some message."
                   :params params
                   :success #'on-success))))
           (slack-if-let* ((url (oref action url)))
-              (browse-url url))))))
+              (slack-open-url-or-browse-url url))))))
 
 (defun slack-message-run-action ()
   "Prompt for and run a message action on the non-ephemeral message at point."
@@ -715,7 +736,7 @@ SELECTED-PAIR, when non-nil, is a cons cell appended to ACTION."
   (slack-with-block-action this
     (when (slack-block-handle-confirm block-element)
       (slack-if-let* ((url (oref block-element url)))
-          (browse-url url)
+          (slack-open-url-or-browse-url url)
         (slack-block-action--execute-with-selection this message action team)))))
 
 (cl-defmethod slack-buffer-execute-conversation-select-block-action ((this slack-room-buffer))

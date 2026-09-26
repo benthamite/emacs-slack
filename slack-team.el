@@ -70,6 +70,11 @@
    (message-id :initform 0)
    (subscribed-channels :initarg :subscribed-channels
                         :type list :initform nil)
+   (priority-users :initform (make-hash-table :test 'equal)
+                   :documentation "Hash-set of VIP/priority user IDs.
+Populated by `slack-vip-list-update', the `users.priority.add'/
+`remove' calls, and the user plist field named by
+`slack-user-vip-field' when users are cached.")
    (typing :initform nil)
    (typing-timer :initform nil)
    (reminders :initform nil :type list)
@@ -192,6 +197,11 @@ Slot symbols in EXCEPT are excluded from the kill."
    (equal team-domain (oref it domain))
    (hash-table-values slack-teams-by-token)))
 
+(defun slack-team-domain (team)
+  "Return TEAM's domain, or nil when the slot is unset."
+  (when (and team (slot-boundp team 'domain))
+    (oref team domain)))
+
 (cl-defmethod slack-team--delete ((this slack-team))
   "Remove THIS team from the global token/id registries."
   (remhash (oref this id) slack-tokens-by-id)
@@ -234,6 +244,11 @@ selection in `slack-current-team'."
 (cl-defmethod slack-team-connectedp ((team slack-team))
   "Return non-nil when TEAM's websocket is connected."
   (oref (oref team ws) connected))
+
+(defun slack-team-connected-list ()
+  "Return the registered teams whose websocket is connected."
+  (cl-remove-if-not #'slack-team-connectedp
+                    (hash-table-values slack-teams-by-token)))
 
 (defun slack-team-modeline-enabledp (team)
   "Return non-nil when TEAM should contribute to the modeline."
@@ -369,17 +384,25 @@ bindings."
   "Return non-nil if TEAM has never completed authorization.
 A nil ID means the rtm.connect handshake never succeeded."
   (null (oref team id)))
+(cl-defmethod slack-team-priority-users ((this slack-team))
+  (oref this priority-users))
 
 (cl-defmethod slack-team-users ((this slack-team))
   "Return the list of cached user plists for THIS team."
   (hash-table-values (oref this users)))
+
+(declare-function slack-vip-sync-users "slack-vip" (team users))
 
 (cl-defmethod slack-team-set-users ((this slack-team) users)
   "Add or replace USERS in THIS team's user cache, keyed by user id."
   (cl-loop for user in users
            do (puthash (plist-get user :id)
                        user
-                       (oref this users))))
+                       (oref this users)))
+  ;; Sync VIP/priority set from the cached users' VIP field, when the
+  ;; VIP module is loaded.  Guarded so slack-team can be used without it.
+  (when (fboundp 'slack-vip-sync-users)
+    (slack-vip-sync-users this users)))
 
 (cl-defmethod slack-team-set-bots ((this slack-team) bots)
   "Add or replace BOTS in THIS team's bot cache, keyed by bot id."

@@ -368,8 +368,11 @@ Some terminology in the `slack-` functions:
   - if emacs-slack has not loaded the target team or channel, the permalink
     opens in the default browser instead of raising an error
 - `slack-file-upload`
-  - uploads a file
-  - the command allows to choose many channels via select loop. In order to finish the loop input an empty string. For helm that's <kbd>C+RET</kbd> or <kbd>M+TET</kbd>. In case of Ivy it's <kbd>C+M+j</kbd>.
+  - attach a file to the current message draft; it uploads when you send
+- thread sync suggestion: set `slack-thread-suggest-sync` to non-nil and a
+  thread longer than `slack-thread-suggest-sync-threshold` messages (default
+  10) whose recent replies alternate between two or three people shows a
+  hint that a quick sync might resolve things faster
 - File info and file lists
   - opening the file list displays its stable buffer immediately; reopening a
     loaded list refreshes that same buffer while keeping its current contents
@@ -604,11 +607,51 @@ about them).
 
 See [alert](https://github.com/jwiegley/alert).
 
+## Org mode integration
+
+`slack-org-link.el` provides the `emacs-slack:` Org link type, backed by
+Slack permalinks:
+
+```elisp
+(require 'slack-org-link)
+```
+
+- `org-store-link` in a message, thread, search result or pinned item buffer
+  stores an `[[emacs-slack:https://myteam.slack.com/archives/...][...]]` link
+- following the link opens the message in emacs-slack and, when the team or
+  room is not available, falls back to the system browser
+  (`slack-org-open-in-browser-fallback`)
+- exporting to HTML/Markdown emits the permalink as a real `https` link
+- `slack-org-link-at-point` returns the link for the message at point, for
+  use in `org-capture-templates`
+- the `TEAMID|ROOMID|ts:TS` links written by the
+  [ol-emacs-slack](https://github.com/ag91/ol-emacs-slack) package still
+  work; the old `ol/...` function names are kept as obsolete aliases
+
+`slack-org-alert.el` (optional) captures message alerts as Org TODO headings
+so you can manage messages from the Org agenda. It is disabled until you
+set the target file:
+
+```elisp
+(require 'slack-org-alert)
+(setq slack-org-alert-file "~/agenda/Slack.org")
+(slack-org-alert-setup)
+(add-to-org-agenda-files "~/agenda/Slack.org")
+```
+
+Duplicate alerts are skipped (one heading per message), and
+`slack-org-agenda-mark-all-done` marks every entry tagged with
+`slack-org-alert-tag` (default `slack`) done in an agenda buffer. See
+`slack-org-alert-heading-format`, `slack-org-alert-tag` and
+`slack-org-alert-file` for customization.
+
 ## Extensions
 
 - [helm-slack](https://github.com/yuya373/helm-slack)
-- [ol-emacs-slack](https://github.com/ag91/ol-emacs-slack) 
-  I use this to add slack messages to my Org Agenda
+- [ol-emacs-slack](https://github.com/ag91/ol-emacs-slack)
+  (superseded: the Org link support now lives here, see
+  "Org mode integration" above)
+
 ## How to debug
 
 Please set `(setq slack-log-level 'debug)` to see useful messages that

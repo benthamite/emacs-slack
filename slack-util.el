@@ -32,8 +32,19 @@
 (require 'websocket)
 (require 'dash)
 
-(defvar slack-completing-read-function)
-(defvar slack-buffer-function)
+(defvar slack-completing-read-function #'completing-read
+  "Function used to read a value from the minibuffer.
+It is called with the same arguments as `completing-read'; set it to
+an `ivy'- or `helm'-style function to use that completion UI.")
+
+(defvar slack-buffer-function #'switch-to-buffer-other-window
+  "Function used to display a slack buffer.
+Keep this default in sync with the `slack-buffer-function' defcustom in
+slack.el: this file loads first, so its value is the one that sticks.")
+
+;; The defaults above must carry values: a bare (defvar x) byte-compiles
+;; to nothing, so the compiled modules would leave the variables void and
+;; let-bindings from lexically-bound files would not reach their users.
 (defvar slack-next-page-token "[Next page]")
 (defvar slack-current-buffer)
 
@@ -169,7 +180,7 @@ BODY is the body argument."
 (cl-defgeneric slack-buffer-unfollow-message (&rest args))
 (cl-defgeneric slack-buffer-update (&rest args))
 (cl-defgeneric slack-buffer-update-last-read (&rest args))
-(cl-defgeneric slack-buffer-update-lastest (&rest args))
+(cl-defgeneric slack-buffer-update-latest (&rest args))
 (cl-defgeneric slack-buffer-update-mark (&rest args))
 (cl-defgeneric slack-buffer-update-mark-request (&rest args))
 (cl-defgeneric slack-buffer-update-marker-overlay (&rest args))

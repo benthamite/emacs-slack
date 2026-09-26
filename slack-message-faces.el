@@ -121,7 +121,12 @@
 (defun slack-message-put-header-property (header)
   "Return HEADER propertized with the `slack-message-output-header' face."
   (if header
-      (propertize header 'face 'slack-message-output-header)))
+      ;; Merge the header face instead of overwriting, so per-substring
+      ;; faces (e.g. `slack-user-vip-face' on a VIP sender name) survive.
+      (let ((copy (copy-sequence header)))
+        (add-face-text-property 0 (length copy)
+                                'slack-message-output-header nil copy)
+        copy)))
 
 (defun slack-message-put-text-property (text)
   "Return TEXT propertized with the `slack-message-output-text' face."

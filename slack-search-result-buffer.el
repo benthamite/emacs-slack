@@ -368,21 +368,31 @@ buffer.")
              (reset-loading-flag)
              (signal (car request-error) (cdr request-error)))))))))
 
-(defun slack-search-from-messages (query)
-  "Run a Slack message search for QUERY and display the result buffer."
+(defun slack-search-from-messages (&optional query team sort sort-dir)
+  "Run a Slack message search and display the result buffer.
+
+Interactively, seed QUERY from the active region and prompt for TEAM,
+SORT and SORT-DIR.  When called from Lisp any of the four arguments
+that are non-nil are used as-is, so a caller can bind a search to a
+key without any minibuffer interaction, e.g.
+
+  (slack-search-from-messages \"from:@me\" team \"timestamp\" \"desc\")."
   (interactive
    (list (when (region-active-p)
            (substring-no-properties (funcall region-extract-function)))))
-  (cl-destructuring-bind (team query sort sort-dir) (slack-search-query-params query)
+  (cl-destructuring-bind (team query sort sort-dir)
+      (slack-search-query-params query team sort sort-dir)
     (slack-search-result-buffer--present
      (slack-search-result-empty
       'slack-search-result query sort sort-dir)
      team)))
 
-(defun slack-search-from-files ()
-  "Run a Slack file search prompted interactively and display the result buffer."
+(defun slack-search-from-files (&optional query team sort sort-dir)
+  "Run a Slack file search and display the result buffer.
+See `slack-search-from-messages' for QUERY, TEAM, SORT and SORT-DIR."
   (interactive)
-  (cl-destructuring-bind (team query sort sort-dir) (slack-search-query-params)
+  (cl-destructuring-bind (team query sort sort-dir)
+      (slack-search-query-params query team sort sort-dir)
     (slack-search-result-buffer--present
      (slack-search-result-empty
       'slack-file-search-result query sort sort-dir)

@@ -58,6 +58,12 @@
     (define-key keymap [mouse-1] #'slack-message-display-room)
     keymap))
 
+(defvar slack-user-mention-keymap
+  (let ((keymap (make-sparse-keymap)))
+    (define-key keymap (kbd "RET") #'slack-user-display-profile)
+    (define-key keymap [mouse-1] #'slack-user-display-profile)
+    keymap))
+
 (defvar slack-open-direct-message-keymap
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "RET")
@@ -187,10 +193,15 @@ AFTER-SUCCESS is called after the API call returns successfully."
         (slack-counts-update team)))))
 
 (cl-defmethod slack-buffer-send-message ((this slack-message-buffer) message)
-  "Send MESSAGE from THIS buffer."
-  (slack-message-send-internal message
-                               (slack-buffer-room this)
-                               (slack-buffer-team this)))
+  "Send MESSAGE from THIS buffer, uploading any queued attachments."
+  (let ((files slack-attached-files))
+    (slack-message-send-internal message
+                                 (slack-buffer-room this)
+                                 (slack-buffer-team this)
+                                 :files files)
+    (when files
+      (setq slack-attached-files nil)
+      (slack-attached-files--refresh-overlay))))
 
 (cl-defmethod slack-buffer-latest-ts ((this slack-message-buffer))
   "Return the timestamp of the newest known message for THIS buffer."
@@ -243,7 +254,7 @@ inserted messages."
                     (slack-buffer-insert this m not-tracked-p prev-message)
                     (setq prev-message m)))
       (when latest-message
-        (slack-buffer-update-lastest this (slack-ts latest-message)))
+        (slack-buffer-update-latest this (slack-ts latest-message)))
       (when oldest-message
         (slack-buffer-update-oldest this oldest-message)))))
 
@@ -325,7 +336,7 @@ With REPLACE non-nil, replace the rendered message instead of appending."
                                                        (slack-buffer-team this))))
     (slack-buffer-display buf)))
 
-(cl-defmethod slack-buffer-update-lastest ((this slack-message-buffer) latest)
+(cl-defmethod slack-buffer-update-latest ((this slack-message-buffer) latest)
   "Record LATEST as the newest inserted timestamp for THIS buffer."
   (with-slots ((prev-latest latest)) this
     (if (or (null prev-latest)
@@ -1138,6 +1149,18 @@ from the saved items list."
        (room-id (get-text-property (point) 'room-id))
        (room (slack-room-find room-id team)))
       (slack-room-display room team)))
+
+(defun slack-user-display-profile ()
+  "Open the user profile buffer for the @mention at point.
+Reads the `user-id' text property placed on mention text by
+`slack-unescape-@' and block Kit rendering."
+  (interactive)
+  (slack-if-let*
+      ((buffer slack-current-buffer)
+       (team (slack-buffer-team buffer))
+       (user-id (get-text-property (point) 'user-id)))
+      (slack-buffer-display
+       (slack-create-user-profile-buffer team user-id))))
 
 (defun slack-im-select ()
   "Prompt to pick an open direct-message room and display it."

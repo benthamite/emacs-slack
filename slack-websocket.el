@@ -46,6 +46,7 @@
 (declare-function slack-file-list-handle-created "slack-file-list-buffer")
 (declare-function slack-file-list-handle-deleted "slack-file-list-buffer")
 (declare-function slack-file-list-handle-unshared "slack-file-list-buffer")
+(require 'slack-vip)
 (require 'slack-star)
 (require 'slack-message-notification)
 (require 'slack-room-buffer)
@@ -1255,6 +1256,7 @@ accepts."
                        (slack-counts-update team)
                        ;; (slack-user-list-update team)
                        (slack-dnd-status-team-info team)
+                       (slack-vip-list-update team)
                        (when slack-buffer-emojify
                          (if (slack-native-emoji-p)
                              (progn

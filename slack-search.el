@@ -224,15 +224,22 @@ SORT and SORT-DIR describe the original query ordering."
                    :sort sort
                    :sort-dir sort-dir)))
 
-(defun slack-search-query-params (&optional query)
-  "Prompt for search parameters and return (TEAM QUERY SORT SORT-DIR).
-If QUERY is non-nil, use it as the search query without prompting."
-  (let ((team (slack-team-select))
+(defun slack-search-query-params (&optional query team sort sort-dir)
+  "Collect the four search arguments, prompting only for the ones not supplied.
+
+Any of QUERY, TEAM, SORT, SORT-DIR may be passed in; a nil value falls back
+to the interactive prompt.  This lets callers build static searches
+programmatically without going through the minibuffer."
+  (let ((team (or team (slack-team-select)))
         (query (or query (read-from-minibuffer "Query: ")))
-        (sort (funcall slack-completing-read-function "Sort: " `("score" "timestamp")
-                       nil t))
-        (sort-dir (funcall slack-completing-read-function "Direction: " `("desc" "asc")
+        (sort (or sort
+                  (funcall slack-completing-read-function "Sort: "
+                           `("score" "timestamp")
                            nil t)))
+        (sort-dir (or sort-dir
+                      (funcall slack-completing-read-function "Direction: "
+                               `("desc" "asc")
+                               nil t))))
     (list team query sort sort-dir)))
 
 (cl-defmethod slack-search-request-url ((_this slack-search-result))
