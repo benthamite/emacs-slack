@@ -215,7 +215,8 @@ Some terminology in the `slack-` functions:
     specific channels in the feed, even when Slack would not otherwise show
     those messages as activity
   - watched-channel messages newer than the channel's last-read marker also
-    contribute to the unread Activity indicator
+    contribute to the unread Activity indicator; join and leave messages do
+    not, matching Slack's own unread state
   - unread-only Activity feeds show only unread watched-channel messages
   - incoming messages in watched channels update that unread indicator without
     waiting for the next Activity feed refresh

@@ -371,12 +371,23 @@ an unresolved entry is logged instead of being silently dropped."
   "Return non-nil when ROOM is watched for Activity in TEAM."
   (memq room (slack-activity-feed--watched-rooms team)))
 
+(defconst slack-activity-feed--unread-exempt-subtypes
+  '("channel_join" "channel_leave" "group_join" "group_leave")
+  "Message subtypes that never make a watched channel unread.
+Slack's `client.counts' does not advance a channel's `latest' past a
+membership message, so the channel stays read after one arrives.")
+
 (defun slack-activity-feed--message-unread-p (message room)
-  "Return non-nil when MESSAGE is newer than ROOM's last-read marker."
+  "Return non-nil when MESSAGE is newer than ROOM's last-read marker.
+Membership messages are never unread; see
+`slack-activity-feed--unread-exempt-subtypes'."
   (let ((last-read (oref room last-read))
         (ts (slack-ts message)))
-    (or (string= "0" last-read)
-        (string< last-read ts))))
+    (and (not (and (slot-boundp message 'subtype)
+                   (member (oref message subtype)
+                           slack-activity-feed--unread-exempt-subtypes)))
+         (or (string= "0" last-read)
+             (string< last-read ts)))))
 
 (defun slack-activity-feed-watch-channel-message (message room team)
   "Update Activity unread state for a watched-channel MESSAGE.

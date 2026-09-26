@@ -3061,6 +3061,26 @@ happens in practice."
             channel)))
       (should-not (oref activity is-unread)))))
 
+(ert-deftest slack-test-activity-feed-watched-channel-ignores-membership-messages ()
+  (slack-test-setup
+    (let ((slack-activity-feed-watch-channels (list channel-name))
+          (slack-has-unreads nil)
+          (slack-unread-count 0))
+      (oset channel last-read "1710000000.000000")
+      (cl-letf (((symbol-function 'force-mode-line-update)
+                 (lambda (&rest _) nil)))
+        (slack-activity-feed-watch-channel-message
+         (make-instance 'slack-message
+                        :type "message"
+                        :subtype "channel_join"
+                        :channel channel-id
+                        :ts "1710000001.000000"
+                        :text "<@U1> has joined the channel")
+         channel
+         team))
+      (should-not slack-has-unreads)
+      (should (= 0 slack-unread-count)))))
+
 (ert-deftest slack-test-activity-feed-unread-count-includes-watched-channels ()
   (slack-test-setup
     (let ((slack-activity-feed-watch-channels (list channel-name))
