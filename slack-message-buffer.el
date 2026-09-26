@@ -46,6 +46,7 @@
 (require 'slack-channel)
 (require 'slack-defcustoms)
 
+(declare-function slack-image--feed-buffer-p "slack-image" ())
 (declare-function slack-ts-saved-p
                   "slack-star" (team ts &optional item-type item-id))
 (declare-function slack-pinned-items-buffer--present
@@ -1156,14 +1157,17 @@ from the saved items list."
 (defun slack-user-display-profile ()
   "Open the user profile buffer for the @mention at point.
 Reads the `user-id' text property placed on mention text by
-`slack-unescape-@' and block Kit rendering."
+`slack-unescape-@' and block Kit rendering.  In a feed buffer, a mention
+is part of a feed item, so open that item as RET does elsewhere in it."
   (interactive)
-  (slack-if-let*
-      ((buffer slack-current-buffer)
-       (team (slack-buffer-team buffer))
-       (user-id (get-text-property (point) 'user-id)))
-      (slack-buffer-display
-       (slack-create-user-profile-buffer team user-id))))
+  (if (slack-image--feed-buffer-p)
+      (call-interactively #'slack-feed-open-at-point)
+    (slack-if-let*
+        ((buffer slack-current-buffer)
+         (team (slack-buffer-team buffer))
+         (user-id (get-text-property (point) 'user-id)))
+        (slack-buffer-display
+         (slack-create-user-profile-buffer team user-id)))))
 
 (defun slack-im-select ()
   "Prompt to pick an open direct-message room and display it."

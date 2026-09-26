@@ -30,10 +30,23 @@
     (cl-letf (((symbol-function 'slack-team-find) (lambda (_) team)))
       (let ((heading (slack-org-alert--heading info)))
         (should (s-contains?
-                 "[[emacs-slack:https://myteam.slack.com/archives/C1/p1730182493679269?thread_ts=1730182493.679269&cid=C1][hello world]]"
+                 "[[emacs-slack:https://myteam.slack.com/archives/C1/p1730182493679269][hello world]]"
                  heading))
         (should (s-contains? "TODO myteam - #chan" heading))
         (should (s-contains? " :slack:" heading))))))
+
+(ert-deftest slack-org-test-alert-heading-keeps-thread ()
+  "An alert for a thread reply links to that reply inside its thread."
+  (let ((team (make-instance 'slack-org-alert-test-team))
+        (info (list :title "myteam - #chan"
+                    :message "hello world"
+                    :data (list :team-id "T0" :room-id "C1"
+                                :ts "1730182493.679269"
+                                :thread-ts "1730182400.000100"))))
+    (cl-letf (((symbol-function 'slack-team-find) (lambda (_) team)))
+      (should (s-contains?
+               "p1730182493679269?thread_ts=1730182400.000100&cid=C1"
+               (slack-org-alert--heading info))))))
 
 (ert-deftest slack-org-test-alert-link-unresolvable ()
   "Alerts without message identity (no :data) have no link."

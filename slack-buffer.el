@@ -177,6 +177,10 @@ Return STR."
   (setq lui-input-function 'slack-message--send)
   ;; don't adjust indentation of messages
   (setq-local lui-fill-type nil)
+  (slack-buffer--register-yank-media-handlers))
+
+(defun slack-buffer--register-yank-media-handlers ()
+  "Let `yank-media' queue pasted images and files onto the current draft."
   (when (fboundp 'yank-media-handler)
     (yank-media-handler "image/.*" #'slack--yank-media-handler)
     (yank-media-handler 'text/uri-list #'slack--yank-media-uri-handler)))
@@ -267,6 +271,7 @@ to modify text properties (faces, buttons, display)."
 
 (define-derived-mode slack-buffer-mode lui-mode "Slack Buffer"
   (setq-local default-directory slack-default-directory)
+  (slack-buffer--register-yank-media-handlers)
   (add-hook 'lui-pre-output-hook 'slack-buffer-buttonize-link nil t)
   (add-hook 'lui-pre-output-hook 'slack-add-face-lazy nil t)
   (add-hook 'lui-post-output-hook 'slack-display-image t t)

@@ -286,6 +286,10 @@ COUNTS is the counts argument."
 THIS is the slack-group instance."
   (oref this members))
 
+(cl-defmethod slack-room-get-members ((room slack-group))
+  "Return the member user ids of group ROOM."
+  (slack-room-members room))
+
 (cl-defmethod slack-room-set-members ((this slack-group) members)
   "Store the loaded member list on the group.
 THIS is the slack-group instance.

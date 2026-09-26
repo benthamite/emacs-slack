@@ -256,6 +256,7 @@ you can remove by clearing
                       :room-name (slack-room-name room team)
                       :team-name (oref team name)
                       :ts (slack-ts message)
+                      :thread-ts (slack-thread-ts message)
                       :formatted-ts (format-time-string "[%H:%M]"))))))
 
 (cl-defmethod slack-message-sender-equalp ((_m slack-message) _sender-id)

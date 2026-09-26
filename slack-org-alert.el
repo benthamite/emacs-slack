@@ -101,7 +101,7 @@ identity and return nil."
        (list :team-domain domain
              :room-id (plist-get data :room-id)
              :ts (plist-get data :ts)
-             :thread-ts (plist-get data :ts))))))
+             :thread-ts (plist-get data :thread-ts))))))
 
 (defun slack-org-alert--heading (info)
   "Return the Org text capturing alert INFO as a heading.

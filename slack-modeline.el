@@ -27,6 +27,8 @@
 (require 'slack-counts)
 (require 'slack-room)
 
+(defvar slack-extra-subscribed-channels)
+
 (declare-function slack-activity-feed-refresh-unread-summary
                   "slack-activity-feed-buffer")
 
@@ -167,23 +169,31 @@ counts tracked by `slack-counts'."
 (defun slack-modeline--conversation-summary (team channels mpims ims)
   "Return (has-unreads . mention-count) for TEAM's conversation counts.
 CHANNELS, MPIMS and IMS are the per-conversation count lists of a
-`slack-counts' object.  When
-`slack-modeline-count-only-subscribed-channel' is non-nil, only
-conversations whose room satisfies `slack-room-subscribedp' are
-counted; otherwise every conversation is counted.  A conversation
-whose room is not yet loaded (see `slack-room-find') is skipped
-while the filter is active, since its subscription cannot be
-decided."
+`slack-counts' object.  Direct messages always count.  Channels and
+groups count when `slack-modeline--channel-counted-p' says so."
   (let (unreads
         (total 0))
-    (dolist (cc (append channels mpims ims))
-      (let ((room (slack-room-find (oref cc id) team)))
-        (when (or (not slack-modeline-count-only-subscribed-channel)
-                  (and room (slack-room-subscribedp room team)))
-          (cl-incf total (oref cc mention-count))
-          (when (and (oref cc has-unreads) (null unreads))
-            (setq unreads t)))))
+    (dolist (cc (append ims (cl-remove-if-not
+                             (lambda (cc)
+                               (slack-modeline--channel-counted-p
+                                (slack-room-find (oref cc id) team) team))
+                             (append channels mpims))))
+      (cl-incf total (oref cc mention-count))
+      (when (and (oref cc has-unreads) (null unreads))
+        (setq unreads t)))
     (cons unreads total)))
+
+(defun slack-modeline--channel-counted-p (room team)
+  "Return non-nil when channel or group ROOM of TEAM counts in the mode line.
+When `slack-modeline-count-only-subscribed-channel' is non-nil and TEAM
+has subscribed channels configured, only rooms that satisfy
+`slack-room-subscribedp' count, and a room that is not loaded yet is
+skipped because its subscription cannot be decided.  Otherwise every
+room counts."
+  (or (not slack-modeline-count-only-subscribed-channel)
+      (not (or (oref team subscribed-channels)
+               slack-extra-subscribed-channels))
+      (and room (slack-room-subscribedp room team))))
 
 (cl-defmethod slack-counts-update ((team slack-team))
   "Update counts for TEAM."

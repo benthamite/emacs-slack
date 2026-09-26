@@ -37,7 +37,7 @@
     (cl-letf (((symbol-function 'slack-team-find) (lambda (_) team))
               ((symbol-function 'slack-room-find) (lambda (_id _team) nil)))
       (should (equal (list :team-domain "myteam" :room-id "C1"
-                           :ts "1730182493.679269" :thread-ts "1730182493.679269")
+                           :ts "1730182493.679269" :thread-ts nil)
                      (slack-org-link-to-info "T0|C1|ts:1730182493.679269")))
       (should (equal (list :team-domain "myteam" :room-id "C1" :ts nil :thread-ts nil)
                      (slack-org-link-to-info "T0&C1"))))))
@@ -80,7 +80,7 @@ no round-trip through permalink info."
               ((symbol-function 'slack-open-url) (lambda (url) (push url opened))))
       (slack-org-follow-link "T0|C1|ts:1730182493.679269")
       (should (equal
-               (list "https://myteam.slack.com/archives/C1/p1730182493679269?thread_ts=1730182493.679269&cid=C1")
+               (list "https://myteam.slack.com/archives/C1/p1730182493679269")
                opened)))))
 
 (ert-deftest slack-org-test-follow-old-format-unknown-team-errors ()
@@ -136,7 +136,7 @@ has no message part), so it opens in the browser."
                   ((symbol-function 'slack-room-find-message) (lambda (&rest _) nil)))
           (should (slack-org-store-link))
           (should (equal
-                   "emacs-slack:https://myteam.slack.com/archives/C1/p1730182493679269?thread_ts=1730182493.679269&cid=C1"
+                   "emacs-slack:https://myteam.slack.com/archives/C1/p1730182493679269"
                    (plist-get org-store-link-plist :link)))
           (should (s-contains? "hello world"
                                (plist-get org-store-link-plist :description))))))))

@@ -8019,6 +8019,48 @@ the operation indexes in terminal callback order."
       (should (equal '(before-requested after-requested)
                      (nreverse order))))))
 
+(ert-deftest slack-test-modeline-summary-counts-dms-and-unconfigured-channels ()
+  "Direct messages always count; channels count until subscriptions exist."
+  (slack-test-setup
+    (let ((slack-modeline-count-only-subscribed-channel t)
+          (slack-extra-subscribed-channels nil)
+          (dm (make-instance 'slack-counts-conversation
+                             :id "D11111" :has_unreads t :mention_count 3))
+          (chan (make-instance 'slack-counts-conversation
+                               :id channel-id :has_unreads nil
+                               :mention_count 2)))
+      (should (equal '(t . 5)
+                     (slack-modeline--conversation-summary
+                      team (list chan) nil (list dm))))
+      (oset team subscribed-channels '(other-channel))
+      (should (equal '(t . 3)
+                     (slack-modeline--conversation-summary
+                      team (list chan) nil (list dm)))))))
+
+(ert-deftest slack-test-buffer-mode-registers-yank-media-handlers ()
+  "Message and thread buffers accept pasted images through `yank-media'."
+  (skip-unless (fboundp 'yank-media-handler))
+  (with-temp-buffer
+    (slack-buffer-mode)
+    (should (assoc "image/.*" yank-media--registered-handlers))))
+
+(ert-deftest slack-test-mention-in-feed-buffer-opens-feed-item ()
+  "RET on an @mention in a feed buffer opens the feed item, not a profile."
+  (let (called)
+    (cl-letf (((symbol-function 'slack-image--feed-buffer-p) (lambda () t))
+              ((symbol-function 'slack-feed-open-at-point)
+               (lambda () (interactive) (setq called 'feed)))
+              ((symbol-function 'slack-create-user-profile-buffer)
+               (lambda (&rest _) (setq called 'profile))))
+      (slack-user-display-profile))
+    (should (eq 'feed called))))
+
+(ert-deftest slack-test-group-get-members-returns-member-ids ()
+  "Group DMs report their members, so users can be added from them."
+  (let ((mpim (make-instance 'slack-group :id "G1" :is_mpim t
+                             :members '("U1" "U2"))))
+    (should (equal '("U1" "U2") (slack-room-get-members mpim)))))
+
 (ert-deftest slack-test-thread-buffer-send-passes-attached-files ()
   "Sending from a thread buffer passes queued attachments as `:files'."
   (slack-test-setup

@@ -96,12 +96,10 @@ This is the format the ol-emacs-slack package used to store."
          (ts (when (cl-third parts)
                (cl-second (s-split ":" (cl-third parts)))))
          (thread-ts
-          (if (and team room-id ts)
-              (or (-some-> (slack-room-find room-id team)
-                           (slack-room-find-message ts)
-                           slack-thread-ts)
-                  ts)
-            ts)))
+          (and team room-id ts
+               (-some-> (slack-room-find room-id team)
+                        (slack-room-find-message ts)
+                        slack-thread-ts))))
     (when team
       (list :team-domain (slack-team-domain team)
             :room-id room-id
@@ -168,7 +166,7 @@ the browser when `slack-org-open-in-browser-fallback' is non-nil."
          (info (list :team-domain (slack-team-domain team)
                      :room-id (oref room id)
                      :ts ts
-                     :thread-ts (or thread-ts ts)))
+                     :thread-ts thread-ts))
          (link-path (if (plist-get info :team-domain)
                         (slack-org-info-to-permalink info)
                       ;; graceful degradation: the adapter understands

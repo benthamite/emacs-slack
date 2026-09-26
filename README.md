@@ -375,6 +375,14 @@ Some terminology in the `slack-` functions:
 - `slack-file-upload`
   - attach a file to the current message draft; it uploads when you send
   - replies sent from a thread buffer carry the files attached to its draft
+  - pasting an image with `yank-media` in a channel or thread buffer attaches
+    it to the draft
+- the mode-line unread summary always counts direct messages, and counts
+  channels only against `subscribed-channels` once any are configured
+- RET on an @mention inside a feed buffer opens the feed item; elsewhere it
+  opens the user's profile
+- Org links and alert captures for a plain channel message open the channel
+  at that message; only thread replies link into their thread
 - thread sync suggestion: set `slack-thread-suggest-sync` to non-nil and a
   thread longer than `slack-thread-suggest-sync-threshold` messages (default
   10) whose recent replies alternate between two or three people shows a
