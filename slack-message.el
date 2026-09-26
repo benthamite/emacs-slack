@@ -177,16 +177,17 @@ DUE-IN-MS is the due-in-ms argument."
 
 (cl-defmethod slack-message-get-text ((m slack-message) team)
   "Return the textual content of message M in TEAM.
-Use block text when available; otherwise fall back to the unescaped
-message text."
-  (let ((block-text (mapconcat #'identity
-                               (cl-remove-if #'(lambda (block-message)
-                                                 (< (length block-message) 1))
-                                             (mapcar #'(lambda (bl)
-                                                         (slack-block-to-mrkdwn bl (list :team team)))
-                                                     (oref m blocks)))
-                               "\n\n")))
-    (if (string-empty-p block-text)
+Use the blocks' Markdown when every block has one.  Otherwise, or when the
+blocks yield no text, fall back to the unescaped message text, which Slack
+sends as the plain-text form of the whole message."
+  (let* ((parts (mapcar (lambda (bl)
+                          (slack-block-to-mrkdwn bl (list :team team)))
+                        (oref m blocks)))
+         (block-text (unless (memq nil parts)
+                       (mapconcat #'identity
+                                  (cl-remove-if #'string-empty-p parts)
+                                  "\n\n"))))
+    (if (or (null block-text) (string-empty-p block-text))
         (slack-unescape (or (oref m text) "") team)
       block-text)))
 

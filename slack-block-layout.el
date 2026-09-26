@@ -50,6 +50,12 @@
 THIS is the slack-layout-block instance."
   (format "Implement `slack-block-to-string' for %S" (oref this payload)))
 
+(cl-defmethod slack-block-to-mrkdwn ((_this slack-layout-block) &optional _option)
+  "Return nil: a layout block has no Slack-flavoured Markdown form.
+Subclasses that can be written as Markdown override this; callers such as
+`slack-message-get-text' treat nil as a block they cannot reproduce."
+  nil)
+
 ;; Rich Text Blocks
 ;; [Changes to message objects on the way to support WYSIWYG | Slack](https://api.slack.com/changelog/2019-09-what-they-see-is-what-you-get-and-more-and-less)
 (defclass slack-layout-header-block ()

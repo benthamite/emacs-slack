@@ -381,6 +381,9 @@ Some terminology in the `slack-` functions:
   channels only against `subscribed-channels` once any are configured
 - RET on an @mention inside a feed buffer opens the feed item; elsewhere it
   opens the user's profile
+- editing a message that contains a block with no Markdown form (a divider,
+  table, section or similar layout block) starts from the message's plain
+  text instead of signalling an error
 - Org links and alert captures for a plain channel message open the channel
   at that message; only thread replies link into their thread
 - thread sync suggestion: set `slack-thread-suggest-sync` to non-nil and a

@@ -1157,6 +1157,24 @@ Slack timestamps are fixed width, which is why the code can order them with
 happens in practice."
   (format "16000000%02d.000000" n))
 
+(ert-deftest slack-test-message-get-text-with-divider-uses-message-text ()
+  "A block without a Markdown form makes editing use the message text."
+  (slack-test-setup
+    (let ((message
+           (slack-message-create
+            (list :type "message" :ts "1.0" :user user-id
+                  :text "before\n---\nafter"
+                  :blocks (list (list :type "rich_text"
+                                      :elements
+                                      (list (list :type "rich_text_section"
+                                                  :elements
+                                                  (list (list :type "text"
+                                                              :text "before")))))
+                                (list :type "divider")))
+            team channel)))
+      (should (equal "before\n---\nafter"
+                     (slack-message-get-text message team))))))
+
 (ert-deftest slack-test-message-get-text-falls-back-to-plain-text ()
   (slack-test-setup
     (let ((message (make-instance 'slack-message
