@@ -531,6 +531,11 @@ Some terminology in the `slack-` functions:
   - messages containing Block Kit image blocks without size metadata
     (common for bot/app posts) render instead of aborting the whole
     message
+  - Block Kit input blocks render their label, hint and an
+    "[interactive input]" marker
+  - updating the package from upstream keeps existing team, room and block
+    objects compatible, so the rebuilt package reloads into a running Emacs
+    without a restart
   - custom emoji aliases whose target name contains the substring
     "alias" resolve correctly on the emojify (Emacs < 29) path
   - a broken or circular custom-emoji alias no longer aborts the rest

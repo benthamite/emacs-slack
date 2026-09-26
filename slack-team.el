@@ -70,11 +70,6 @@
    (message-id :initform 0)
    (subscribed-channels :initarg :subscribed-channels
                         :type list :initform nil)
-   (priority-users :initform (make-hash-table :test 'equal)
-                   :documentation "Hash-set of VIP/priority user IDs.
-Populated by `slack-vip-list-update', the `users.priority.add'/
-`remove' calls, and the user plist field named by
-`slack-user-vip-field' when users are cached.")
    (typing :initform nil)
    (typing-timer :initform nil)
    (reminders :initform nil :type list)
@@ -384,8 +379,20 @@ bindings."
   "Return non-nil if TEAM has never completed authorization.
 A nil ID means the rtm.connect handshake never succeeded."
   (null (oref team id)))
+(defvar slack-team--priority-users (make-hash-table :test 'equal)
+  "Hash table mapping a team id to its hash-set of VIP user ids.
+The set is kept outside the `slack-team' class so that adding it did not
+change the class layout, which would force an Emacs restart on reload.
+Populated by `slack-vip-list-update', the `users.priority.add'/`remove'
+calls, and the user plist field named by `slack-user-vip-field' when users
+are cached.")
+
 (cl-defmethod slack-team-priority-users ((this slack-team))
-  (oref this priority-users))
+  "Return the hash-set of VIP user ids for THIS team."
+  (let ((id (oref this id)))
+    (or (gethash id slack-team--priority-users)
+        (puthash id (make-hash-table :test 'equal)
+                 slack-team--priority-users))))
 
 (cl-defmethod slack-team-users ((this slack-team))
   "Return the list of cached user plists for THIS team."

@@ -100,72 +100,49 @@ THIS is the slack-call-layout-block instance."
                (plist-get :v1)
                (plist-get :join_url))))
 
-(defface slack-input-block-label-face
-  '((t (:weight bold)))
-  "Face for input layout block labels."
-  :group 'slack)
-
-(defface slack-input-block-hint-face
-  '((t (:inherit shadow)))
-  "Face for input layout block hints and optional markers."
-  :group 'slack)
-
-(defclass slack-input-layout-block (slack-layout-block)
-  ((type :initarg :type :type string :initform "input")
-   (label :initarg :label :type (or null slack-text-message-composition-object) :initform nil)
+;; Input block: collects information from users via interactive elements
+;; https://api.slack.com/reference/block-kit/blocks#input
+(defclass slack-input-layout-block ()
+  ((type :initarg :type :type string)
+   (block-id :initarg :block_id :type (or string null) :initform nil)
+   (label :initarg :label :type slack-text-message-composition-object)
+   (element :initarg :element :initform nil)
    (hint :initarg :hint :type (or null slack-text-message-composition-object) :initform nil)
-   (optional :initarg :optional :type boolean :initform nil)
-   (dispatch-action :initarg :dispatch_action :type boolean :initform nil)
-   (element :initarg :element :initform nil :type (or null slack-block-element))))
+   (optional-p :initarg :optional-p :type boolean :initform nil)
+   (dispatch-action :initarg :dispatch-action :type boolean :initform nil)))
 
-(defun slack-create-input-layout-block (payload)
-  (let ((block-id (plist-get payload :block_id)))
-    (make-instance 'slack-input-layout-block
-                   :type (plist-get payload :type)
-                   :block_id block-id
-                   :label (slack-create-text-message-composition-object
-                           (plist-get payload :label))
-                   :hint (slack-create-text-message-composition-object
-                          (plist-get payload :hint))
-                   :optional (eq t (plist-get payload :optional))
-                   :dispatch_action (eq t (plist-get payload :dispatch_action))
-                   :element (slack-create-block-element
-                             (plist-get payload :element)
-                             block-id)
-                   :payload payload)))
-
-(cl-defmethod slack-block-to-string ((this slack-input-layout-block) &optional option)
-  (with-slots (label hint optional element) this
-    (let* ((label-str (when label (slack-block-to-string label option)))
-           (optional-str (when optional
-                           (propertize " (optional)"
-                                       'face 'slack-input-block-hint-face)))
-           (header (when label-str
-                     (concat (propertize label-str
-                                         'face 'slack-input-block-label-face)
-                             optional-str)))
-           (element-str (when element (slack-block-to-string element option)))
-           (hint-str (when hint
-                       (propertize (slack-block-to-string hint option)
-                                   'face 'slack-input-block-hint-face))))
-      (mapconcat #'identity
-                 (cl-remove-if #'null (list header element-str hint-str))
-                 "\n"))))
-
-(cl-defmethod slack-block-to-mrkdwn ((this slack-input-layout-block) &optional option)
-  "Render THIS input layout block as Slack-flavoured Markdown text.
-OPTION is passed to the label renderer."
-  (with-slots (label optional) this
-    (concat (when label
-              (concat "*" (slack-block-to-string label option) "*"))
-            (when optional " (optional)")
+(cl-defmethod slack-block-to-string ((this slack-input-layout-block) &optional _option)
+  "Render the input layout block as a propertized string.
+THIS is the slack-input-layout-block instance."
+  (let ((label-str (slack-block-to-string (oref this label)))
+        (hint-str (when (oref this hint)
+                    (slack-block-to-string (oref this hint)))))
+    (concat (propertize label-str 'face '(:weight bold))
+            (when (oref this optional-p) " (optional)")
+            (when hint-str (concat "\n" (propertize hint-str 'face 'font-lock-comment-face)))
             "\n[interactive input]")))
 
-(cl-defmethod slack-block-find-action ((this slack-input-layout-block) action-id)
-  (with-slots (element) this
-    (when (and element
-               (string= (slack-block-action-id element) action-id))
-      element)))
+(cl-defmethod slack-block-to-mrkdwn ((this slack-input-layout-block) &optional _option)
+  "Render the input layout block as Slack-flavoured Markdown text.
+THIS is the slack-input-layout-block instance."
+  (let ((label-str (slack-block-to-string (oref this label))))
+    (concat "*" label-str "*"
+            (when (oref this optional-p) " (optional)")
+            "\n[interactive input]")))
+
+(defun slack-create-input-layout-block (payload)
+  "Create and return a new input layout block instance from PAYLOAD."
+  (make-instance 'slack-input-layout-block
+                 :type (plist-get payload :type)
+                 :block_id (plist-get payload :block_id)
+                 :label (slack-create-text-message-composition-object
+                         (plist-get payload :label))
+                 :element (plist-get payload :element)
+                 :hint (when (plist-get payload :hint)
+                         (slack-create-text-message-composition-object
+                          (plist-get payload :hint)))
+                 :optional-p (eq t (plist-get payload :optional))
+                 :dispatch-action (eq t (plist-get payload :dispatch_action))))
 
 (defclass slack-section-layout-block (slack-layout-block)
   ((type :initarg :type :type string :initform "section")

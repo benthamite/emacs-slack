@@ -23,7 +23,7 @@
 ;; Slack "priority contacts" (VIP) support.  VIP users are rendered with
 ;; `slack-user-vip-face' and can be filtered, added and removed.
 ;;
-;; The VIP set lives in the team's `priority-users' slot.  It is populated
+;; The VIP set is returned by `slack-team-priority-users'.  It is populated
 ;; from three sources:
 ;;   - the user plist field named by `slack-user-vip-field', synced when
 ;;     users are cached (see `slack-vip-sync-user');
