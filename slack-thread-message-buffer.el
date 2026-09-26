@@ -383,7 +383,7 @@ request failure."
                                  (slack-buffer-team this)
                                  message
                                  thread-ts
-                                 files)
+                                 :files files)
       (when files
         (setq slack-attached-files nil)
         (slack-attached-files--refresh-overlay)))))

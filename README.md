@@ -374,6 +374,7 @@ Some terminology in the `slack-` functions:
     opens in the default browser instead of raising an error
 - `slack-file-upload`
   - attach a file to the current message draft; it uploads when you send
+  - replies sent from a thread buffer carry the files attached to its draft
 - thread sync suggestion: set `slack-thread-suggest-sync` to non-nil and a
   thread longer than `slack-thread-suggest-sync-threshold` messages (default
   10) whose recent replies alternate between two or three people shows a

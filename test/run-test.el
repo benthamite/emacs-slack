@@ -8019,6 +8019,32 @@ the operation indexes in terminal callback order."
       (should (equal '(before-requested after-requested)
                      (nreverse order))))))
 
+(ert-deftest slack-test-thread-buffer-send-passes-attached-files ()
+  "Sending from a thread buffer passes queued attachments as `:files'."
+  (slack-test-setup
+    (let ((buf-obj (make-instance 'slack-thread-message-buffer
+                                  :room-id channel-id
+                                  :team-id (oref team id)
+                                  :thread-ts "1710000000.000100"))
+          (file (make-instance 'slack-message-compose-buffer-file
+                               :path "/tmp/report.pdf" :filename "report.pdf"))
+          sent)
+      (slack-buffer-cache-team buf-obj team)
+      (cl-letf (((symbol-function 'slack-message-send-internal)
+                 (lambda (message _room _team &rest args)
+                   (push (cons message (plist-get args :files)) sent)))
+                ((symbol-function 'slack-attached-files--refresh-overlay)
+                 #'ignore))
+        (let ((slack-thread-also-send-to-room nil))
+          (with-temp-buffer
+            (slack-buffer-send-message buf-obj "plain reply")
+            (setq-local slack-attached-files (list file))
+            (slack-buffer-send-message buf-obj "reply with file")
+            (should-not slack-attached-files))))
+      (should (equal (list (cons "reply with file" (list file))
+                           (cons "plain reply" nil))
+                     sent)))))
+
 (ert-deftest slack-test-thread-update-keeps-last-read-while-has-more ()
   (slack-test-setup
     (let ((buf-obj (make-instance 'slack-thread-message-buffer
